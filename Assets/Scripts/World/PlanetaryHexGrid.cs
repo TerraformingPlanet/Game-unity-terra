@@ -47,7 +47,7 @@ public static class PlanetaryHexGrid
                 // On réutilise les coordonnées axiales (q=col, r=row) comme identifiants.
                 // Le centre world n'est utilisé que pour les calculs de hauteur par distance ;
                 // on le place sur une grille régulière normalisée [0-1].
-                var cell = new HexCell(col, row);
+                var cell = new HexCell(col, row) { gridIndex = col * ROWS + row };
 
                 // Override du centre pour placer les cellules dans un espace [0,1]²
                 // (PlanetTextureGenerator utilise UV normalisés, pas les coords world HexMetrics)

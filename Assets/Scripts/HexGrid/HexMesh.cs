@@ -37,12 +37,37 @@ public class HexMesh : MonoBehaviour
         foreach (HexCell cell in cells)
             TriangulateCell(cell);
 
-        _mesh.vertices = _vertices.ToArray();
+        _mesh.vertices  = _vertices.ToArray();
         _mesh.triangles = _triangles.ToArray();
-        _mesh.colors = _colors.ToArray();
+        _mesh.colors    = _colors.ToArray();
         _mesh.RecalculateNormals();
 
         _meshCollider.sharedMesh = _mesh;
+    }
+
+    // Nombre de vertices par hex : 6 triangles × 3 sommets = 18
+    private const int VerticesPerHex = 18;
+
+    /// <summary>
+    /// Met à jour uniquement la couleur de vertex d'un hex sans retrianguler tout le mesh.
+    /// La cellule doit avoir été triangulée lors du dernier Triangulate() avec son gridIndex correct.
+    /// </summary>
+    public void RefreshCell(HexCell cell)
+    {
+        Color[] colors = _mesh.colors;
+        int start = cell.gridIndex * VerticesPerHex;
+
+        if (start + VerticesPerHex > colors.Length)
+        {
+            Debug.LogWarning("[HexMesh] RefreshCell : gridIndex hors limites, Triangulate() nécessaire.");
+            return;
+        }
+
+        Color c = cell.terrain != null ? cell.terrain.color : Color.white;
+        for (int i = start; i < start + VerticesPerHex; i++)
+            colors[i] = c;
+
+        _mesh.colors = colors;
     }
 
     private void TriangulateCell(HexCell cell)

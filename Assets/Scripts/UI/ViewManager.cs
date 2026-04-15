@@ -44,6 +44,9 @@ public class ViewManager : MonoBehaviour
     [SerializeField] private SolarSystemView  solarSystemView;
     [SerializeField] private PlanetSphere     planetSphere;
     [SerializeField] private HexGrid          hexGrid;
+    [SerializeField] private TerraformHUD     terraformHUD;
+    [SerializeField] private TerraformSystem  terraformSystem;
+    [SerializeField] private TerraformProgressTracker progressTracker;
 
     [Header("Zooms par vue (OrthoTopDown)")]
     [SerializeField] private float solarMinZoom  = 20f;
@@ -150,6 +153,16 @@ public class ViewManager : MonoBehaviour
         SetActiveRoot(hexGridRoot);
         hexGrid.LoadRegion(region);
 
+        // Fournit le contexte biome à TerraformSystem pour la réévaluation locale
+        if (terraformSystem != null)
+        {
+            GenerationContext ctx = GenerationContext.Build(hexGrid.GetCells(), region);
+            terraformSystem.SetContext(ctx);
+        }
+
+        // Actualise la progression initiale de la région
+        progressTracker?.Refresh();
+
         cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
                                  localMinZoom, localMaxZoom);
         cameraController.FocusOn(Vector3.zero, (localMinZoom + localMaxZoom) * 0.4f);
@@ -205,13 +218,13 @@ public class ViewManager : MonoBehaviour
 
     /// <summary>
     /// Appelé par HexInput quand l'utilisateur clique sur une cellule en vue locale.
-    /// Extension point pour les mécaniques de gameplay futures (Phase 6 terraformation).
+    /// Affiche le panel d'info dans le HUD.
     /// </summary>
     public void NotifyCellClicked(HexCell cell)
     {
         if (_state != ViewState.Local) return;
         Debug.Log($"[ViewManager] Cellule cliquée en vue locale : ({cell.Q}, {cell.R})");
-        // TODO Phase 6 — déclencher l'UI d'action de terraformation sur cette cellule
+        terraformHUD?.ShowHexPanel(cell);
     }
 
     private void SetActiveRoot(GameObject active)

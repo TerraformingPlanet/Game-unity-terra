@@ -82,6 +82,9 @@ public class HexCell
     public int Q { get; private set; }
     public int R { get; private set; }
 
+    /// <summary>Index du hex dans le tableau HexCell[] de la grille (assigné par HexGrid/PlanetaryHexGrid).</summary>
+    public int gridIndex;
+
     public TerrainData       terrain;
     public Vector3           center;
     public WorldLayer        layer  = WorldLayer.Surface;

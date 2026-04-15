@@ -77,7 +77,10 @@ public class HexGrid : MonoBehaviour
             int rMin = Mathf.Max(-radius, -q - radius);
             int rMax = Mathf.Min(radius, -q + radius);
             for (int r = rMin; r <= rMax; r++)
-                _cells[index++] = new HexCell(q, r);
+            {
+                _cells[index] = new HexCell(q, r) { gridIndex = index };
+                index++;
+            }
         }
     }
 
@@ -102,4 +105,16 @@ public class HexGrid : MonoBehaviour
         // Only return cell if the point is reasonably inside the hex
         return (minDist <= HexMetrics.outerRadius) ? closest : null;
     }
+
+    /// <summary>
+    /// Met à jour la couleur visuelle d'un seul hex sans retrianguler tout le mesh.
+    /// Appelé par TerraformSystem après modification du biome d'une cellule.
+    /// </summary>
+    public void RefreshCell(HexCell cell)
+    {
+        _hexMesh?.RefreshCell(cell);
+    }
+
+    /// <summary>Expose le tableau de cellules actuel (lecture seule, pour TerraformProgressTracker).</summary>
+    public HexCell[] GetCells() => _cells;
 }
