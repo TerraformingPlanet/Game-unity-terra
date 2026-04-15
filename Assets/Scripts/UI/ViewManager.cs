@@ -1,18 +1,17 @@
 using UnityEngine;
 using System;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// Machine d'état gérant les 3 niveaux de vue du jeu.
 ///
 /// États :
-///   SolarSystem → active SolarSystemRoot, caméra OrthoTopDown
-///   Planet      → active PlanetRoot, caméra OrbitPerspective
+///   SolarSystem → active SolarSystemRoot, caméra OrbitPerspective
+///   Planet      → active PlanetRoot, caméra OrthoTopDown sur carte projetée
 ///   Local       → active HexGridRoot, caméra OrthoTopDown
 ///
 /// Transitions déclenchées par :
-///   - CameraController.OnZoomedToMin : descend d'un niveau (SolarSystem → Planet → Local)
-///   - CameraController.OnZoomedToMax : remonte d'un niveau (Local → Planet → SolarSystem)
-///   - SolarSystemView.OnPlanetClicked : SolarSystem → Planet (avec focus)
+///   - SolarSystemView.OnPlanetClicked : SolarSystem → Local (ou Planet si désactivé)
 ///   - PlanetSphere.OnRegionClicked    : Planet → Local (avec MapRegion correspondant)
 /// </summary>
 public class ViewManager : MonoBehaviour
@@ -48,24 +47,43 @@ public class ViewManager : MonoBehaviour
     [SerializeField] private TerraformSystem  terraformSystem;
     [SerializeField] private TerraformProgressTracker progressTracker;
 
-    [Header("Zooms par vue (OrthoTopDown)")]
-    [SerializeField] private float solarMinZoom  = 20f;
-    [SerializeField] private float solarMaxZoom  = 500f;
-    [SerializeField] private float localMinZoom  = 5f;
-    [SerializeField] private float localMaxZoom  = 80f;
+    [Header("Vue système solaire")]
+    [SerializeField] private float solarOrbitMinDistance = 20f;
+    [SerializeField] private float solarOrbitMaxDistance = 120f;
+    [SerializeField] private float solarOrbitStartDistance = 55f;
 
-    [Header("Orbite planétaire")]
-    [SerializeField] private float planetOrbitMinDist = 5f;
-    [SerializeField] private float planetOrbitMaxDist = 120f;
+    [Header("Zooms par vue (OrthoTopDown)")]
+    [SerializeField] private float localMinZoom  = 5f;
+    [SerializeField] private float localMaxZoom  = 100000f;
+    [SerializeField] private float localStartZoom = 360f;
+
+    [Header("Vue planète projetée")]
+    [SerializeField] private float planetMinZoom = 18f;
+    [SerializeField] private float planetMaxZoom = 80f;
+    [SerializeField] private float planetStartZoom = 30f;
+
+    [Header("Navigation")]
+    [SerializeField] private bool directPlanetClickToLocal = false;
 
     // =========================================================
     // Runtime
     // =========================================================
 
     private ViewState _state = ViewState.SolarSystem;
+    private ViewState _previousStateBeforeLocal = ViewState.SolarSystem;
+    private DebugCoherenceOverride _activeProjectionOverride = DebugCoherenceOverride.None;
+    private float _activeProjectionWaterLevel;
 
     // Corps actuellement affiché en vue planétaire
     private CelestialBodyData _activePlanet;
+
+    public ViewState CurrentState => _state;
+    public CelestialBodyData ActivePlanet => _activePlanet;
+    public HexGrid ActiveHexGrid => hexGrid;
+    public TerraformHUD ActiveTerraformHUD => terraformHUD;
+    public TerraformSystem ActiveTerraformSystem => terraformSystem;
+    public PlanetSphere ActivePlanetSphere => planetSphere;
+    public float ActiveProjectionWaterLevel => _activeProjectionWaterLevel;
 
     // =========================================================
     // Unity lifecycle
@@ -73,10 +91,6 @@ public class ViewManager : MonoBehaviour
 
     private void Awake()
     {
-        // Souscriptions aux events caméra
-        cameraController.OnZoomedToMin += HandleZoomedToMin;
-        cameraController.OnZoomedToMax += HandleZoomedToMax;
-
         // Souscriptions aux events des vues
         if (solarSystemView != null) solarSystemView.OnPlanetClicked += OpenPlanet;
         if (planetSphere    != null) planetSphere.OnRegionClicked    += OpenRegion;
@@ -87,11 +101,16 @@ public class ViewManager : MonoBehaviour
         EnterSolarSystem();
     }
 
+    private void Update()
+    {
+        if (Keyboard.current == null || !Keyboard.current.escapeKey.wasPressedThisFrame)
+            return;
+
+        GoBackOneLevel();
+    }
+
     private void OnDestroy()
     {
-        cameraController.OnZoomedToMin -= HandleZoomedToMin;
-        cameraController.OnZoomedToMax -= HandleZoomedToMax;
-
         if (solarSystemView != null) solarSystemView.OnPlanetClicked -= OpenPlanet;
         if (planetSphere    != null) planetSphere.OnRegionClicked    -= OpenRegion;
     }
@@ -104,35 +123,53 @@ public class ViewManager : MonoBehaviour
     public void EnterSolarSystem()
     {
         SetActiveRoot(solarSystemRoot);
-        cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
-                                 solarMinZoom, solarMaxZoom);
+        Vector3 solarPivot = solarSystemRoot != null ? solarSystemRoot.transform.position : Vector3.zero;
+        cameraController.SetMode(CameraController.CameraMode.OrbitPerspective,
+                                 solarOrbitMinDistance, solarOrbitMaxDistance,
+                                 solarPivot);
+        cameraController.SetOrbitPivot(solarPivot, solarOrbitStartDistance);
         _state = ViewState.SolarSystem;
         OnViewChanged?.Invoke(_state);
         Debug.Log("[ViewManager] → Vue Système Solaire");
     }
 
     /// <summary>
-    /// Ouvre la vue planétaire sur un corps céleste donné.
+    /// Ouvre la vue demandée à partir d'un clic sur une planète du système solaire.
     /// Appelé par SolarSystemView.OnPlanetClicked.
     /// </summary>
     public void OpenPlanet(CelestialBodyData body, Vector3 planetWorldPos)
     {
         _activePlanet = body;
 
+        if (directPlanetClickToLocal)
+        {
+            OpenRegion(0.5f, 0.5f);
+            return;
+        }
+
+        ShowProjectedPlanet(body, DebugCoherenceOverride.None, _activeProjectionWaterLevel);
+    }
+
+    private void ShowProjectedPlanet(CelestialBodyData body, DebugCoherenceOverride coherenceOverride, float waterLevelOffset)
+    {
+        _activePlanet = body;
+        _activeProjectionOverride = coherenceOverride;
+        _activeProjectionWaterLevel = Mathf.Clamp(waterLevelOffset, -0.45f, 0.45f);
+
         SetActiveRoot(planetRoot);
 
         // Génère la texture et configure la sphère
         if (planetSphere != null)
-            planetSphere.LoadPlanet(body);
+            planetSphere.LoadPlanet(body, coherenceOverride, _activeProjectionWaterLevel);
 
-        // La caméra orbite autour de la sphère (centrée en planetWorldPos)
-        cameraController.SetMode(CameraController.CameraMode.OrbitPerspective,
-                                 planetOrbitMinDist, planetOrbitMaxDist,
-                                 orbitPivot: planetWorldPos);
+        // Vue planète = projection plane en top-down, distincte de la vue espace.
+        cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
+                     planetMinZoom, planetMaxZoom);
+        cameraController.FocusOn(Vector3.zero, planetStartZoom);
 
         _state = ViewState.Planet;
         OnViewChanged?.Invoke(_state);
-        Debug.Log($"[ViewManager] → Vue Planétaire : {body.bodyName}");
+        Debug.Log($"[ViewManager] → Vue Planétaire : {body.bodyName} | override={coherenceOverride} | eau={_activeProjectionWaterLevel:+0.00;-0.00;0.00}");
     }
 
     /// <summary>
@@ -143,57 +180,162 @@ public class ViewManager : MonoBehaviour
     {
         if (_activePlanet == null) return;
 
-        // Crée un MapRegion dynamique pour la zone cliquée
-        MapRegion region = ScriptableObject.CreateInstance<MapRegion>();
-        region.planet    = _activePlanet;
-        region.genParams = _activePlanet.genParams;
-        region.latitude  = latitude;
-        region.longitude = longitude;
+        _previousStateBeforeLocal = _state;
+
+        MapRegion region = BuildRegion(latitude, longitude, _activeProjectionOverride);
 
         SetActiveRoot(hexGridRoot);
         hexGrid.LoadRegion(region);
+        ApplyLocalRuntimeContext(region);
 
-        // Fournit le contexte biome à TerraformSystem pour la réévaluation locale
-        if (terraformSystem != null)
-        {
-            GenerationContext ctx = GenerationContext.Build(hexGrid.GetCells(), region);
-            terraformSystem.SetContext(ctx);
-        }
-
-        // Actualise la progression initiale de la région
-        progressTracker?.Refresh();
+        Bounds gridBounds = hexGrid.GetWorldBounds();
+        float fittedZoom = Mathf.Max(gridBounds.size.x, gridBounds.size.z) * 1.35f;
+        float appliedZoom = Mathf.Max(localStartZoom, fittedZoom);
 
         cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
                                  localMinZoom, localMaxZoom);
-        cameraController.FocusOn(Vector3.zero, (localMinZoom + localMaxZoom) * 0.4f);
+        cameraController.FocusOn(gridBounds.center, appliedZoom);
 
         _state = ViewState.Local;
         OnViewChanged?.Invoke(_state);
-        Debug.Log($"[ViewManager] → Vue Locale | lat={latitude:F2} lon={longitude:F2}");
+        Debug.Log($"[ViewManager] → Vue Locale | lat={latitude:F2} lon={longitude:F2} | override={_activeProjectionOverride}");
     }
 
-    // =========================================================
-    // Handlers events caméra
-    // =========================================================
-
-    private void HandleZoomedToMin()
+    public bool TryOpenRegionNormalized(float latitude, float longitude)
     {
-        switch (_state)
-        {
-            case ViewState.SolarSystem:
-                // Zoomer IN depuis le solaire = on a déjà cliqué un planète → rien ici
-                break;
-            case ViewState.Planet:
-                // Scroll in max en vue planétaire → passer en Local au centre de la sphère
-                OpenRegion(0.5f, 0.5f);
-                break;
-            case ViewState.Local:
-                // Déjà au niveau le plus bas
-                break;
-        }
+        if (_activePlanet == null)
+            return false;
+
+        OpenRegion(Mathf.Clamp01(latitude), Mathf.Clamp01(longitude));
+        return true;
     }
 
-    private void HandleZoomedToMax()
+    public bool ReloadCurrentProjection()
+    {
+        if (_activePlanet == null || planetSphere == null)
+            return false;
+
+        if (_state == ViewState.Planet)
+            ShowProjectedPlanet(_activePlanet, _activeProjectionOverride, _activeProjectionWaterLevel);
+        else
+            planetSphere.LoadPlanet(_activePlanet, _activeProjectionOverride, _activeProjectionWaterLevel);
+
+        return true;
+    }
+
+    public bool ClearAndReloadCurrentProjection()
+    {
+        if (_activePlanet == null || planetSphere == null)
+            return false;
+
+        planetSphere.ClearProjectionCache();
+        return ReloadCurrentProjection();
+    }
+
+    public bool SetProjectionWaterLevel(float waterLevel)
+    {
+        if (_activePlanet == null || planetSphere == null)
+            return false;
+
+        _activeProjectionWaterLevel = Mathf.Clamp(waterLevel, -0.45f, 0.45f);
+        return ReloadCurrentProjection();
+    }
+
+    public bool ResetProjectionWaterLevel()
+    {
+        return SetProjectionWaterLevel(0f);
+    }
+
+    public bool RegenerateCurrentLocalRegion()
+    {
+        if (hexGrid == null || hexGrid.CurrentRegion == null)
+            return false;
+
+        hexGrid.Regenerate();
+        ApplyLocalRuntimeContext(hexGrid.CurrentRegion);
+        terraformHUD?.RefreshSelectedHexInfo();
+        return true;
+    }
+
+    public bool OpenPlanetDebug(CelestialBodyData body)
+    {
+        if (body == null)
+            return false;
+
+        OpenPlanet(body, Vector3.zero);
+        return true;
+    }
+
+    public bool LaunchDebugScenario(TestScenarioPreset preset, float latitude, float longitude)
+    {
+        if (preset == null || preset.body == null)
+            return false;
+
+        ShowProjectedPlanet(preset.body, preset.coherenceOverride, _activeProjectionWaterLevel);
+
+        if (!preset.openLocalView)
+            return true;
+
+        _previousStateBeforeLocal = _state;
+        MapRegion region = BuildRegion(Mathf.Clamp01(latitude), Mathf.Clamp01(longitude), preset.coherenceOverride);
+
+        SetActiveRoot(hexGridRoot);
+        hexGrid.LoadRegion(region);
+        ApplyLocalRuntimeContext(region);
+
+        Bounds gridBounds = hexGrid.GetWorldBounds();
+        float fittedZoom = Mathf.Max(gridBounds.size.x, gridBounds.size.z) * 1.35f;
+        float appliedZoom = Mathf.Max(localStartZoom, fittedZoom);
+
+        cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
+                                 localMinZoom, localMaxZoom);
+        cameraController.FocusOn(gridBounds.center, appliedZoom);
+
+        _state = ViewState.Local;
+        OnViewChanged?.Invoke(_state);
+        Debug.Log($"[ViewManager] → Debug Scenario {preset.displayName} | lat={latitude:F2} lon={longitude:F2} | override={preset.coherenceOverride}");
+
+        return true;
+    }
+
+    private MapRegion BuildRegion(float latitude, float longitude, DebugCoherenceOverride coherenceOverride)
+    {
+        HexCell projectedCell = planetSphere != null ? planetSphere.GetProjectedCell(latitude, longitude) : null;
+        MapRegion region = ScriptableObject.CreateInstance<MapRegion>();
+        region.solarSystem = solarSystemView != null ? solarSystemView.CurrentSystem : null;
+        region.planet = _activePlanet;
+        region.genParams = _activePlanet.genParams;
+        region.latitude = latitude;
+        region.longitude = longitude;
+        region.projectedTerrain = projectedCell?.terrain;
+        region.projectedWaterRatio = projectedCell != null ? projectedCell.state.waterRatio : 0f;
+
+        bool projectedOpenWater = projectedCell != null &&
+                                  (projectedCell.state.waterClassification == WaterClassification.OpenOcean ||
+                                   (projectedCell.terrain != null &&
+                                    projectedCell.terrain.terrainType == TerrainType.Eau &&
+                                    projectedCell.state.waterRatio >= 0.95f));
+
+        bool projectedFrozenWater = projectedCell != null &&
+                                    (projectedCell.state.waterClassification == WaterClassification.FrozenWater ||
+                                     (projectedCell.terrain != null &&
+                                      projectedCell.terrain.terrainType == TerrainType.Glace &&
+                                      projectedCell.state.waterRatio >= 0.5f));
+
+        bool projectedArid = projectedCell != null &&
+                             projectedCell.state.waterClassification == WaterClassification.Dry &&
+                             projectedCell.state.waterRatio <= 0.06f;
+
+        region.forceOpenWaterRegion = projectedOpenWater ||
+                                      (projectedCell == null && coherenceOverride == DebugCoherenceOverride.Ocean);
+        region.forceAridRegion = projectedArid ||
+                                 (projectedCell == null && coherenceOverride == DebugCoherenceOverride.Arid);
+        region.forceFrozenRegion = projectedFrozenWater ||
+                                   (projectedCell == null && coherenceOverride == DebugCoherenceOverride.Frozen);
+        return region;
+    }
+
+    private void GoBackOneLevel()
     {
         switch (_state)
         {
@@ -201,13 +343,14 @@ public class ViewManager : MonoBehaviour
                 // Déjà au niveau le plus haut
                 break;
             case ViewState.Planet:
-                // Scroll out max depuis planète → retour système solaire
+                // Retour depuis planète → système solaire
                 EnterSolarSystem();
                 break;
             case ViewState.Local:
-                // Scroll out max depuis local → retour planète
-                if (_activePlanet != null)
-                    OpenPlanet(_activePlanet, Vector3.zero);
+                if (_previousStateBeforeLocal == ViewState.Planet && _activePlanet != null)
+                    ShowProjectedPlanet(_activePlanet, _activeProjectionOverride, _activeProjectionWaterLevel);
+                else
+                    EnterSolarSystem();
                 break;
         }
     }
@@ -232,5 +375,17 @@ public class ViewManager : MonoBehaviour
         if (solarSystemRoot != null) solarSystemRoot.SetActive(solarSystemRoot == active);
         if (planetRoot      != null) planetRoot.SetActive(planetRoot == active);
         if (hexGridRoot     != null) hexGridRoot.SetActive(hexGridRoot == active);
+    }
+
+    private void ApplyLocalRuntimeContext(MapRegion region)
+    {
+        if (terraformSystem != null)
+        {
+            GenerationContext ctx = GenerationContext.Build(hexGrid.GetCells(), region);
+            terraformSystem.SetContext(ctx);
+            terraformHUD?.SetRegionContext(ctx);
+        }
+
+        progressTracker?.Refresh();
     }
 }
