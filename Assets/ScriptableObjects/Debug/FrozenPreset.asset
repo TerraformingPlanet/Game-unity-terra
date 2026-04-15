@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1eef1963ff120b54b97e1d38c990611d, type: 3}
+  m_Name: FrozenPreset
+  m_EditorClassIdentifier: Assembly-CSharp::TestScenarioPreset
+  displayName: Frozen
+  description: "Preset polaire pour v\xE9rifier eau gel\xE9e, froid local et coh\xE9rence
+    glac\xE9e."
+  body: {fileID: 11400000, guid: 4a79f933108fa824d990f5e85f1f3b42, type: 2}
+  openLocalView: 0
+  latitude: 0.95
+  longitude: 0.45
+  clearProjectionCacheBeforeLaunch: 0
+  coherenceOverride: 3

@@ -47,8 +47,14 @@ public class SolarSystemView : MonoBehaviour
     [Tooltip("Rayon d'affichage par défaut (unités Unity) quand body.radius = 0")]
     [SerializeField] private float defaultPlanetRadius = 0.5f;
 
-    [Tooltip("Facteur multiplicateur du rayon des planètes pour l'affichage")]
-    [SerializeField] private float planetRadiusScale = 0.3f;
+    [Tooltip("Rayon d'affichage d'une planète de taille terrestre (6371 km) en unités Unity")]
+    [SerializeField] private float planetRadiusScale = 1.25f;
+
+    [Tooltip("Rayon d'affichage minimal pour garder les planètes visibles et cliquables")]
+    [SerializeField] private float minPlanetRadius = 0.9f;
+
+    [Tooltip("Rayon d'affichage maximal pour éviter qu'une géante masque tout le système")]
+    [SerializeField] private float maxPlanetRadius = 3f;
 
     [Header("Orbites")]
     [Tooltip("Nombre de segments pour dessiner le cercle d'orbite")]
@@ -62,6 +68,8 @@ public class SolarSystemView : MonoBehaviour
     // =========================================================
 
     private readonly List<GameObject> _planetObjects = new List<GameObject>();
+
+    public SolarSystemData CurrentSystem => solarSystem;
 
     // =========================================================
     // Unity lifecycle
@@ -133,11 +141,9 @@ public class SolarSystemView : MonoBehaviour
         go.transform.SetParent(transform, false);
         go.transform.localPosition = worldPos;
 
-        // Taille proportionnelle au rayon physique ou défaut
-        float r = (slot.body.radius > 0f)
-            ? slot.body.radius * planetRadiusScale
-            : defaultPlanetRadius;
-        go.transform.localScale = Vector3.one * r;
+        // Convertit les km du rayon physique en rayon d'affichage cohérent à l'écran.
+        float displayRadius = ComputeDisplayRadius(slot.body);
+        go.transform.localScale = Vector3.one * (displayRadius * 2f);
 
         // Couleur de surface (biome dominant / atmosphère)
         Renderer rend = go.GetComponent<Renderer>();
@@ -152,6 +158,17 @@ public class SolarSystemView : MonoBehaviour
         handler.Init(slot.body, worldPos, OnPlanetClicked);
 
         return go;
+    }
+
+    private float ComputeDisplayRadius(CelestialBodyData body)
+    {
+        if (body == null || body.radius <= 0f)
+            return defaultPlanetRadius;
+
+        const float EarthRadiusKm = 6371f;
+        float earthRadiusRatio = body.radius / EarthRadiusKm;
+        float scaledRadius = earthRadiusRatio * planetRadiusScale;
+        return Mathf.Clamp(scaledRadius, minPlanetRadius, maxPlanetRadius);
     }
 
     private void CreateStarMarker()
@@ -259,6 +276,9 @@ internal class PlanetClickHandler : MonoBehaviour
 
     private void OnMouseDown()
     {
+        if (UIEventSystemUtility.IsPointerOverUI())
+            return;
+
         Debug.Log($"[SolarSystemView] Clic → {_body.bodyName}");
         _callback?.Invoke(_body, _worldPos);
     }

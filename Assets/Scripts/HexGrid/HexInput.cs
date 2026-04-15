@@ -25,11 +25,41 @@ public class HexInput : MonoBehaviour
 
     private void Update()
     {
+        if (_cam == null || hexGrid == null || !hexGrid.HasCells() || Mouse.current == null)
+        {
+            HideTooltip();
+            return;
+        }
+
+        if (viewManager != null && viewManager.CurrentState != ViewManager.ViewState.Local)
+        {
+            HideTooltip();
+            return;
+        }
+
+        if (!hexGrid.gameObject.activeInHierarchy)
+        {
+            HideTooltip();
+            return;
+        }
+
+        if (UIEventSystemUtility.IsPointerOverUI())
+        {
+            HideTooltip();
+            return;
+        }
+
         Ray ray = _cam.ScreenPointToRay(Mouse.current.position.ReadValue());
 
         if (Physics.Raycast(ray, out RaycastHit hit))
         {
-            HexCell cell = hexGrid.GetCellAt(hit.point);
+            if (hit.collider == null || !hit.collider.transform.IsChildOf(hexGrid.transform))
+            {
+                HideTooltip();
+                return;
+            }
+
+            HexCell cell = hexGrid.GetCellFromTriangleIndex(hit.triangleIndex) ?? hexGrid.GetCellAt(hit.point);
             if (cell != null)
             {
                 ShowTooltip(cell);

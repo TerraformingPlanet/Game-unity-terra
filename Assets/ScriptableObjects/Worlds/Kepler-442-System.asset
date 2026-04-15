@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 76e4ef1aa626914468686916c040c9ca, type: 3}
+  m_Name: Kepler-442-System
+  m_EditorClassIdentifier: Assembly-CSharp::SolarSystemData
+  systemName: Kepler-442
+  distanceLightYears: 1115
+  primaryStar:
+    name: Kepler-442
+    spectralType: 1
+    luminosity: 0.36
+    mass: 0.61
+  companionStars: []
+  orbitalSlots:
+  - body: {fileID: 11400000, guid: 4a79f933108fa824d990f5e85f1f3b42, type: 2}
+    orbit:
+      semiMajorAxis: 0.409
+      eccentricity: 0.04
+      orbitalPeriodDays: 112.3
+      orbitalInclination: 0
+      currentOrbitalPosition: 0
+    moons: []
+    isDiscovered: 0
+    isColonized: 0
+    colonizationProgress: 0

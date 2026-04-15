@@ -38,6 +38,9 @@ public class TerraformSystem : MonoBehaviour
 
     private readonly List<ActionPending> _pending = new List<ActionPending>();
     private readonly BiomeSystem         _biomeSystem = new BiomeSystem();
+    private readonly HydrologySystem _hydrologySystem = new HydrologySystem();
+    private readonly WaterClassificationSystem _waterClassificationSystem = new WaterClassificationSystem();
+    private readonly RiverSystem _riverSystem = new RiverSystem();
 
     // Contexte biome minimal (corps actif — mis à jour par SetContext)
     private GenerationContext _ctx;
@@ -104,8 +107,36 @@ public class TerraformSystem : MonoBehaviour
         return true;
     }
 
+    public bool DebugApplyDirectState(HexCell cell, float waterDelta, float temperatureDelta)
+    {
+        if (cell == null)
+            return false;
+
+        if (_ctx == null)
+        {
+            Debug.LogWarning("[TerraformSystem] DebugApplyDirectState impossible sans GenerationContext.");
+            return false;
+        }
+
+        HexPhysicalState state = cell.state;
+        state.waterRatio = Mathf.Clamp01(state.waterRatio + waterDelta);
+        state.tempLocale += temperatureDelta;
+        cell.state = state;
+
+        TerrainData previousTerrain = cell.terrain;
+        RecomputeDebugLocalState();
+        hexGrid?.RefreshAllCells();
+
+        if (cell.terrain != previousTerrain)
+            OnCellBiomeChanged?.Invoke(cell);
+
+        return true;
+    }
+
     /// <summary>Nombre d'actions de terraformation en cours.</summary>
     public int PendingCount => _pending.Count;
+    public bool HasContext => _ctx != null;
+    public GenerationContext CurrentContext => _ctx;
 
     // =========================================================
     // Tick handler
@@ -182,5 +213,20 @@ public class TerraformSystem : MonoBehaviour
 
         // BiomeSystem.Execute() travaille sur un tableau → on l'applique sur ce seul hex
         _biomeSystem.Execute(new HexCell[] { cell }, _ctx);
+    }
+
+    private void RecomputeDebugLocalState()
+    {
+        if (_ctx == null || hexGrid == null)
+            return;
+
+        HexCell[] cells = hexGrid.GetCells();
+        if (cells == null || cells.Length == 0)
+            return;
+
+        _hydrologySystem.Execute(cells, _ctx);
+        _waterClassificationSystem.Execute(cells, _ctx);
+        _biomeSystem.Execute(cells, _ctx);
+        _riverSystem.Execute(cells, _ctx);
     }
 }

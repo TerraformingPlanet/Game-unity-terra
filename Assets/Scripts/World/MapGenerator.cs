@@ -4,8 +4,9 @@ using UnityEngine;
 /// Orchestre le pipeline de génération hexagonale via une liste ordonnée de IHexSystem.
 ///
 /// Ordre du pipeline :
-///   HeightSystem → TemperatureSystem → WaterSystem → WindSystem
-///   → SoilSystem → BiomeSystem → RiverSystem → ValidationSystem
+///   HeightSystem → TemperatureSystem → WaterSystem → HydrologySystem → WindSystem
+///   → SoilSystem → CoherenceValidationSystem → WaterClassificationSystem → BiomeSystem
+///   → RiverSystem → ValidationSystem
 ///
 /// Pour ajouter ou retirer un système, modifier la liste dans BuildPipeline().
 /// Chaque système est indépendant : il ne lit que les champs écrits par les passes précédentes.
@@ -72,8 +73,11 @@ public static class MapGenerator
             new HeightSystem(),
             new TemperatureSystem(),
             new WaterSystem(),
+            new HydrologySystem(),
             new WindSystem(),
             new SoilSystem(),
+            new CoherenceValidationSystem(),
+            new WaterClassificationSystem(),
             new BiomeSystem(),
             new RiverSystem(),
             new ValidationSystem()
