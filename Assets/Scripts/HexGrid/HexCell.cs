@@ -63,6 +63,9 @@ public struct HexPhysicalState
     [Tooltip("En ombre pluviométrique (sous le vent d'un relief) : précipitations réduites")]
     public bool rainShadow;
 
+    [Tooltip("Hex traversé par une rivière (calculé par RiverSystem)")]
+    public bool hasRiver;
+
     public SoilProfile soil;
 }
 
