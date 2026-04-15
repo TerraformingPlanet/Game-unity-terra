@@ -19,4 +19,9 @@ public class MapGenParameters : ScriptableObject
 
     [Header("Bruit de biome  (variation au sein d'une couche)")]
     [Min(0.1f)] public float biomeScale = 2.5f;
+
+    [Header("Hydrologie relief")]
+    [Range(0.5f, 1f)] public float basinCapacity = 0.8f;
+    [Range(0.6f, 0.95f)] public float lakeWaterThreshold = 0.75f;
+    public Vector2 coastalWaterThreshold = new Vector2(0.55f, 0.85f);
 }

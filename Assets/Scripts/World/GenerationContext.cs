@@ -21,6 +21,7 @@ public class GenerationContext
     public SolarSystemData       solarSystem;
     public CelestialBodyData     body;
     public MapRegion             region;
+    public MapRegion.CoherenceConstraint coherence;
     public PlanetaryWeatherState weather;
     public MapGenParameters      genParams;
 
@@ -77,12 +78,14 @@ public class GenerationContext
         int               seed     = p.randomSeedOnPlay ? Random.Range(0, 100000) : p.seed;
         System.Random     rng      = new System.Random(seed);
         PlanetaryWeatherState wx   = PlanetaryWeatherState.Compute(body, region);
+        MapRegion.CoherenceConstraint coherence = region.ComputeCoherence(wx);
 
         var ctx = new GenerationContext
         {
             solarSystem  = region.solarSystem,
             body         = body,
             region       = region,
+            coherence    = coherence,
             weather      = wx,
             genParams    = p,
             seed         = seed,
@@ -95,7 +98,8 @@ public class GenerationContext
         ctx.cellLookup = BuildLookup(cells);
 
         Debug.Log($"[GenerationContext] seed={seed} | corps='{body.bodyName}'" +
-                  $" | Toffset={wx.temperatureOffset:F1}°C | précip={wx.precipitationRate:F2}");
+                  $" | Toffset={wx.temperatureOffset:F1}°C | précip={wx.precipitationRate:F2}" +
+                  $" | cohérence eau={coherence.oceanicity:F2} désert={coherence.deserticity:F2} gel={coherence.frigidity:F2}");
 
         return ctx;
     }

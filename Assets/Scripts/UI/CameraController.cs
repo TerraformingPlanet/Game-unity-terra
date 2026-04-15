@@ -39,8 +39,7 @@ public class CameraController : MonoBehaviour
 
     [Header("Zoom (OrthoTopDown)")]
     [SerializeField] private float zoomSpeed = 8f;
-    [SerializeField] private float minZoom   = 5f;
-    [SerializeField] private float maxZoom   = 80f;
+    [SerializeField] private float zoomScaleFactor = 0.45f;
 
     [Header("Orbit (OrbitPerspective)")]
     [SerializeField] private float orbitSensitivity = 0.3f;
@@ -61,12 +60,16 @@ public class CameraController : MonoBehaviour
     private Vector3 _dragOriginWorld;
     private bool    _minEventFired;
     private bool    _maxEventFired;
+    private float   _currentMinZoom = 5f;
+    private float   _currentMaxZoom = 80f;
 
     // --- OrbitPerspective ---
     private Vector3 _orbitPivot    = Vector3.zero;
     private float   _orbitDistance = 50f;
     private float   _orbitAzimuth  = 0f;    // degrés horizontale
     private float   _orbitElevation = 45f;  // degrés depuis l'horizon
+    private float   _activeOrbitMinDistance;
+    private float   _activeOrbitMaxDistance;
     private bool    _isOrbiting;
     private Vector2 _lastMousePos;
 
@@ -77,6 +80,8 @@ public class CameraController : MonoBehaviour
     private void Awake()
     {
         _cam = GetComponent<Camera>();
+        _activeOrbitMinDistance = orbitMinDistance;
+        _activeOrbitMaxDistance = orbitMaxDistance;
     }
 
     private void Update()
@@ -105,21 +110,24 @@ public class CameraController : MonoBehaviour
                         Vector3 orbitPivot = default)
     {
         mode    = newMode;
-        minZoom = minBound;
-        maxZoom = maxBound;
+        _currentMinZoom = minBound;
+        _currentMaxZoom = maxBound;
         _minEventFired = false;
         _maxEventFired = false;
 
         if (newMode == CameraMode.OrthoTopDown)
         {
             _cam.orthographic = true;
-            _cam.orthographicSize = Mathf.Clamp(_cam.orthographicSize, minBound, maxBound);
+            transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            _cam.orthographicSize = Mathf.Clamp(_cam.orthographicSize, _currentMinZoom, _currentMaxZoom);
         }
         else
         {
             _cam.orthographic = false;
+            _activeOrbitMinDistance = minBound;
+            _activeOrbitMaxDistance = maxBound;
             _orbitPivot    = orbitPivot;
-            _orbitDistance = Mathf.Clamp(_orbitDistance, orbitMinDistance, orbitMaxDistance);
+            _orbitDistance = Mathf.Clamp(_orbitDistance, _activeOrbitMinDistance, _activeOrbitMaxDistance);
             ApplyOrbitTransform();
         }
     }
@@ -127,16 +135,21 @@ public class CameraController : MonoBehaviour
     /// <summary>Repositionne la caméra ortho sur un point XZ donné.</summary>
     public void FocusOn(Vector3 worldPos, float? zoom = null)
     {
-        transform.position = new Vector3(worldPos.x, transform.position.y, worldPos.z);
+        transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+        float height = transform.position.y;
+        if (height < 20f)
+            height = 60f;
+
+        transform.position = new Vector3(worldPos.x, height, worldPos.z);
         if (zoom.HasValue)
-            _cam.orthographicSize = Mathf.Clamp(zoom.Value, minZoom, maxZoom);
+            _cam.orthographicSize = Mathf.Clamp(zoom.Value, _currentMinZoom, _currentMaxZoom);
     }
 
     /// <summary>Place l'orbite sur un nouveau pivot (vue planétaire).</summary>
     public void SetOrbitPivot(Vector3 pivot, float distance)
     {
         _orbitPivot    = pivot;
-        _orbitDistance = Mathf.Clamp(distance, orbitMinDistance, orbitMaxDistance);
+        _orbitDistance = Mathf.Clamp(distance, _activeOrbitMinDistance, _activeOrbitMaxDistance);
         ApplyOrbitTransform();
     }
 
@@ -175,26 +188,29 @@ public class CameraController : MonoBehaviour
         float scroll = ReadScroll();
         if (!Mathf.Approximately(scroll, 0f))
         {
+            float zoomMultiplier = 1f + (zoomScaleFactor * Mathf.Abs(scroll));
             float newSize = Mathf.Clamp(
-                _cam.orthographicSize - scroll * zoomSpeed,
-                minZoom, maxZoom);
+                scroll > 0f
+                    ? _cam.orthographicSize / zoomMultiplier
+                    : _cam.orthographicSize * zoomMultiplier,
+                _currentMinZoom, _currentMaxZoom);
             _cam.orthographicSize = newSize;
         }
 
         // Events bornes
-        if (_cam.orthographicSize <= minZoom + 0.01f && !_minEventFired)
+        if (_cam.orthographicSize <= _currentMinZoom + 0.01f && !_minEventFired)
         {
             _minEventFired = true;
             _maxEventFired = false;
             OnZoomedToMin?.Invoke();
         }
-        else if (_cam.orthographicSize >= maxZoom - 0.01f && !_maxEventFired)
+        else if (_cam.orthographicSize >= _currentMaxZoom - 0.01f && !_maxEventFired)
         {
             _maxEventFired = true;
             _minEventFired = false;
             OnZoomedToMax?.Invoke();
         }
-        else if (_cam.orthographicSize > minZoom + 1f && _cam.orthographicSize < maxZoom - 1f)
+        else if (_cam.orthographicSize > _currentMinZoom + 1f && _cam.orthographicSize < _currentMaxZoom - 1f)
         {
             // Réinitialise si on s'éloigne des bornes (permet de re-déclencher)
             _minEventFired = false;
@@ -245,23 +261,23 @@ public class CameraController : MonoBehaviour
         {
             _orbitDistance = Mathf.Clamp(
                 _orbitDistance - scroll * orbitScrollSpeed,
-                orbitMinDistance, orbitMaxDistance);
+                _activeOrbitMinDistance, _activeOrbitMaxDistance);
             ApplyOrbitTransform();
         }
 
-        if (_orbitDistance <= orbitMinDistance + 0.1f && !_minEventFired)
+        if (_orbitDistance <= _activeOrbitMinDistance + 0.1f && !_minEventFired)
         {
             _minEventFired = true;
             _maxEventFired = false;
             OnZoomedToMin?.Invoke();
         }
-        else if (_orbitDistance >= orbitMaxDistance - 0.1f && !_maxEventFired)
+        else if (_orbitDistance >= _activeOrbitMaxDistance - 0.1f && !_maxEventFired)
         {
             _maxEventFired = true;
             _minEventFired = false;
             OnZoomedToMax?.Invoke();
         }
-        else if (_orbitDistance > orbitMinDistance + 1f && _orbitDistance < orbitMaxDistance - 1f)
+        else if (_orbitDistance > _activeOrbitMinDistance + 1f && _orbitDistance < _activeOrbitMaxDistance - 1f)
         {
             _minEventFired = false;
             _maxEventFired = false;
@@ -289,7 +305,24 @@ public class CameraController : MonoBehaviour
 
     private static float ReadScroll()
     {
-        float s = Mouse.current.scroll.ReadValue().y;
+        float s = 0f;
+
+        if (Mouse.current != null)
+            s = Mouse.current.scroll.ReadValue().y;
+
+        // Raccourcis de test: PageUp / + = zoom in, PageDown / - = zoom out.
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.pageUpKey.isPressed)
+                s += 240f;
+            if (Keyboard.current.pageDownKey.isPressed)
+                s -= 360f;
+            if (Keyboard.current.numpadPlusKey.isPressed || Keyboard.current.equalsKey.isPressed)
+                s += 240f;
+            if (Keyboard.current.numpadMinusKey.isPressed || Keyboard.current.minusKey.isPressed)
+                s -= 360f;
+        }
+
         return Mathf.Abs(s) > 1f ? s / 120f : s;
     }
 

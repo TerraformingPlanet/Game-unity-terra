@@ -14,16 +14,20 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CelestialBodyData
   bodyName: Kepler-442b
   bodyType: 0
+  radius: 5733.9
+  displayColor: {r: 0.34, g: 0.6, b: 0.83, a: 1}
   genParams: {fileID: 11400000, guid: 6988e83144b595946a2501307cf471c3, type: 2}
   layers:
   - layer: 0
     maxHeight: 0.12
     biomes:
+    - {fileID: 11400000, guid: 849dafa95fd7cde4e86ef5a2afc4b04e, type: 2}
     - {fileID: 11400000, guid: 117d91cbd1bd2804faa01a37b3071e91, type: 2}
     - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
   - layer: 3
     maxHeight: 0.45
     biomes:
+    - {fileID: 11400000, guid: 849dafa95fd7cde4e86ef5a2afc4b04e, type: 2}
     - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
     - {fileID: 11400000, guid: 117d91cbd1bd2804faa01a37b3071e91, type: 2}
     - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
@@ -43,3 +47,4 @@ MonoBehaviour:
     maxHeight: 1
     biomes:
     - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
+

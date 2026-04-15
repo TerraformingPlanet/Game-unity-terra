@@ -43,6 +43,10 @@ public class TerraformHUD : MonoBehaviour
     // =========================================================
 
     private HexCell _selectedCell;
+    private GenerationContext _regionContext;
+
+    public HexCell SelectedCell => _selectedCell;
+    public GenerationContext RegionContext => _regionContext;
 
     // =========================================================
     // Unity lifecycle
@@ -78,11 +82,24 @@ public class TerraformHUD : MonoBehaviour
         RefreshHexInfo();
     }
 
+    public void SetRegionContext(GenerationContext ctx)
+    {
+        _regionContext = ctx;
+
+        if (_selectedCell != null)
+            RefreshHexInfo();
+    }
+
     /// <summary>Ferme le panel hex.</summary>
     public void HideHexPanel()
     {
         _selectedCell = null;
         if (selectedHexPanel != null) selectedHexPanel.SetActive(false);
+    }
+
+    public void RefreshSelectedHexInfo()
+    {
+        RefreshHexInfo();
     }
 
     // =========================================================
@@ -132,13 +149,78 @@ public class TerraformHUD : MonoBehaviour
 
         HexPhysicalState s = _selectedCell.state;
         string terrain = _selectedCell.terrain != null ? _selectedCell.terrain.displayName : "?";
+        string regionInfo = string.Empty;
+
+        if (_regionContext != null)
+        {
+            MapRegion region = _regionContext.region;
+            PlanetaryWeatherState weather = _regionContext.weather;
+            MapRegion.CoherenceConstraint coherence = _regionContext.coherence;
+            string bodyName = _regionContext.body != null ? _regionContext.body.bodyName : "?";
+            float solarIntensity = region != null ? region.SolarIntensity : 1f;
+            bool tidalLock = region != null && region.IsTidallyLocked;
+            string projectedTerrain = region != null && region.projectedTerrain != null
+                ? region.projectedTerrain.displayName
+                : "?";
+
+            regionInfo =
+                $"Astre : {bodyName}\n" +
+                $"Région : lat {region.latitude:F2} | lon {region.longitude:F2}\n" +
+                $"Projection : {projectedTerrain} | eau {region.projectedWaterRatio * 100f:F0}%\n" +
+                $"Solaire : {solarIntensity:F2} | Tidal lock : {(tidalLock ? "Oui" : "Non")}\n" +
+                $"Climat : dT {weather.temperatureOffset:+0.0;-0.0;0.0}°C | pluie {weather.precipitationRate * 100f:F0}%\n" +
+                $"Vent : {weather.prevailingWindSpeed:F2} ({weather.prevailingWindDir.x:F1}, {weather.prevailingWindDir.y:F1})\n" +
+                $"Cohérence : mer {coherence.oceanicity:F2} | aride {coherence.deserticity:F2} | gel {coherence.frigidity:F2}\n\n";
+        }
 
         hexInfoLabel.text =
+            regionInfo +
             $"<b>{terrain}</b>\n" +
             $"Temp : {s.tempLocale:F1}°C\n" +
             $"Eau  : {s.waterRatio * 100f:F0}%\n" +
+            $"Hydro : {FormatWaterClassification(s.waterClassification)} | relief {FormatTerrainClass(s.terrainClass)}\n" +
+            $"Flux : {s.flowAccumulation} | aval : {FormatDownstream(s)}\n" +
+            $"Exutoire : {FormatOverflowOutlet(s)}\n" +
             $"Toxines : {s.toxinLevel * 100f:F0}%\n" +
             $"Dureté  : {s.soil.rockHardness:F2}\n" +
             $"Minéraux : {s.soil.mineralDensity:F2}";
+    }
+
+    private static string FormatWaterClassification(WaterClassification classification)
+    {
+        return classification switch
+        {
+            WaterClassification.OpenOcean => "Océan",
+            WaterClassification.InlandWater => "Eau intérieure",
+            WaterClassification.Coast => "Côte",
+            WaterClassification.FrozenWater => "Eau gelée",
+            _ => "Sec"
+        };
+    }
+
+    private static string FormatTerrainClass(TerrainClass terrainClass)
+    {
+        return terrainClass switch
+        {
+            TerrainClass.Ridge => "Crête",
+            TerrainClass.Basin => "Bassin",
+            TerrainClass.Channel => "Chenal",
+            TerrainClass.Source => "Source",
+            _ => "Pente"
+        };
+    }
+
+    private static string FormatDownstream(HexPhysicalState state)
+    {
+        return state.hasDownstream
+            ? $"({state.downstreamQ}, {state.downstreamR})"
+            : "Aucun";
+    }
+
+    private static string FormatOverflowOutlet(HexPhysicalState state)
+    {
+        return state.hasOverflowOutlet
+            ? $"({state.overflowQ}, {state.overflowR})"
+            : "Aucun";
     }
 }

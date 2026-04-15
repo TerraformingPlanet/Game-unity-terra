@@ -20,9 +20,9 @@ public static class PlanetTextureGenerator
     /// Génère et retourne la Texture2D à partir d'une grille planétaire.
     /// La texture est non compressée (RGBA32) sans mipmaps — adaptée à un usage runtime.
     /// </summary>
-    public static Texture2D Generate(HexCell[] planetCells)
+    public static Texture2D Generate(PlanetaryHexGrid.GridData grid)
     {
-        if (planetCells == null || planetCells.Length == 0)
+        if (grid.Cells == null || grid.Cells.Length == 0)
         {
             Debug.LogError("[PlanetTextureGenerator] Grille planétaire vide.");
             return Texture2D.blackTexture;
@@ -40,7 +40,7 @@ public static class PlanetTextureGenerator
             {
                 float lonNorm = (float)px / TEX_WIDTH;
 
-                HexCell cell = PlanetaryHexGrid.GetCellAt(planetCells, latNorm, lonNorm);
+                HexCell cell = PlanetaryHexGrid.GetCellAt(grid.Cells, grid.Cols, grid.Rows, latNorm, lonNorm);
 
                 Color c = (cell?.terrain != null) ? cell.terrain.color : Color.black;
                 pixels[py * TEX_WIDTH + px] = c;
@@ -49,6 +49,7 @@ public static class PlanetTextureGenerator
 
         tex.SetPixels(pixels);
         tex.Apply();
+        tex.filterMode = FilterMode.Point;
         tex.wrapMode = TextureWrapMode.Repeat; // boucle est-ouest fluide
 
         return tex;

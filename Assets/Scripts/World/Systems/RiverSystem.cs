@@ -48,6 +48,12 @@ public class RiverSystem : IHexSystem
     {
         if (cell.state.waterRatio < SourceWaterThreshold) return false;
 
+        if (cell.state.terrainClass == TerrainClass.Basin)
+            return false;
+
+        if (cell.state.terrainClass == TerrainClass.Source || cell.state.terrainClass == TerrainClass.Channel)
+            return cell.state.hasDownstream;
+
         // Doit avoir au moins un voisin plus bas (pente réelle)
         foreach (HexCell nb in ctx.GetNeighbors(cell))
         {
@@ -73,7 +79,7 @@ public class RiverSystem : IHexSystem
             if (current.state.waterRatio >= OceanWaterThreshold && step > 0)
                 break;
 
-            HexCell next = LowestNeighbor(current, ctx);
+            HexCell next = GetDownstream(current, ctx);
 
             // Dépression sans sortie ou voisin introuvable → arrêt
             if (next == null || next.state.altitude >= current.state.altitude)
@@ -87,19 +93,12 @@ public class RiverSystem : IHexSystem
         }
     }
 
-    private static HexCell LowestNeighbor(HexCell cell, GenerationContext ctx)
+    private static HexCell GetDownstream(HexCell cell, GenerationContext ctx)
     {
-        HexCell lowest    = null;
-        float   lowestAlt = cell.state.altitude;
+        if (!cell.state.hasDownstream)
+            return null;
 
-        foreach (HexCell nb in ctx.GetNeighbors(cell))
-        {
-            if (nb.state.altitude < lowestAlt)
-            {
-                lowestAlt = nb.state.altitude;
-                lowest    = nb;
-            }
-        }
-        return lowest;
+        ctx.cellLookup.TryGetValue((cell.state.downstreamQ, cell.state.downstreamR), out HexCell downstream);
+        return downstream;
     }
 }

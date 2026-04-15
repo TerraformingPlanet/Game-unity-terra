@@ -7,3 +7,21 @@ public enum TerrainType
     Vegetation = 4,
     Metal = 5
 }
+
+public enum TerrainClass
+{
+    Slope = 0,
+    Ridge = 1,
+    Basin = 2,
+    Channel = 3,
+    Source = 4
+}
+
+public enum WaterClassification
+{
+    Dry = 0,
+    Coast = 1,
+    InlandWater = 2,
+    OpenOcean = 3,
+    FrozenWater = 4
+}

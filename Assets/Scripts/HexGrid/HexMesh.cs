@@ -63,7 +63,7 @@ public class HexMesh : MonoBehaviour
             return;
         }
 
-        Color c = cell.terrain != null ? cell.terrain.color : Color.white;
+        Color c = GetVisualColor(cell);
         for (int i = start; i < start + VerticesPerHex; i++)
             colors[i] = c;
 
@@ -72,7 +72,7 @@ public class HexMesh : MonoBehaviour
 
     private void TriangulateCell(HexCell cell)
     {
-        Color color = cell.terrain != null ? cell.terrain.color : Color.white;
+        Color color = GetVisualColor(cell);
         Vector3 center = cell.center;
 
         // 6 triangles fan from center — CW winding from +Y so camera above sees front faces
@@ -103,5 +103,48 @@ public class HexMesh : MonoBehaviour
         _colors.Add(color);
         _colors.Add(color);
         _colors.Add(color);
+    }
+
+    private static Color GetVisualColor(HexCell cell)
+    {
+        Color baseColor = cell.terrain != null ? cell.terrain.color : Color.white;
+        HexPhysicalState state = cell.state;
+
+        Color waterTint = state.waterClassification switch
+        {
+            WaterClassification.OpenOcean => new Color(0.10f, 0.32f, 0.58f, 1f),
+            WaterClassification.InlandWater => new Color(0.16f, 0.52f, 0.72f, 1f),
+            WaterClassification.Coast => new Color(0.84f, 0.78f, 0.52f, 1f),
+            WaterClassification.FrozenWater => new Color(0.78f, 0.92f, 1.00f, 1f),
+            _ => baseColor
+        };
+
+        float waterBlend = state.waterClassification switch
+        {
+            WaterClassification.OpenOcean => 0.42f,
+            WaterClassification.InlandWater => 0.32f,
+            WaterClassification.Coast => 0.22f,
+            WaterClassification.FrozenWater => 0.38f,
+            _ => 0f
+        };
+
+        Color color = Color.Lerp(baseColor, waterTint, waterBlend);
+
+        float reliefBrightness = state.terrainClass switch
+        {
+            TerrainClass.Ridge => 1.10f,
+            TerrainClass.Basin => 0.92f,
+            TerrainClass.Channel => 0.96f,
+            TerrainClass.Source => 1.04f,
+            _ => 1f
+        };
+
+        color *= reliefBrightness;
+        color.r = Mathf.Clamp01(color.r);
+        color.g = Mathf.Clamp01(color.g);
+        color.b = Mathf.Clamp01(color.b);
+        color.a = 1f;
+
+        return color;
     }
 }

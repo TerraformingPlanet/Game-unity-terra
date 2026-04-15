@@ -66,6 +66,33 @@ public struct HexPhysicalState
     [Tooltip("Hex traversé par une rivière (calculé par RiverSystem)")]
     public bool hasRiver;
 
+    [Tooltip("Nombre de cellules qui drainent vers cet hex.")]
+    public int flowAccumulation;
+
+    [Tooltip("Classe topographique locale : pente, crête, bassin, chenal, source.")]
+    public TerrainClass terrainClass;
+
+    [Tooltip("Classe hydrologique locale : océan, côte, eau intérieure, sec, gelé.")]
+    public WaterClassification waterClassification;
+
+    [Tooltip("L'hex possède-t-il un voisin aval déterminé par le système hydrologique ?")]
+    public bool hasDownstream;
+
+    [Tooltip("Coordonnée Q du voisin aval si hasDownstream = true.")]
+    public int downstreamQ;
+
+    [Tooltip("Coordonnée R du voisin aval si hasDownstream = true.")]
+    public int downstreamR;
+
+    [Tooltip("Le bassin dispose-t-il d'un exutoire potentiel si le niveau d'eau monte ?")]
+    public bool hasOverflowOutlet;
+
+    [Tooltip("Coordonnée Q de l'exutoire potentiel du bassin.")]
+    public int overflowQ;
+
+    [Tooltip("Coordonnée R de l'exutoire potentiel du bassin.")]
+    public int overflowR;
+
     public SoilProfile soil;
 }
 

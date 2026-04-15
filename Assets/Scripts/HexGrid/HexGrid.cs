@@ -16,14 +16,13 @@ public class HexGrid : MonoBehaviour
     private HexMesh _hexMesh;
     private MapRegion _currentRegion;
 
+    public MapRegion CurrentRegion => _currentRegion;
+
     private void Awake()
     {
-        Debug.Log("[HexGrid] Awake");
         _hexMesh = GetComponentInChildren<HexMesh>();
         if (_hexMesh == null)
             Debug.LogError("[HexGrid] HexMesh child not found!");
-        else
-            Debug.Log("[HexGrid] HexMesh found: " + _hexMesh.name);
     }
 
     private void Start()
@@ -32,12 +31,7 @@ public class HexGrid : MonoBehaviour
         // Si aucun ViewManager n'est présent (ex. scène de test),
         // on utilise le fallback celestialBody pour un comportement standalone.
         if (celestialBody != null)
-        {
-            CreateCells();
-            MapGenerator.Populate(_cells, celestialBody);
-            _hexMesh.Triangulate(_cells);
-            Debug.Log("[HexGrid] Init standalone (pas de ViewManager).");
-        }
+            Regenerate();
     }
 
     // =========================================================
@@ -61,9 +55,13 @@ public class HexGrid : MonoBehaviour
     {
         if (_hexMesh == null) { Debug.LogError("[HexGrid] HexMesh introuvable !"); return; }
         CreateCells();
-        MapGenerator.Populate(_cells, celestialBody);
+
+        if (_currentRegion?.planet != null)
+            MapGenerator.Populate(_cells, _currentRegion);
+        else
+            MapGenerator.Populate(_cells, celestialBody);
+
         _hexMesh.Triangulate(_cells);
-        Debug.Log($"[HexGrid] Régénéré — {_cells.Length} cellules.");
     }
 
     private void CreateCells()
@@ -87,6 +85,9 @@ public class HexGrid : MonoBehaviour
     /// <summary>Returns the cell under the given world position (XZ plane), or null.</summary>
     public HexCell GetCellAt(Vector3 worldPos)
     {
+        if (_cells == null || _cells.Length == 0)
+            return null;
+
         // Inverse of AxialToWorld: find closest cell by brute-force (fine for radius ≤ 50)
         HexCell closest = null;
         float minDist = float.MaxValue;
@@ -106,6 +107,19 @@ public class HexGrid : MonoBehaviour
         return (minDist <= HexMetrics.outerRadius) ? closest : null;
     }
 
+    public HexCell GetCellFromTriangleIndex(int triangleIndex)
+    {
+        if (_cells == null || _cells.Length == 0 || triangleIndex < 0)
+            return null;
+
+        const int trianglesPerHex = 6;
+        int cellIndex = triangleIndex / trianglesPerHex;
+        if (cellIndex < 0 || cellIndex >= _cells.Length)
+            return null;
+
+        return _cells[cellIndex];
+    }
+
     /// <summary>
     /// Met à jour la couleur visuelle d'un seul hex sans retrianguler tout le mesh.
     /// Appelé par TerraformSystem après modification du biome d'une cellule.
@@ -115,6 +129,66 @@ public class HexGrid : MonoBehaviour
         _hexMesh?.RefreshCell(cell);
     }
 
+    public void RefreshAllCells()
+    {
+        if (_cells == null || _cells.Length == 0)
+            return;
+
+        foreach (HexCell cell in _cells)
+            _hexMesh?.RefreshCell(cell);
+    }
+
     /// <summary>Expose le tableau de cellules actuel (lecture seule, pour TerraformProgressTracker).</summary>
     public HexCell[] GetCells() => _cells;
+
+    public bool HasCells() => _cells != null && _cells.Length > 0;
+
+    public HexCell GetCell(int q, int r)
+    {
+        if (_cells == null)
+            return null;
+
+        foreach (HexCell cell in _cells)
+        {
+            if (cell.Q == q && cell.R == r)
+                return cell;
+        }
+
+        return null;
+    }
+
+    public void DebugDumpCellState(HexCell cell)
+    {
+        if (cell == null)
+        {
+            Debug.LogWarning("[HexGrid] DebugDumpCellState: cellule nulle.");
+            return;
+        }
+
+        HexPhysicalState state = cell.state;
+        string terrainName = cell.terrain != null ? cell.terrain.displayName : "?";
+        Debug.Log($"[HexGrid] ({cell.Q},{cell.R}) terrain={terrainName} alt={state.altitude:F2} temp={state.tempLocale:F1} eau={state.waterRatio:F2} hydro={state.waterClassification} relief={state.terrainClass} flux={state.flowAccumulation} aval=({state.downstreamQ},{state.downstreamR}) exutoire=({state.overflowQ},{state.overflowR})");
+    }
+
+    public Bounds GetWorldBounds()
+    {
+        if (_cells == null || _cells.Length == 0)
+            return new Bounds(transform.position, Vector3.zero);
+
+        Vector3 min = new Vector3(float.MaxValue, 0f, float.MaxValue);
+        Vector3 max = new Vector3(float.MinValue, 0f, float.MinValue);
+
+        foreach (HexCell cell in _cells)
+        {
+            Vector3 center = cell.center;
+            min.x = Mathf.Min(min.x, center.x - HexMetrics.outerRadius);
+            min.z = Mathf.Min(min.z, center.z - HexMetrics.verticalSpacing * 0.5f);
+            max.x = Mathf.Max(max.x, center.x + HexMetrics.outerRadius);
+            max.z = Mathf.Max(max.z, center.z + HexMetrics.verticalSpacing * 0.5f);
+        }
+
+        Bounds bounds = new Bounds();
+        bounds.SetMinMax(min, max);
+        return bounds;
+    }
 }
