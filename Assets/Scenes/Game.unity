@@ -129,7 +129,6 @@ GameObject:
   m_Component:
   - component: {fileID: 152124122}
   - component: {fileID: 152124121}
-  - component: {fileID: 152124123}
   m_Layer: 0
   m_Name: HexGrid
   m_TagString: Untagged
@@ -150,13 +149,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HexGrid
   radius: 5
-  terrainDataPool:
-  - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
-  - {fileID: 11400000, guid: 660419db628eb06439bec859ba2fa98e, type: 2}
-  - {fileID: 11400000, guid: 949d608dabcc528419cf49dd16f9cee5, type: 2}
-  - {fileID: 11400000, guid: 849dafa95fd7cde4e86ef5a2afc4b04e, type: 2}
-  - {fileID: 11400000, guid: 00fc878866363fd4abe120b6a0988553, type: 2}
-  - {fileID: 11400000, guid: 117d91cbd1bd2804faa01a37b3071e91, type: 2}
+  celestialBody: {fileID: 11400000, guid: 4a79f933108fa824d990f5e85f1f3b42, type: 2}
 --- !u!4 &152124122
 Transform:
   m_ObjectHideFlags: 0
@@ -173,18 +166,6 @@ Transform:
   - {fileID: 691501302}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &152124123
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 152124120}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d135a99d3e7d7d14a8750b1138041053, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ScreenshotCapture
 --- !u!1 &691501301
 GameObject:
   m_ObjectHideFlags: 0

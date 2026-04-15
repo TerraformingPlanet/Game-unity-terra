@@ -48,7 +48,8 @@ public class HexInput : MonoBehaviour
         if (tooltipPanel == null) return;
         tooltipPanel.SetActive(true);
         string terrainName = cell.terrain != null ? cell.terrain.displayName : "Inconnu";
-        tooltipText.text = $"{terrainName}\n({cell.Q}, {cell.R})";
+        string worldName   = cell.world   != null ? cell.world.bodyName       : "";
+        tooltipText.text = $"{terrainName}  [{cell.layer}]\n{worldName}  ({cell.Q}, {cell.R})";
 
         // Position tooltip near the mouse cursor
         tooltipPanel.transform.position = Mouse.current.position.ReadValue() + new Vector2(16f, -16f);

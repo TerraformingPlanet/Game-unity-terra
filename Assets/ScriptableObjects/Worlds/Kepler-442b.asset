@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 01320878e02c9cf43b3464f1b967208b, type: 3}
+  m_Name: Kepler-442b
+  m_EditorClassIdentifier: Assembly-CSharp::CelestialBodyData
+  bodyName: Kepler-442b
+  bodyType: 0
+  genParams: {fileID: 11400000, guid: 6988e83144b595946a2501307cf471c3, type: 2}
+  layers:
+  - layer: 0
+    maxHeight: 0.12
+    biomes:
+    - {fileID: 11400000, guid: 117d91cbd1bd2804faa01a37b3071e91, type: 2}
+    - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
+  - layer: 3
+    maxHeight: 0.45
+    biomes:
+    - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
+    - {fileID: 11400000, guid: 117d91cbd1bd2804faa01a37b3071e91, type: 2}
+    - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}
+  - layer: 3
+    maxHeight: 0.72
+    biomes:
+    - {fileID: 11400000, guid: 00fc878866363fd4abe120b6a0988553, type: 2}
+    - {fileID: 11400000, guid: 849dafa95fd7cde4e86ef5a2afc4b04e, type: 2}
+    - {fileID: 11400000, guid: 660419db628eb06439bec859ba2fa98e, type: 2}
+    - {fileID: 11400000, guid: 00fc878866363fd4abe120b6a0988553, type: 2}
+  - layer: 4
+    maxHeight: 0.9
+    biomes:
+    - {fileID: 11400000, guid: 949d608dabcc528419cf49dd16f9cee5, type: 2}
+    - {fileID: 11400000, guid: 660419db628eb06439bec859ba2fa98e, type: 2}
+  - layer: 5
+    maxHeight: 1
+    biomes:
+    - {fileID: 11400000, guid: 40041e603dbb1334da718ba1393c3297, type: 2}

@@ -7,4 +7,8 @@ public class TerrainData : ScriptableObject
     public string displayName;
     public Color color = Color.white;
     [TextArea] public string description;
+
+    [Header("Couches compatibles")]
+    [Tooltip("WorldLayers où ce biome peut apparaître (utilisé par l'éditeur et la génération).")]
+    public WorldLayer[] compatibleLayers = { WorldLayer.Surface };
 }

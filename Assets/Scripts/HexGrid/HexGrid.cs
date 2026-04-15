@@ -9,8 +9,8 @@ public class HexGrid : MonoBehaviour
     [Header("Grid Size")]
     [SerializeField] private int radius = 5;
 
-    [Header("Terrain Data (assign in Inspector)")]
-    [SerializeField] private TerrainData[] terrainDataPool;
+    [Header("Corps Céleste")]
+    [SerializeField] private CelestialBodyData celestialBody;
 
     private HexCell[] _cells;
     private HexMesh _hexMesh;
@@ -27,22 +27,21 @@ public class HexGrid : MonoBehaviour
 
     private void Start()
     {
-        Debug.Log("[HexGrid] Start — terrainDataPool count: " + (terrainDataPool != null ? terrainDataPool.Length : 0));
-
-        if (terrainDataPool == null || terrainDataPool.Length == 0)
-            Debug.LogWarning("[HexGrid] No TerrainData assigned — cells will be white.");
+        if (celestialBody == null)
+            Debug.LogWarning("[HexGrid] Aucun CelestialBodyData assigné — les cellules seront blanches.");
 
         CreateCells();
-        Debug.Log("[HexGrid] Cells created: " + _cells.Length);
+        Debug.Log($"[HexGrid] {_cells.Length} cellules créées.");
 
-        if (_hexMesh == null) { Debug.LogError("[HexGrid] Cannot triangulate — HexMesh is null!"); return; }
+        MapGenerator.Populate(_cells, celestialBody);
+
+        if (_hexMesh == null) { Debug.LogError("[HexGrid] HexMesh introuvable !"); return; }
         _hexMesh.Triangulate(_cells);
-        Debug.Log("[HexGrid] Triangulate done.");
+        Debug.Log("[HexGrid] Triangulation terminée.");
     }
 
     private void CreateCells()
     {
-        // Count cells in a hex ring of given radius: 3r²+3r+1
         int count = 3 * radius * radius + 3 * radius + 1;
         _cells = new HexCell[count];
         int index = 0;
@@ -52,17 +51,8 @@ public class HexGrid : MonoBehaviour
             int rMin = Mathf.Max(-radius, -q - radius);
             int rMax = Mathf.Min(radius, -q + radius);
             for (int r = rMin; r <= rMax; r++)
-            {
-                TerrainData terrain = PickRandomTerrain();
-                _cells[index++] = new HexCell(q, r, terrain);
-            }
+                _cells[index++] = new HexCell(q, r);
         }
-    }
-
-    private TerrainData PickRandomTerrain()
-    {
-        if (terrainDataPool == null || terrainDataPool.Length == 0) return null;
-        return terrainDataPool[Random.Range(0, terrainDataPool.Length)];
     }
 
     /// <summary>Returns the cell under the given world position (XZ plane), or null.</summary>
