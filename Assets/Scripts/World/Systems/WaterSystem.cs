@@ -22,6 +22,8 @@ public class WaterSystem : IHexSystem
 {
     // Fraction d'eau transférée par unité d'écart d'altitude entre deux voisins
     private const float RunoffFactor = 0.18f;
+    private const float BasinOverflowSurfaceScale = 0.35f;
+    private const float BasinOverflowFactor = 0.45f;
 
     // Seuil d'altitude pour générer une ombre pluviométrique
     private const float RainShadowAltitudeThreshold = 0.6f;
@@ -31,6 +33,7 @@ public class WaterSystem : IHexSystem
         MapGenParameters p  = ctx.genParams;
         float            ox = ctx.biomeOffset.x;
         float            oz = ctx.biomeOffset.y;
+        MapRegion.CoherenceConstraint coherence = ctx.coherence;
 
         // --- Phase A : ratio d'eau initial par hex ---
         foreach (HexCell cell in cells)
@@ -53,6 +56,8 @@ public class WaterSystem : IHexSystem
             // Précipitations ajoutées par la météo régionale
             w += ctx.weather.precipitationRate * 0.2f;
 
+            w = ApplyCoherenceBias(w, temp, coherence);
+
             cell.state.waterRatio = Mathf.Clamp01(w);
             cell.state.rainShadow = false;
         }
@@ -63,6 +68,32 @@ public class WaterSystem : IHexSystem
         {
             foreach (HexCell cell in cells)
             {
+                if (cell.state.terrainClass == TerrainClass.Basin)
+                {
+                    ApplyBasinRetention(cell, ctx, p, coherence);
+                    continue;
+                }
+
+                if (cell.state.hasDownstream &&
+                    ctx.cellLookup.TryGetValue((cell.state.downstreamQ, cell.state.downstreamR), out HexCell downstream))
+                {
+                    float retainedWater = ComputeRetainedWater(cell, p);
+                    float availableWater = Mathf.Max(0f, cell.state.waterRatio - retainedWater);
+                    float altDiff = cell.state.altitude - downstream.state.altitude;
+
+                    if (altDiff > 0f && availableWater > 0f)
+                    {
+                        float flow = altDiff * RunoffFactor * availableWater;
+                        flow = Mathf.Min(flow, availableWater * 0.5f);
+
+                        cell.state.waterRatio -= flow;
+                        downstream.state.waterRatio += flow;
+                    }
+
+                    cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
+                    continue;
+                }
+
                 HexCell[] neighbors = ctx.GetNeighbors(cell);
                 foreach (HexCell nb in neighbors)
                 {
@@ -78,7 +109,7 @@ public class WaterSystem : IHexSystem
                         nb.state.waterRatio   += flow;
                     }
                 }
-                cell.state.waterRatio = Mathf.Clamp01(cell.state.waterRatio);
+                cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
             }
         }
 
@@ -104,6 +135,124 @@ public class WaterSystem : IHexSystem
                     break;
                 }
             }
+
+            cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
         }
+    }
+
+    private static void ApplyBasinRetention(HexCell cell,
+                                            GenerationContext ctx,
+                                            MapGenParameters parameters,
+                                            MapRegion.CoherenceConstraint coherence)
+    {
+        float accumulationFactor = Mathf.InverseLerp(1f, 10f, cell.state.flowAccumulation);
+        float basinFloor = Mathf.Lerp(parameters.lakeWaterThreshold * 0.35f, parameters.basinCapacity, accumulationFactor);
+
+        if (coherence.isExtremeOcean)
+        {
+            basinFloor = Mathf.Max(basinFloor, parameters.basinCapacity);
+        }
+        else if (coherence.isExtremeArid)
+        {
+            basinFloor *= 0.2f;
+        }
+        else
+        {
+            float coherenceFloor = Mathf.Lerp(0f, parameters.basinCapacity, coherence.projectedWaterRatio);
+            basinFloor = Mathf.Max(basinFloor * 0.45f, coherenceFloor);
+        }
+
+        cell.state.waterRatio = Mathf.Max(cell.state.waterRatio, basinFloor);
+
+        if (cell.state.hasOverflowOutlet &&
+            cell.state.waterRatio > parameters.lakeWaterThreshold &&
+            ctx.cellLookup.TryGetValue((cell.state.overflowQ, cell.state.overflowR), out HexCell overflowOutlet))
+        {
+            float waterSurface = cell.state.altitude + Mathf.Max(0f, cell.state.waterRatio - parameters.basinCapacity) * BasinOverflowSurfaceScale;
+            float spillThreshold = overflowOutlet.state.altitude;
+
+            if (waterSurface > spillThreshold)
+            {
+                float surfaceExcess = waterSurface - spillThreshold;
+                float waterExcess = Mathf.Max(0f, cell.state.waterRatio - parameters.lakeWaterThreshold);
+                float overflow = surfaceExcess * BasinOverflowFactor + waterExcess * 0.5f;
+                overflow = Mathf.Min(overflow, waterExcess);
+
+                if (overflow > 0f)
+                {
+                    cell.state.waterRatio -= overflow;
+                    overflowOutlet.state.waterRatio += overflow;
+                }
+            }
+        }
+
+        cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
+    }
+
+    private static float ComputeRetainedWater(HexCell cell, MapGenParameters parameters)
+    {
+        float porosityRetention = Mathf.Lerp(0.05f, 0.25f, cell.state.soil.porosity);
+
+        return cell.state.terrainClass switch
+        {
+            TerrainClass.Source => Mathf.Max(parameters.basinCapacity * 0.35f, porosityRetention),
+            TerrainClass.Channel => Mathf.Max(parameters.basinCapacity * 0.2f, porosityRetention * 0.6f),
+            TerrainClass.Ridge => porosityRetention * 0.35f,
+            _ => porosityRetention,
+        };
+    }
+
+    private static float ApplyCoherenceBias(float waterRatio, float temperature, MapRegion.CoherenceConstraint coherence)
+    {
+        float adjusted = waterRatio;
+
+        if (coherence.isExtremeOcean)
+            return Mathf.Max(adjusted, 0.92f);
+
+        if (coherence.isExtremeArid)
+            return Mathf.Min(adjusted, 0.03f);
+
+        if (coherence.isExtremeFrozen)
+            return Mathf.Max(adjusted, 0.65f);
+
+        float targetWater = coherence.projectedWaterRatio;
+        float influence = Mathf.Clamp01(Mathf.Max(coherence.oceanicity, coherence.deserticity) * 0.5f + coherence.frigidity * 0.3f);
+        adjusted = Mathf.Lerp(adjusted, targetWater, influence);
+
+        if (coherence.frigidity > 0.55f && temperature < 0f)
+            adjusted = Mathf.Max(adjusted, Mathf.Lerp(0.35f, 0.75f, coherence.frigidity));
+
+        return Mathf.Clamp01(adjusted);
+    }
+
+    private static float ApplyCoherencePostFlow(float waterRatio, MapRegion.CoherenceConstraint coherence)
+    {
+        float adjusted = Mathf.Clamp01(waterRatio);
+
+        if (coherence.isExtremeOcean)
+            return Mathf.Max(adjusted, 0.85f);
+
+        if (coherence.isExtremeArid)
+            return Mathf.Min(adjusted, 0.05f);
+
+        if (coherence.isExtremeFrozen)
+            return Mathf.Max(adjusted, 0.4f);
+
+        float influence = Mathf.Clamp01(Mathf.Max(coherence.oceanicity,
+                                                  Mathf.Max(coherence.deserticity, coherence.frigidity)));
+        if (influence <= 0.01f)
+            return adjusted;
+
+        float tolerance = Mathf.Lerp(0.45f, 0.18f, influence);
+        float minPreferred = Mathf.Clamp01(coherence.projectedWaterRatio - tolerance);
+        float maxPreferred = Mathf.Clamp01(coherence.projectedWaterRatio + tolerance);
+        float correctionStrength = 0.2f + influence * 0.2f;
+
+        if (adjusted < minPreferred)
+            adjusted = Mathf.Lerp(adjusted, minPreferred, correctionStrength);
+        else if (adjusted > maxPreferred)
+            adjusted = Mathf.Lerp(adjusted, maxPreferred, correctionStrength);
+
+        return Mathf.Clamp01(adjusted);
     }
 }
