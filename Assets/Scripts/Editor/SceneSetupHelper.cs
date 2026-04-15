@@ -32,6 +32,67 @@ public static class SceneSetupHelper
         var hexGridGO = Find("HexGrid");
 
         // ====================================================
+        // Créer SolarSystemData asset si manquant
+        // ====================================================
+        string solarSystemPath = "Assets/ScriptableObjects/Worlds/Kepler-442-System.asset";
+        SolarSystemData solarSystem = AssetDatabase.LoadAssetAtPath<SolarSystemData>(solarSystemPath);
+        if (solarSystem == null)
+        {
+            // Créer l'asset
+            solarSystem = ScriptableObject.CreateInstance<SolarSystemData>();
+            solarSystem.systemName = "Kepler-442";
+            solarSystem.distanceLightYears = 1115f;
+            solarSystem.primaryStar = new StarData {
+                name = "Kepler-442",
+                spectralType = StarType.K,
+                luminosity = 0.36f,
+                mass = 0.61f
+            };
+
+            // Charger Kepler-442b
+            CelestialBodyData kepler442b = AssetDatabase.LoadAssetAtPath<CelestialBodyData>("Assets/ScriptableObjects/Worlds/Kepler-442b.asset");
+            if (kepler442b != null)
+            {
+                kepler442b.radius = 0.9f; // Rayon terrestre
+                kepler442b.displayColor = new Color(0.4f, 0.6f, 0.8f); // Bleu-vert
+
+                solarSystem.orbitalSlots = new OrbitalSlot[] {
+                    new OrbitalSlot {
+                        body = kepler442b,
+                        orbit = new OrbitalParameters {
+                            semiMajorAxis = 0.409f,
+                            eccentricity = 0.04f,
+                            orbitalPeriodDays = 112.3f,
+                            orbitalInclination = 0f,
+                            currentOrbitalPosition = 0f
+                        }
+                    }
+                };
+            }
+
+            AssetDatabase.CreateAsset(solarSystem, solarSystemPath);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[SceneSetupHelper] SolarSystemData créé : " + solarSystemPath);
+        }
+
+        // ====================================================
+        // Câbler SolarSystemView
+        // ====================================================
+        var solarSystemView = Find("SolarSystemRoot")?.GetComponent<SolarSystemView>();
+        if (solarSystemView != null)
+        {
+            var solarType = typeof(SolarSystemView);
+            solarType.GetField("solarSystem", flags).SetValue(solarSystemView, solarSystem);
+            solarType.GetField("orbitScale", flags).SetValue(solarSystemView, 12f);
+            solarType.GetField("defaultPlanetRadius", flags).SetValue(solarSystemView, 1f);
+            solarType.GetField("planetRadiusScale", flags).SetValue(solarSystemView, 1.25f);
+            solarType.GetField("minPlanetRadius", flags).SetValue(solarSystemView, 0.9f);
+            solarType.GetField("maxPlanetRadius", flags).SetValue(solarSystemView, 3f);
+            EditorUtility.SetDirty(Find("SolarSystemRoot"));
+            Debug.Log("[SceneSetupHelper] SolarSystemView câblé");
+        }
+
+        // ====================================================
         // ViewManager
         // ====================================================
         var vm = managers.GetComponent<ViewManager>();
@@ -42,12 +103,22 @@ public static class SceneSetupHelper
             vmType.GetField("planetRoot",        flags).SetValue(vm, Find("PlanetRoot"));
             vmType.GetField("hexGridRoot",       flags).SetValue(vm, Find("HexGridRoot"));
             vmType.GetField("cameraController",  flags).SetValue(vm, Find("Main Camera")?.GetComponent<CameraController>());
-            vmType.GetField("solarSystemView",   flags).SetValue(vm, Find("SolarSystemRoot")?.GetComponent<SolarSystemView>());
+            vmType.GetField("solarSystemView",   flags).SetValue(vm, solarSystemView);
             vmType.GetField("planetSphere",      flags).SetValue(vm, Find("PlanetSphere")?.GetComponent<PlanetSphere>());
             vmType.GetField("hexGrid",           flags).SetValue(vm, hexGridGO?.GetComponent<HexGrid>());
             vmType.GetField("terraformHUD",      flags).SetValue(vm, canvas?.GetComponent<TerraformHUD>());
             vmType.GetField("terraformSystem",   flags).SetValue(vm, managers.GetComponent<TerraformSystem>());
             vmType.GetField("progressTracker",   flags).SetValue(vm, managers.GetComponent<TerraformProgressTracker>());
+            vmType.GetField("solarMinZoom",      flags).SetValue(vm, 8f);
+            vmType.GetField("solarMaxZoom",      flags).SetValue(vm, 60f);
+            vmType.GetField("solarStartZoom",    flags).SetValue(vm, 24f);
+            vmType.GetField("localMinZoom",      flags).SetValue(vm, 6f);
+            vmType.GetField("localMaxZoom",      flags).SetValue(vm, 1000f);
+            vmType.GetField("localStartZoom",    flags).SetValue(vm, 360f);
+            vmType.GetField("planetMinZoom",     flags).SetValue(vm, 18f);
+            vmType.GetField("planetMaxZoom",     flags).SetValue(vm, 80f);
+            vmType.GetField("planetStartZoom",   flags).SetValue(vm, 30f);
+            vmType.GetField("directPlanetClickToLocal", flags).SetValue(vm, true);
             EditorUtility.SetDirty(managers);
             Debug.Log("[SceneSetupHelper] ViewManager ✓");
         }
@@ -100,6 +171,39 @@ public static class SceneSetupHelper
             hudType.GetField("terraformSystem",  flags).SetValue(hud, ts);
             EditorUtility.SetDirty(canvas);
             Debug.Log("[SceneSetupHelper] TerraformHUD ✓");
+        }
+
+        // ====================================================
+        // Positionner la caméra pour voir le système solaire
+        // ====================================================
+        var camGO = Find("Main Camera");
+        if (camGO != null)
+        {
+            var cameraController = camGO.GetComponent<CameraController>();
+            if (cameraController != null)
+            {
+                var camType = typeof(CameraController);
+                camType.GetField("zoomSpeed", flags).SetValue(cameraController, 10f);
+                camType.GetField("zoomScaleFactor", flags).SetValue(cameraController, 0.45f);
+                camType.GetField("orbitSensitivity", flags).SetValue(cameraController, 0.3f);
+                camType.GetField("orbitMinDistance", flags).SetValue(cameraController, 8f);
+                camType.GetField("orbitMaxDistance", flags).SetValue(cameraController, 40f);
+                camType.GetField("orbitScrollSpeed", flags).SetValue(cameraController, 12f);
+                EditorUtility.SetDirty(cameraController);
+            }
+
+            var camera = camGO.GetComponent<Camera>();
+            if (camera != null)
+            {
+                camera.orthographic = true;
+                camera.orthographicSize = 24f;
+                EditorUtility.SetDirty(camera);
+            }
+
+            camGO.transform.position = new Vector3(0f, 50f, 0f);
+            camGO.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            EditorUtility.SetDirty(camGO);
+            Debug.Log("[SceneSetupHelper] Caméra positionnée pour vue solaire");
         }
 
         // Sauvegarde la scène
