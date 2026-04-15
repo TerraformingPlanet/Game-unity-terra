@@ -11,6 +11,7 @@ public class HexInput : MonoBehaviour
 {
     [Header("References")]
     [SerializeField] private HexGrid hexGrid;
+    [SerializeField] private ViewManager viewManager;
     [SerializeField] private GameObject tooltipPanel;
     [SerializeField] private Text tooltipText;
 
@@ -64,5 +65,7 @@ public class HexInput : MonoBehaviour
     {
         string terrainName = cell.terrain != null ? cell.terrain.displayName : "Inconnu";
         Debug.Log($"[HexInput] Clicked: ({cell.Q}, {cell.R}) — {terrainName}");
+
+        viewManager?.NotifyCellClicked(cell);
     }
 }

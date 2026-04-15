@@ -9,11 +9,12 @@ public class HexGrid : MonoBehaviour
     [Header("Grid Size")]
     [SerializeField] private int radius = 5;
 
-    [Header("Corps Céleste")]
+    [Header("Corps Céleste (fallback sans ViewManager)")]
     [SerializeField] private CelestialBodyData celestialBody;
 
     private HexCell[] _cells;
     private HexMesh _hexMesh;
+    private MapRegion _currentRegion;
 
     private void Awake()
     {
@@ -27,17 +28,42 @@ public class HexGrid : MonoBehaviour
 
     private void Start()
     {
-        if (celestialBody == null)
-            Debug.LogWarning("[HexGrid] Aucun CelestialBodyData assigné — les cellules seront blanches.");
+        // L'initialisation est déléguée à ViewManager via LoadRegion().
+        // Si aucun ViewManager n'est présent (ex. scène de test),
+        // on utilise le fallback celestialBody pour un comportement standalone.
+        if (celestialBody != null)
+        {
+            CreateCells();
+            MapGenerator.Populate(_cells, celestialBody);
+            _hexMesh.Triangulate(_cells);
+            Debug.Log("[HexGrid] Init standalone (pas de ViewManager).");
+        }
+    }
 
-        CreateCells();
-        Debug.Log($"[HexGrid] {_cells.Length} cellules créées.");
+    // =========================================================
+    // API publique — appelée par ViewManager
+    // =========================================================
 
-        MapGenerator.Populate(_cells, celestialBody);
+    /// <summary>
+    /// Charge une région et regénère la grille.
+    /// Si region.planet est défini, il prend le pas sur celestialBody.
+    /// </summary>
+    public void LoadRegion(MapRegion region)
+    {
+        _currentRegion = region;
+        if (region?.planet != null)
+            celestialBody = region.planet;
+        Regenerate();
+    }
 
+    /// <summary>Regénère les cellules et retrangule le mesh.</summary>
+    public void Regenerate()
+    {
         if (_hexMesh == null) { Debug.LogError("[HexGrid] HexMesh introuvable !"); return; }
+        CreateCells();
+        MapGenerator.Populate(_cells, celestialBody);
         _hexMesh.Triangulate(_cells);
-        Debug.Log("[HexGrid] Triangulation terminée.");
+        Debug.Log($"[HexGrid] Régénéré — {_cells.Length} cellules.");
     }
 
     private void CreateCells()

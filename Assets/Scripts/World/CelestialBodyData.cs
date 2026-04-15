@@ -133,6 +133,14 @@ public class CelestialBodyData : ScriptableObject
     public string bodyName = "Nouvelle Planète";
     public CelestialBodyType bodyType = CelestialBodyType.Rocky;
 
+    [Header("Visualisation")]
+    [Tooltip("Rayon de la planète en km (ex: Terre = 6371). Utilisé pour la mise à l'échelle en vue système solaire.")]
+    [Min(0f)]
+    public float radius = 6371f;
+
+    [Tooltip("Couleur d'affichage dans la vue système solaire.")]
+    public Color displayColor = Color.gray;
+
     [Header("Physique planétaire")]
     public PlanetaryPhysics physics;
 
