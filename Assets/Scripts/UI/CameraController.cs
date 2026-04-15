@@ -12,7 +12,7 @@ public class CameraController : MonoBehaviour
     [SerializeField] private float panSpeed = 0.5f;
 
     [Header("Zoom")]
-    [SerializeField] private float zoomSpeed = 2f;
+    [SerializeField] private float zoomSpeed = 8f;
     [SerializeField] private float minZoom = 5f;
     [SerializeField] private float maxZoom = 80f;
 
@@ -56,7 +56,8 @@ public class CameraController : MonoBehaviour
 
     private void HandleZoom()
     {
-        float scroll = Mouse.current.scroll.ReadValue().y / 120f;
+        float scroll = Mouse.current.scroll.ReadValue().y;
+        scroll = Mathf.Abs(scroll) > 1f ? scroll / 120f : scroll; // normalise scroll Windows (120 par cran) ou déjà normalisé (±1)
         if (Mathf.Approximately(scroll, 0f)) return;
 
         _cam.orthographicSize = Mathf.Clamp(
