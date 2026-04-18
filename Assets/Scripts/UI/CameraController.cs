@@ -40,13 +40,13 @@ public class CameraController : MonoBehaviour
 
     [Header("Zoom (OrthoTopDown)")]
     [SerializeField] private float zoomSpeed = 8f;
-    [SerializeField] private float zoomScaleFactor = 0.45f;
+    [SerializeField] private float zoomScaleFactor = 0.15f;
 
     [Header("Orbit (OrbitPerspective)")]
     [SerializeField] private float orbitSensitivity = 0.3f;
     [SerializeField] private float orbitMinDistance = 5f;
     [SerializeField] private float orbitMaxDistance = 200f;
-    [SerializeField] private float orbitScrollSpeed = 10f;
+    [SerializeField] private float orbitScrollSpeed = 3f;
     [SerializeField] private float orbitMinElevation = 5f;   // degrés min au-dessus de l'horizon
     [SerializeField] private float orbitMaxElevation = 89f;  // degrés max (quasi zénith)
 
@@ -76,6 +76,13 @@ public class CameraController : MonoBehaviour
 
     // --- Animation ---
     private bool _isAnimating;  // bloque l'input orbit/zoom pendant OrbitToFace
+
+    // =========================================================
+    // Propriétés publiques
+    // =========================================================
+
+    /// <summary>Distance courante du pivot (mode OrbitPerspective). Utile pour LOD.</summary>
+    public float OrbitDistance => _orbitDistance;
 
     // =========================================================
     // Unity lifecycle

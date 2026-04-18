@@ -33,7 +33,7 @@ public class DebugTileToggleButton : MonoBehaviour
     private void Start()
     {
         if (flatDebugOverlay == null)
-            flatDebugOverlay = FindObjectOfType<FlatDebugOverlay>();
+            flatDebugOverlay = FindFirstObjectByType<FlatDebugOverlay>();
 
         ViewManager.OnViewChanged += HandleViewChanged;
         Refresh();
@@ -56,7 +56,7 @@ public class DebugTileToggleButton : MonoBehaviour
     private void Refresh()
     {
         // Visible seulement en sous-vue Flat
-        var vm = FindObjectOfType<ViewManager>();
+        var vm = FindAnyObjectByType<ViewManager>();
         bool isFlat = vm != null
             && vm.CurrentState == ViewManager.ViewState.Planet
             && vm.CurrentPlanetSubView == ViewManager.PlanetSubView.Flat;

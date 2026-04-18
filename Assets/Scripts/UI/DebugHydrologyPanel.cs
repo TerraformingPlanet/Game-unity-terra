@@ -53,11 +53,11 @@ public class DebugHydrologyPanel : MonoBehaviour
         UIEventSystemUtility.EnsureEventSystem();
 
         if (viewManager == null)
-            viewManager = FindObjectOfType<ViewManager>();
+            viewManager = FindFirstObjectByType<ViewManager>();
         if (terraformHUD == null)
-            terraformHUD = FindObjectOfType<TerraformHUD>();
+            terraformHUD = FindFirstObjectByType<TerraformHUD>();
         if (terraformSystem == null)
-            terraformSystem = FindObjectOfType<TerraformSystem>();
+            terraformSystem = FindFirstObjectByType<TerraformSystem>();
 
         if (panelRoot == null)
             panelRoot = gameObject;

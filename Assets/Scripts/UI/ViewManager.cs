@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 using System;
@@ -19,7 +20,7 @@ using UnityEngine.Networking;
 /// </summary>
 public class ViewManager : MonoBehaviour, IClientSnapshotSource
 {
-    public enum ViewState { SolarSystem, Planet, Local }
+    public enum ViewState { Galaxy, SolarSystem, Planet, Local }
 
     /// <summary>Sous-vue active dans l'état Planet.</summary>
     public enum PlanetSubView { Globe, Flat }
@@ -35,6 +36,9 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     // =========================================================
 
     [Header("Scene Roots")]
+    [Tooltip("Parent de tous les objets de la vue galaxie")]
+    [SerializeField] private GameObject galaxyRoot;
+
     [Tooltip("Parent de tous les objets de la vue système solaire")]
     [SerializeField] private GameObject solarSystemRoot;
 
@@ -45,6 +49,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     [SerializeField] private GameObject hexGridRoot;
 
     [Header("Références")]
+    [SerializeField] private GalaxyView           galaxyView;
     [SerializeField] private CameraController     cameraController;
     [SerializeField] private SolarSystemView      solarSystemView;
     [SerializeField] private PlanetSphereGoldberg planetSphere;
@@ -80,6 +85,10 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     [SerializeField] private float localMaxZoom  = 100000f;
     [SerializeField] private float localStartZoom = 360f;
 
+    [Header("Vue Galaxie (OrthoTopDown)")]
+    [Tooltip("Taille orthographique initiale de la cam\u00e9ra en vue Galaxie.")]
+    [SerializeField] private float galaxyStartZoom = 60f;
+
     [Header("Vue planète sphère GP (OrbitPerspective)")]
     [SerializeField] private float planetOrbitMinDistance   = 12f;
     [SerializeField] private float planetOrbitMaxDistance   = 40f;
@@ -87,6 +96,8 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
 
     [Header("Navigation")]
     [SerializeField] private bool directPlanetClickToLocal = false;
+    [Tooltip("Vue affichée au démarrage. Galaxy = normal ; SolarSystem = debug preset Sol.")]
+    [SerializeField] private ViewState startingView = ViewState.Galaxy;
 
     [Header("Sync serveur de simulation")]
     [SerializeField] private bool preferServerRegionSync = true;
@@ -130,15 +141,23 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     private void Awake()
     {
         // Souscriptions aux events des vues
+        if (galaxyView        != null) galaxyView.OnSystemClicked         += OpenSystem;
         if (solarSystemView   != null) solarSystemView.OnPlanetClicked    += OpenPlanet;
         if (planetSphere      != null) planetSphere.OnRegionClicked       += OnGlobeRegionClicked;
+        if (planetSphere      != null) planetSphere.OnH3TileResolved      += OnGlobeH3TileResolved;
+        if (planetSphere      != null) planetSphere.OnH3TilesReady        += OnGlobeH3TilesReady;
         if (planetFlatView    != null) planetFlatView.OnRegionClicked     += OnFlatRegionClicked;
         if (planetTangentView != null) planetTangentView.OnRegionClicked  += OnFlatRegionClicked;
     }
 
     private void Start()
     {
-        EnterSolarSystem();
+        switch (startingView)
+        {
+            case ViewState.SolarSystem: EnterSolarSystem(); break;
+            case ViewState.Planet:      EnterSolarSystem(); break;  // fallback raisonnable
+            default:                   EnterGalaxy();      break;
+        }
     }
 
     private void Update()
@@ -151,8 +170,11 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
 
     private void OnDestroy()
     {
+        if (galaxyView        != null) galaxyView.OnSystemClicked         -= OpenSystem;
         if (solarSystemView   != null) solarSystemView.OnPlanetClicked    -= OpenPlanet;
         if (planetSphere      != null) planetSphere.OnRegionClicked       -= OnGlobeRegionClicked;
+        if (planetSphere      != null) planetSphere.OnH3TileResolved      -= OnGlobeH3TileResolved;
+        if (planetSphere      != null) planetSphere.OnH3TilesReady        -= OnGlobeH3TilesReady;
         if (planetFlatView    != null) planetFlatView.OnRegionClicked     -= OnFlatRegionClicked;
         if (planetTangentView != null) planetTangentView.OnRegionClicked  -= OnFlatRegionClicked;
     }
@@ -161,9 +183,31 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     // Transitions publiques
     // =========================================================
 
+    /// <summary>Entre dans la vue galaxie (niveau de navigation le plus haut).</summary>
+    public void EnterGalaxy()
+    {
+        ResetPlanetVisuals();
+        SetActiveRoot(galaxyRoot);
+        Vector3 galaxyPivot = galaxyRoot != null ? galaxyRoot.transform.position : Vector3.zero;
+        cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
+                                 localMinZoom, localMaxZoom);
+        cameraController.FocusOn(galaxyPivot, galaxyStartZoom);
+        _state = ViewState.Galaxy;
+        OnViewChanged?.Invoke(_state);
+        Debug.Log("[ViewManager] \u2192 Vue Galaxie");
+    }
+
+    /// <summary>Ouvre le syst\u00e8me solaire demand\u00e9 depuis la vue Galaxie.</summary>
+    public void OpenSystem(string systemName)
+    {
+        Debug.Log($"[ViewManager] Ouverture syst\u00e8me : {systemName}");
+        EnterSolarSystem();
+    }
+
     /// <summary>Entre dans la vue système solaire.</summary>
     public void EnterSolarSystem()
     {
+        ResetPlanetVisuals();
         SetActiveRoot(solarSystemRoot);
         Vector3 solarPivot = solarSystemRoot != null ? solarSystemRoot.transform.position : Vector3.zero;
         cameraController.SetMode(CameraController.CameraMode.OrbitPerspective,
@@ -173,6 +217,10 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         _state = ViewState.SolarSystem;
         OnViewChanged?.Invoke(_state);
         Debug.Log("[ViewManager] → Vue Système Solaire");
+
+        // Recharge dynamiquement le système depuis le serveur
+        if (solarSystemView != null)
+            StartCoroutine(solarSystemView.LoadFromServer(simulationServerUrl, simulationServerTimeoutSeconds));
     }
 
     /// <summary>
@@ -198,29 +246,16 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         _activeProjectionOverride = coherenceOverride;
         _activeProjectionWaterLevel = Mathf.Clamp(waterLevelOffset, -0.45f, 0.45f);
 
+        ResetPlanetVisuals();
         SetActiveRoot(planetRoot);
 
-        // Génère la grille planétaire et charge la sphère GP
+        // Charge la sphère GP (les tuiles H3 arriveront via OnH3TilesReady)
         if (planetSphere != null)
             planetSphere.LoadPlanet(body, coherenceOverride, _activeProjectionWaterLevel);
 
-        // Pré-charge la vue plate avec la même grille (déjà en cache dans PlanetaryHexGrid.ActiveGrid)
-        if (planetFlatView != null && PlanetaryHexGrid.ActiveGrid.Cells != null)
-        {
-            planetFlatView.LoadPlanet(PlanetaryHexGrid.ActiveGrid);
-
-            // Setup minimap depuis les bounds réelles du mesh
-            if (minimapController != null && planetFlatView.MeshObject != null)
-            {
-                var flatMesh = planetFlatView.MeshObject.GetComponent<PlanetFlatMesh>();
-                if (flatMesh != null)
-                    minimapController.Setup(flatMesh, planetFlatView.MeshObject.transform);
-            }
-        }
-
-        // Pré-charge la vue tangente avec les données GP
+        // Pré-charge la vue tangente avec les données GP (mesh sans grille Mercator)
         if (planetTangentView != null && planetSphere != null)
-            planetTangentView.LoadPlanet(PlanetaryHexGrid.ActiveGrid, planetSphere.SphereData);
+            planetTangentView.LoadPlanet(planetSphere.SphereData);
 
         // Démarre en sous-vue Globe
         _planetSubView = PlanetSubView.Globe;
@@ -286,23 +321,8 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     public void OpenRegion(float latitude, float longitude)
     {
         if (_activePlanet == null) return;
-
-        // Récupère la cellule planétaire correspondante
-        HexCell cell = null;
-        if (planetSphere != null)
-            cell = planetSphere.GetProjectedCell(latitude, longitude);
-        else if (PlanetaryHexGrid.ActiveGrid.Cells != null)
-            cell = PlanetaryHexGrid.GetCellAt(
-                PlanetaryHexGrid.ActiveGrid.Cells,
-                PlanetaryHexGrid.ActiveGrid.Cols,
-                PlanetaryHexGrid.ActiveGrid.Rows,
-                latitude, longitude);
-
-        if (cell != null)
-        {
-            terraformHUD?.ShowHexPanel(cell);
-            Debug.Log($"[ViewManager] Tuile sélectionnée | lat={latitude:F2} lon={longitude:F2} | {cell.terrain?.displayName ?? "?"}");
-        }
+        // En mode H3, le HUD est mis à jour par OnH3TileResolved (~1–2s après le clic).
+        Debug.Log($"[ViewManager] Clic globe lat={latitude:F2} lon={longitude:F2} — H3 en résolution...");
     }
 
     private void OnGlobeRegionClicked(float lat, float lon)
@@ -311,6 +331,20 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         _selectedGlobeLon  = lon;
         _hasGlobeSelection = true;
         OpenRegion(lat, lon);
+    }
+
+    // Mise à jour HUD avec données H3 authoritatives (1–2s après le clic)
+    private void OnGlobeH3TileResolved(GoldbergTileState tile)
+    {
+        if (_state == ViewState.Planet && _planetSubView == PlanetSubView.Globe)
+            terraformHUD?.ShowH3TileInfo(tile);
+    }
+
+    // Distribue les tuiles H3 aux vues Plate et Tangente
+    private void OnGlobeH3TilesReady(GoldbergTileState[] tiles, Dictionary<TerrainType, Color> colorByType)
+    {
+        planetFlatView?.LoadPlanetFromH3(tiles, colorByType);
+        planetTangentView?.RefreshColorsFromH3(tiles, colorByType);
     }
     private void OnFlatRegionClicked(float lat, float lon)  => ShowLocalView(lat, lon);
 
@@ -628,7 +662,10 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
 
         switch (_state)
         {
+            case ViewState.Galaxy:
+                break;  // déjà au niveau le plus haut
             case ViewState.SolarSystem:
+                EnterGalaxy();
                 break;
             case ViewState.Planet:
                 EnterSolarSystem();
@@ -666,9 +703,28 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
 
     private void SetActiveRoot(GameObject active)
     {
-        if (solarSystemRoot != null) solarSystemRoot.SetActive(solarSystemRoot == active);
-        if (planetRoot      != null) planetRoot.SetActive(planetRoot == active);
-        if (hexGridRoot     != null) hexGridRoot.SetActive(hexGridRoot == active);
+        // Désactivation stricte avant réactivation de la cible pour éviter tout état mixte pendant une transition.
+        if (galaxyRoot      != null) galaxyRoot.SetActive(false);
+        if (solarSystemRoot != null) solarSystemRoot.SetActive(false);
+        if (planetRoot      != null) planetRoot.SetActive(false);
+        if (hexGridRoot     != null) hexGridRoot.SetActive(false);
+
+        if (active != null)
+            active.SetActive(true);
+    }
+
+    private void ResetPlanetVisuals()
+    {
+        if (planetSphere != null)      planetSphere.gameObject.SetActive(true);
+        if (planetFlatView != null)    planetFlatView.gameObject.SetActive(false);
+        if (planetTangentView != null) planetTangentView.gameObject.SetActive(false);
+        if (minimapController != null) minimapController.gameObject.SetActive(false);
+
+        if (hexGridRoot != null && _state != ViewState.Local)
+            hexGridRoot.SetActive(false);
+
+        if (planetSphere != null && planetSphere.LastClickedFaceId >= 0)
+            planetSphere.RestoreFaceOnSphere(planetSphere.LastClickedFaceId);
     }
 
     private void ApplyLocalRuntimeContext(MapRegion region)

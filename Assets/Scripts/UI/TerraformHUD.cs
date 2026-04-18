@@ -85,7 +85,7 @@ public class TerraformHUD : MonoBehaviour
         }
 
         if (viewManager == null)
-            viewManager = FindObjectOfType<ViewManager>();
+            viewManager = FindAnyObjectByType<ViewManager>();
 
         if (openLocalButton != null)
         {
@@ -135,6 +135,44 @@ public class TerraformHUD : MonoBehaviour
         RefreshHexInfo();
     }
 
+    /// <summary>
+    /// Remplace l'affichage hexInfoLabel avec les données authoritatives H3 du serveur.
+    /// Appelé ~1–2s après le clic en vue Globe (asynchrone via GET /bodies/{id}/tiles/at).
+    /// </summary>
+    public void ShowH3TileInfo(GoldbergTileState tile)
+    {
+        if (hexInfoLabel == null) return;
+        if (selectedHexPanel != null) selectedHexPanel.SetActive(true);
+
+        string waterClass = tile.waterClassification switch
+        {
+            WaterClassification.OpenOcean   => "Océan",
+            WaterClassification.InlandWater => "Eau intérieure",
+            WaterClassification.Coast       => "Côte",
+            WaterClassification.FrozenWater => "Eau gelée",
+            _                               => "Sec"
+        };
+        string terrainClass = tile.terrainClass switch
+        {
+            TerrainClass.Ridge   => "Crête",
+            TerrainClass.Basin   => "Bassin",
+            TerrainClass.Channel => "Chenal",
+            TerrainClass.Source  => "Source",
+            _                    => "Pente"
+        };
+        string tileIdShort = !string.IsNullOrEmpty(tile.tileId) && tile.tileId.Length > 10
+            ? tile.tileId[..10] + "…" : tile.tileId;
+
+        hexInfoLabel.text =
+            $"<b>{tile.terrainType} <size=70%>[H3]</size></b>\n" +
+            $"Tuile  : {tileIdShort}\n" +
+            $"Temp   : {tile.temperature:F1}°C\n" +
+            $"Eau    : {tile.waterRatio * 100f:F0}%\n" +
+            $"Hydro  : {waterClass} | relief {terrainClass}\n" +
+            $"Toxines : {tile.toxinLevel * 100f:F0}%\n" +
+            $"Habitable : {(tile.isHabitable ? "Oui" : "Non")}";
+    }
+
     public void SetRegionContext(GenerationContext ctx)
     {
         _regionContext = ctx;
@@ -149,7 +187,12 @@ public class TerraformHUD : MonoBehaviour
         _hasAuthoritativeRegionState = regionState.isValid;
 
         if (progressTracker != null && regionState.isValid)
-            progressTracker.SetAuthoritativeProgress(regionState.terraformationProgress);
+        {
+            float progress = regionState.atmosphericState.habitabilityScore > 0f
+                ? regionState.atmosphericState.habitabilityScore
+                : regionState.terraformationProgress;
+            progressTracker.SetAuthoritativeProgress(progress);
+        }
 
         if (_selectedCell != null)
             RefreshHexInfo();
@@ -307,13 +350,19 @@ public class TerraformHUD : MonoBehaviour
                     ? _authoritativeRegionState.planetName
                     : (_regionContext.body != null ? _regionContext.body.bodyName : "?");
 
+                AtmosphericState atm = _authoritativeRegionState.atmosphericState;
+                string atmLine = atm.habitabilityScore > 0f
+                    ? $"Atmosphère : O₂ {atm.o2Ratio * 100f:F1}% | CO₂ {atm.co2Ratio * 100f:F2}% | {atm.atmosphericPressure:F1} kPa | T {atm.averageTemperature:F1}°C\n" +
+                      $"Habitabilité : {atm.habitabilityScore * 100f:F1}% | Toxines {atm.toxinRatio * 100f:F0}%\n"
+                    : string.Empty;
                 regionInfo =
                     $"Astre : {bodyName}\n" +
                     $"Région : lat {_authoritativeRegionState.coordinates.latitude:F2} | lon {_authoritativeRegionState.coordinates.longitude:F2}\n" +
                     $"Projection : {_authoritativeRegionState.coherence.dominantTerrainType} | eau {_authoritativeRegionState.coherence.projectedWaterRatio * 100f:F0}%\n" +
                     $"Climat : dT {_authoritativeRegionState.weather.temperatureOffset:+0.0;-0.0;0.0}°C | pluie {_authoritativeRegionState.weather.precipitationRate * 100f:F0}%\n" +
                     $"Vent : {_authoritativeRegionState.weather.prevailingWindSpeed:F2} ({_authoritativeRegionState.weather.prevailingWindDirection.x:F1}, {_authoritativeRegionState.weather.prevailingWindDirection.y:F1})\n" +
-                    $"Cohérence : mer {_authoritativeRegionState.coherence.oceanicity:F2} | aride {_authoritativeRegionState.coherence.deserticity:F2} | gel {_authoritativeRegionState.coherence.frigidity:F2}\n\n";
+                    $"Cohérence : mer {_authoritativeRegionState.coherence.oceanicity:F2} | aride {_authoritativeRegionState.coherence.deserticity:F2} | gel {_authoritativeRegionState.coherence.frigidity:F2}\n" +
+                    atmLine + "\n";
             }
             else
             {

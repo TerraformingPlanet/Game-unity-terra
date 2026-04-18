@@ -8,7 +8,7 @@ public static class UIEventSystemUtility
 {
     public static void EnsureEventSystem()
     {
-        if (Object.FindObjectOfType<EventSystem>() != null)
+        if (Object.FindAnyObjectByType<EventSystem>() != null)
             return;
 
         GameObject eventSystemObject = new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));

@@ -35,7 +35,7 @@ public class PlanetViewToggleButton : MonoBehaviour
     private void Start()
     {
         if (viewManager == null)
-            viewManager = FindObjectOfType<ViewManager>();
+            viewManager = FindFirstObjectByType<ViewManager>();
 
         ViewManager.OnViewChanged += HandleViewChanged;
         Refresh();
