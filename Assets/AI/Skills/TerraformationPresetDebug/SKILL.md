@@ -22,6 +22,7 @@ Prefer the project's runtime debug bridge, smoke test script, and documented pre
 - `Documentation/AI_DEBUG_WORKFLOW.md`
 - `Documentation/MCP_TOOLS_ARCHITECTURE.md`
 - `Tools/Invoke-TerraformationDebugSmokeTest.ps1`
+- `Tools/Test-GenerationQuality.ps1`
 
 ## Working rules
 
@@ -33,14 +34,15 @@ Prefer the project's runtime debug bridge, smoke test script, and documented pre
 
 ## Recommended order
 
-1. Check current state.
-2. Launch the target preset.
-3. Read projection summary.
-4. Open a representative region if needed.
-5. Read local summary.
-6. Read console warnings and errors.
-7. Capture a screenshot when visual confirmation matters.
-8. Compare results against `Documentation/TEST_PRESETS_CHECKLIST.md`.
+1. If the issue is server-side generation, run the generation quality suite first.
+2. Check current state.
+3. Launch the target preset.
+4. Read projection summary.
+5. Open a representative region if needed.
+6. Read local summary.
+7. Read console warnings and errors.
+8. Capture a screenshot when visual confirmation matters.
+9. Compare results against `Documentation/TEST_PRESETS_CHECKLIST.md`.
 
 ## Expected preset heuristics
 

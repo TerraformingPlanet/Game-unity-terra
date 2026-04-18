@@ -18,11 +18,12 @@ Diagnose hydrology regressions with structured evidence before proposing code ch
 
 Prefer these sources in order:
 
-1. local summary from the runtime debug bridge
-2. projection summary if the bug may originate from macro coherence
-3. console warnings and errors
-4. selected cell information and HUD state
-5. screenshot only as supporting evidence
+1. dedicated-server generation stats / quality suite if the bug may originate from projection tuning
+2. local summary from the runtime debug bridge
+3. projection summary if the bug may originate from macro coherence
+4. console warnings and errors
+5. selected cell information and HUD state
+6. screenshot only as supporting evidence
 
 ## Main systems to inspect
 
@@ -56,6 +57,7 @@ Prefer these sources in order:
 - Basin-like regions show basin or inland water evidence.
 - Coast scenarios show real transition cells instead of all-dry or all-open-water output.
 - Frozen scenarios keep cold temperatures or frozen water evidence.
+- Basin tuning should converge toward connectivity/outlet logic, not only a flat moisture bonus.
 
 ## Avoid
 

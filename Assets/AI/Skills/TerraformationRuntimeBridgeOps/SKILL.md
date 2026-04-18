@@ -20,7 +20,8 @@ Prefer the runtime bridge, smoke test script, and MCP adapter over ad hoc manual
 
 - HTTP bridge base URL: `http://127.0.0.1:48621`
 - smoke test script: `Tools/Invoke-TerraformationDebugSmokeTest.ps1`
-- MCP adapter: `Tools/TerraformationDebugMcp.ps1`
+- generation quality script: `Tools/Test-GenerationQuality.ps1`
+- MCP adapter: `Mcp/server.py`
 - workspace MCP server id: `terraformation-debug`
 
 ## Preconditions
@@ -31,13 +32,14 @@ Prefer the runtime bridge, smoke test script, and MCP adapter over ad hoc manual
 
 ## Preferred runtime order
 
-1. query current state
-2. launch preset if needed
-3. read projection summary
-4. open region if needed
-5. read local summary
-6. read console
-7. capture screenshot only if useful
+1. if the change is server-side only, use generation quality tools first
+2. query current state
+3. launch preset if needed
+4. read projection summary
+5. open region if needed
+6. read local summary
+7. read console
+8. capture screenshot only if useful
 
 ## Endpoints to rely on
 
@@ -65,13 +67,16 @@ Use the MCP adapter when a client needs structured tool calls instead of raw HTT
 
 Currently exposed tools:
 
-- `get_current_view_state`
+- `get_view_state`
 - `launch_preset`
 - `get_projection_summary`
 - `open_region`
 - `get_local_summary`
-- `get_recent_console_errors`
-- `capture_scene_screenshot`
+- `get_console_errors`
+- `take_screenshot`
+- `get_generation_stats`
+- `get_generation_noise_distribution`
+- `run_generation_quality_suite`
 
 ## Avoid
 
