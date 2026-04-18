@@ -62,12 +62,10 @@ public class FlatDebugOverlay : MonoBehaviour
     private void Awake()
     {
         _flatView = GetComponent<PlanetFlatView>();
-        PlanetaryHexGrid.OnPlanetDataChanged += OnPlanetDataChanged;
     }
 
     private void OnDestroy()
     {
-        PlanetaryHexGrid.OnPlanetDataChanged -= OnPlanetDataChanged;
         ClearLabels();
     }
 
@@ -78,9 +76,8 @@ public class FlatDebugOverlay : MonoBehaviour
     /// <summary>Affiche les labels de debug sur toutes les tuiles.</summary>
     public void ShowLabels()
     {
-        if (!_flatView.IsLoaded) return;
-        _isVisible = true;
-        BuildLabels(PlanetaryHexGrid.ActiveGrid);
+        // Labels non disponibles après migration H3 (pas de données Q/R)
+        Debug.LogWarning("[FlatDebugOverlay] Labels de debug non disponibles en mode H3.");
     }
 
     /// <summary>Cache et détruit tous les labels de debug.</summary>
@@ -103,79 +100,23 @@ public class FlatDebugOverlay : MonoBehaviour
     // Internals
     // =========================================================
 
-    private void OnPlanetDataChanged(PlanetaryHexGrid.GridData grid)
-    {
-        if (!gameObject.activeInHierarchy || !_isVisible) return;
-        // Rebuild labels si la grille change (résolution différente)
-        HideLabels();
-        _isVisible = true;
-        BuildLabels(grid);
-    }
+    private void OnPlanetDataChanged_Unused(PlanetaryHexGrid.GridData grid) { }
 
     private void BuildLabels(PlanetaryHexGrid.GridData grid)
     {
-        if (grid.Cells == null || grid.Cells.Length == 0) return;
-
-        // Récupère le GO du mesh (parent des labels) depuis PlanetFlatView
-        if (_meshObject == null)
-            _meshObject = _flatView.MeshObject;
-        if (_meshObject == null) return;
-
-        ClearLabels();
-        StartCoroutine(BuildLabelsCoroutine(grid));
+        // No-op après migration H3
     }
 
     private System.Collections.IEnumerator BuildLabelsCoroutine(PlanetaryHexGrid.GridData grid)
     {
-        _isBuilding = true;
-        int count = 0;
-
-        for (int i = 0; i < grid.Cells.Length; i++)
-        {
-            if (!_isVisible) yield break;
-
-            HexCell cell = grid.Cells[i];
-            CreateLabel(cell, grid.Cols, grid.Rows);
-            count++;
-
-            if (count >= labelsPerFrame)
-            {
-                count = 0;
-                yield return null;  // attend la frame suivante
-            }
-        }
-
+        // No-op après migration H3
         _isBuilding = false;
+        yield break;
     }
 
-    private void CreateLabel(HexCell cell, int cols, int rows)
+    private void CreateLabel_Unused(HexCell cell, int cols, int rows)
     {
-        // Position world du centre de la tuile (même formule que PlanetFlatMesh.MercatorCenter)
-        Vector3 localPos  = PlanetFlatMesh.MercatorCenter(cell.Q, cell.R, cols, rows);
-        // Décale de l'offset du meshObject
-        Vector3 worldPos  = _meshObject.transform.TransformPoint(localPos);
-        // Légèrement au-dessus du plan pour éviter le z-fighting
-        worldPos.y += 0.05f;
-
-        var go  = new GameObject($"DebugLabel_{cell.gridIndex}");
-        go.transform.SetParent(_meshObject.transform, false);
-        go.transform.localPosition = localPos + Vector3.up * 0.05f;
-        go.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);  // face caméra top-down
-        go.transform.localScale    = Vector3.one * labelWorldSize;
-
-        var tmp = go.AddComponent<TextMeshPro>();
-        tmp.text               = $"<b>{cell.gridIndex}</b>\n{cell.Q},{cell.R}";
-        tmp.fontSize           = 2f;
-        tmp.alignment          = TextAlignmentOptions.Center;
-        tmp.color              = labelColor;
-        tmp.enableWordWrapping = false;
-        tmp.overflowMode       = TextOverflowModes.Overflow;
-        tmp.sortingOrder       = 1;
-
-        if (debugFont != null)
-            tmp.font = debugFont;
-
-        _labelObjects.Add(go);
+        // Ancienne méthode Mercator — désactivée après migration H3.
     }
 
     private void ClearLabels()

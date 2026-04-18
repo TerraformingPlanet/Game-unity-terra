@@ -125,10 +125,7 @@ public class PlanetTangentView : MonoBehaviour
         _tangentInput.OnRegionClicked += (lat, lon) => OnRegionClicked?.Invoke(lat, lon);
     }
 
-    private void OnDestroy()
-    {
-        PlanetaryHexGrid.OnPlanetDataChanged -= OnPlanetDataChanged;
-    }
+    private void OnDestroy() { }
 
     // =========================================================
     // API publique
@@ -138,14 +135,23 @@ public class PlanetTangentView : MonoBehaviour
     /// Stocke les données GP. Ne construit PAS le mesh immédiatement.
     /// Appeler SetFocusAndEnter() pour déclencher le build et la transition.
     /// </summary>
-    public void LoadPlanet(
-        PlanetaryHexGrid.GridData grid,
-        GoldbergSphereGenerator.GoldbergMeshData sphereData)
+    public void LoadPlanet(GoldbergSphereGenerator.GoldbergMeshData sphereData)
     {
         _sphereData = sphereData;
-        PlanetaryHexGrid.OnPlanetDataChanged -= OnPlanetDataChanged;
-        PlanetaryHexGrid.OnPlanetDataChanged += OnPlanetDataChanged;
         Debug.Log($"[PlanetTangentView] Données chargées : {sphereData.faces?.Length ?? 0} faces GP.");
+    }
+
+    /// <summary>
+    /// Recolorise les faces GP depuis les tuiles H3 du serveur.
+    /// Appelé par ViewManager après réception de OnH3TilesReady.
+    /// </summary>
+    public void RefreshColorsFromH3(
+        GoldbergTileState[] tiles,
+        System.Collections.Generic.Dictionary<TerrainType, Color> colorByType)
+    {
+        if (_sphereData.faces == null) return;
+        GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereData.faces, tiles, colorByType);
+        if (_isReady) _tangentMesh.RefreshColors(_sphereData.faces);
     }
 
     /// <summary>
@@ -266,12 +272,4 @@ public class PlanetTangentView : MonoBehaviour
     // Sync données planétaires
     // =========================================================
 
-    private void OnPlanetDataChanged(PlanetaryHexGrid.GridData grid)
-    {
-        if (!gameObject.activeInHierarchy || !_isReady) return;
-        if (_sphereData.faces == null) return;
-
-        GoldbergFaceColorizer.Colorize(_sphereData.faces, grid);
-        _tangentMesh.RefreshColors(_sphereData.faces);
-    }
 }

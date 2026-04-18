@@ -1,33 +1,50 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Colorise les tuiles d'une sphère Goldberg depuis une grille planétaire Mercator.
-///
-/// Pour chaque tuile GP, on cherche la HexCell Mercator dont les coordonnées
-/// lat/lon normalisées correspondent au centroïde de la tuile, puis on
-/// assigne la couleur du terrain de cette cellule.
-///
-/// Appelé après GoldbergSphereGenerator.Generate() et avant
-/// GoldbergSphereGenerator.ApplyFaceColors().
+/// Colorise les tuiles d'une sphère Goldberg depuis les données H3 du serveur de simulation.
+/// Appelé après GoldbergSphereGenerator.Generate() et avant GoldbergSphereGenerator.ApplyFaceColors().
 /// </summary>
 public static class GoldbergFaceColorizer
 {
     /// <summary>
-    /// Remplit faces[i].color depuis la grille planétaire fournie par PlanetaryHexGrid.Generate().
+    /// Recolorise les tuiles GP depuis un tableau de GoldbergTileState serveur.
+    /// Nearest-neighbor lat/lon (distance² normalisée, wrap-around longitude).
+    /// Seules les faces avec un terrainType connu dans colorByType sont modifiées.
     /// </summary>
-    public static void Colorize(
+    public static void ColorizeFromServerTiles(
         GoldbergSphereGenerator.GoldbergFace[] faces,
-        PlanetaryHexGrid.GridData grid)
+        GoldbergTileState[] serverTiles,
+        Dictionary<TerrainType, Color> colorByType)
     {
-        if (grid.Cells == null || grid.Cells.Length == 0) return;
+        if (faces == null || serverTiles == null || serverTiles.Length == 0 || colorByType == null)
+            return;
 
         for (int i = 0; i < faces.Length; i++)
         {
-            HexCell cell = PlanetaryHexGrid.GetCellAt(
-                grid.Cells, grid.Cols, grid.Rows,
-                faces[i].latNorm, faces[i].lonNorm);
+            float fLat = faces[i].latNorm;
+            float fLon = faces[i].lonNorm;
 
-            faces[i].color = (cell?.terrain != null) ? cell.terrain.color : Color.black;
+            float bestDist2 = float.MaxValue;
+            int   bestIdx   = 0;
+
+            for (int j = 0; j < serverTiles.Length; j++)
+            {
+                float dLat = fLat - serverTiles[j].latNorm;
+                float dLon = fLon - serverTiles[j].lonNorm;
+                // wrap-around longitude [0,1]
+                if (dLon >  0.5f) dLon -= 1f;
+                if (dLon < -0.5f) dLon += 1f;
+                float dist2 = dLat * dLat + dLon * dLon;
+                if (dist2 < bestDist2)
+                {
+                    bestDist2 = dist2;
+                    bestIdx   = j;
+                }
+            }
+
+            if (colorByType.TryGetValue(serverTiles[bestIdx].terrainType, out Color c))
+                faces[i].color = c;
         }
     }
 }

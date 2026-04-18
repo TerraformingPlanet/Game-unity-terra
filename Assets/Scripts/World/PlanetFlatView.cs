@@ -1,17 +1,18 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Vue planétaire plate — projection Mercator de toute la surface d'une planète.
+/// Vue planétaire plate — layout H3 de toute la surface d'une planète.
 ///
 /// Crée un enfant GameObject portant PlanetFlatMesh pour le rendu et le collider.
-/// S'abonne à PlanetaryHexGrid.OnPlanetDataChanged pour se rafraîchir en temps réel
-/// quand la simulation modifie des cellules.
+/// Le mesh est construit à partir des tuiles H3 fournies par le serveur de simulation.
 ///
-/// Interface publique identique à PlanetSphereGoldberg pour le ViewManager :
-///   - LoadPlanet(grid)        : charge et rend la grille
-///   - RefreshColors(grid)     : met à jour les couleurs sans retrianguler
-///   - event OnRegionClicked   : déclenché par PlanetFlatInput
+/// Interface publique :
+///   - LoadPlanetFromH3(tiles, colorByType) : construit et affiche le mesh H3
+///   - GetH3Tile(gridIndex)                 : tuile H3 à l'index cliqué
+///   - GridIndexToLatLon(gridIndex)         : lat/lon pour OnRegionClicked
+///   - event OnRegionClicked               : déclenché par PlanetFlatInput
 ///
 /// Prérequis Unity :
 ///   - Ajouter ce composant sur un GameObject enfant de PlanetRoot.
@@ -44,14 +45,15 @@ public class PlanetFlatView : MonoBehaviour
     // Runtime
     // =========================================================
 
-    private PlanetFlatMesh _flatMesh;
+    private PlanetFlatMesh  _flatMesh;
     private PlanetFlatInput _flatInput;
-    private GameObject _meshObject;
+    private GameObject      _meshObject;
 
-    private PlanetaryHexGrid.GridData _currentGrid;
-    private Color[] _cachedColors;     // snapshot des couleurs sans hover
+    private GoldbergTileState[]              _h3Tiles;
+    private Dictionary<TerrainType, Color>   _colorByType;
+    private Color[]                          _cachedColors;   // snapshot sans hover
 
-    public bool IsLoaded  => _currentGrid.Cells != null && _currentGrid.Cells.Length > 0;
+    public bool IsLoaded => _h3Tiles != null && _h3Tiles.Length > 0;
 
     /// <summary>Référence au GameObject portant le MeshCollider (pour PlanetFlatInput).</summary>
     public GameObject MeshObject => _meshObject;
@@ -66,7 +68,7 @@ public class PlanetFlatView : MonoBehaviour
         _meshObject = new GameObject("FlatMeshRenderer");
         _meshObject.transform.SetParent(transform, false);
 
-        // Isole le mesh Mercator sur le layer MinimapOnly (invisible à la Main Camera)
+        // Isole le mesh sur le layer MinimapOnly (invisible à la Main Camera)
         int minimapLayer = LayerMask.NameToLayer("MinimapOnly");
         if (minimapLayer >= 0) _meshObject.layer = minimapLayer;
 
@@ -93,14 +95,6 @@ public class PlanetFlatView : MonoBehaviour
             _flatInput = gameObject.AddComponent<PlanetFlatInput>();
 
         _flatInput.OnRegionClicked += (lat, lon) => OnRegionClicked?.Invoke(lat, lon);
-
-        // Abonnement au bus de données planétaire
-        PlanetaryHexGrid.OnPlanetDataChanged += OnPlanetDataChanged;
-    }
-
-    private void OnDestroy()
-    {
-        PlanetaryHexGrid.OnPlanetDataChanged -= OnPlanetDataChanged;
     }
 
     // =========================================================
@@ -108,19 +102,20 @@ public class PlanetFlatView : MonoBehaviour
     // =========================================================
 
     /// <summary>
-    /// Charge et affiche la grille planétaire en vue Mercator.
-    /// Appelé par ViewManager.ShowProjectedPlanet() ou TogglePlanetView().
+    /// Construit et affiche le mesh plat depuis les tuiles H3 du serveur.
+    /// Appelé par ViewManager après réception de l'événement OnH3TilesReady.
     /// </summary>
-    public void LoadPlanet(PlanetaryHexGrid.GridData grid)
+    public void LoadPlanetFromH3(GoldbergTileState[] tiles, Dictionary<TerrainType, Color> colorByType)
     {
-        if (grid.Cells == null || grid.Cells.Length == 0)
+        if (tiles == null || tiles.Length == 0)
         {
-            Debug.LogWarning("[PlanetFlatView] GridData vide.");
+            Debug.LogWarning("[PlanetFlatView] Aucune tuile H3 fournie.");
             return;
         }
 
-        _currentGrid = grid;
-        _flatMesh.Triangulate(grid.Cells, grid.Cols, grid.Rows);
+        _h3Tiles     = tiles;
+        _colorByType = colorByType;
+        _flatMesh.TriangulateH3(tiles, colorByType);
 
         // Snapshot des couleurs de base (avant hover)
         var mf = _meshObject.GetComponent<MeshFilter>();
@@ -128,30 +123,15 @@ public class PlanetFlatView : MonoBehaviour
             ? (Color[])mf.sharedMesh.colors.Clone()
             : null;
 
-        // Centrer le pivot du mesh
-        CenterMesh(grid.Cols, grid.Rows);
+        // Centre le pivot du mesh
+        Bounds b = _flatMesh.GetBounds();
+        _meshObject.transform.localPosition = new Vector3(-b.center.x, 0f, -b.center.z);
 
-        // Initialise la minimap après centrage (bounds correctes)
+        // Initialise la minimap
         if (minimapController != null)
             minimapController.Setup(_flatMesh, _meshObject.transform);
 
-        Debug.Log($"[PlanetFlatView] Chargé : {grid.Cols}×{grid.Rows} = {grid.Cells.Length} tuiles");
-    }
-
-    /// <summary>
-    /// Met à jour les couleurs de vertex depuis une grille mise à jour (simulation tick).
-    /// Appelé par le bus OnPlanetDataChanged si la vue est active.
-    /// </summary>
-    public void RefreshColors(PlanetaryHexGrid.GridData grid)
-    {
-        if (!IsLoaded) return;
-        _currentGrid = grid;
-        _flatMesh.RefreshColors(grid.Cells);
-
-        // Resync du snapshot hover
-        var mf = _meshObject.GetComponent<MeshFilter>();
-        if (mf != null && mf.sharedMesh != null)
-            _cachedColors = (Color[])mf.sharedMesh.colors.Clone();
+        Debug.Log($"[PlanetFlatView] Chargé H3 : {tiles.Length} tuiles");
     }
 
     // =========================================================
@@ -199,45 +179,22 @@ public class PlanetFlatView : MonoBehaviour
     public int GetGridIndexFromTriangle(int triangleIndex)
         => _flatMesh != null ? _flatMesh.GetGridIndexFromTriangle(triangleIndex) : -1;
 
-    /// <summary>Convertit un gridIndex en coordonnées lat/lon normalisées [0–1].</summary>
+    /// <summary>Retourne les coordonnées lat/lon normalisées [0–1] de la tuile H3 à cet index.</summary>
     public (float latNorm, float lonNorm) GridIndexToLatLon(int gridIndex)
     {
-        if (!IsLoaded || gridIndex < 0 || gridIndex >= _currentGrid.Cells.Length)
+        if (!IsLoaded || gridIndex < 0 || gridIndex >= _h3Tiles.Length)
             return (0.5f, 0.5f);
-
-        HexCell cell = _currentGrid.Cells[gridIndex];
-        float lonNorm = (cell.Q + 0.5f) / _currentGrid.Cols;
-        float latNorm = (cell.R + 0.5f) / _currentGrid.Rows;
-        return (latNorm, lonNorm);
+        return (_h3Tiles[gridIndex].latNorm, _h3Tiles[gridIndex].lonNorm);
     }
 
-    public HexCell GetCell(int gridIndex)
+    /// <summary>Retourne la tuile H3 à l'index fourni (null si invalide).</summary>
+    public GoldbergTileState? GetH3Tile(int gridIndex)
     {
-        if (!IsLoaded || gridIndex < 0 || gridIndex >= _currentGrid.Cells.Length)
+        if (!IsLoaded || gridIndex < 0 || gridIndex >= _h3Tiles.Length)
             return null;
-        return _currentGrid.Cells[gridIndex];
+        return _h3Tiles[gridIndex];
     }
 
-    // =========================================================
-    // Bus de données planétaire
-    // =========================================================
-
-    private void OnPlanetDataChanged(PlanetaryHexGrid.GridData grid)
-    {
-        // Ne rafraîchit que si la vue est active et que la grille correspond
-        if (!gameObject.activeInHierarchy) return;
-        if (grid.Cols != _currentGrid.Cols || grid.Rows != _currentGrid.Rows) return;
-        RefreshColors(grid);
-    }
-
-    // =========================================================
-    // Helpers
-    // =========================================================
-
-    private void CenterMesh(int cols, int rows)
-    {
-        // Utilise les bounds réelles du mesh (la hauteur varie selon la géométrie hex)
-        Bounds b = _flatMesh.GetBounds();
-        _meshObject.transform.localPosition = new Vector3(-b.center.x, 0f, -b.center.z);
-    }
+    /// <summary>Méthode de compatibilité — toujours null après migration H3.</summary>
+    public HexCell GetCell(int gridIndex) => null;
 }

@@ -105,6 +105,60 @@ public class PlanetFlatMesh : MonoBehaviour
     /// <summary>Bounds du mesh dans l'espace local (pour centrer la caméra).</summary>
     public Bounds GetBounds() => _mesh != null ? _mesh.bounds : new Bounds(Vector3.zero, Vector3.zero);
 
+    /// <summary>
+    /// Construit ou reconstruit le mesh plat depuis des tuiles H3 serveur.
+    /// Chaque tuile est positionnée à (lonNorm×FlatMapWidth, latNorm×FlatMapHeight).
+    /// La taille des hexagones est déduite automatiquement du nombre de tuiles.
+    /// </summary>
+    public void TriangulateH3(GoldbergTileState[] tiles, System.Collections.Generic.Dictionary<TerrainType, Color> colorByType)
+    {
+        _mesh.Clear();
+        _vertices.Clear();
+        _triangles.Clear();
+        _colors.Clear();
+        if (tiles == null || tiles.Length == 0) return;
+
+        // Rayon de l'hexagone déduit de la surface couverte par tuile
+        float hexArea = (FlatMapWidth * FlatMapHeight) / tiles.Length;
+        float r       = Mathf.Sqrt(2f * hexArea / (3f * 1.7320508f)) * 1.05f; // légère superposition anti-gaps
+
+        int totalTris = tiles.Length * 6;
+        _triangleToCell = new int[totalTris];
+
+        for (int idx = 0; idx < tiles.Length; idx++)
+        {
+            GoldbergTileState tile = tiles[idx];
+            float x = tile.lonNorm * FlatMapWidth  - FlatMapWidth  * 0.5f;
+            float z = tile.latNorm * FlatMapHeight - FlatMapHeight * 0.5f;
+            Vector3 center = new Vector3(x, 0f, z);
+
+            Color color = colorByType != null && colorByType.TryGetValue(tile.terrainType, out Color c)
+                ? c : Color.black;
+
+            int triStart = _triangles.Count / 3;
+            for (int i = 0; i < 6; i++)
+            {
+                float a0 = (30f + i       * 60f) * Mathf.Deg2Rad;
+                float a1 = (30f + (i + 1) * 60f) * Mathf.Deg2Rad;
+                Vector3 v0 = center + new Vector3(Mathf.Cos(a0) * r, 0f, Mathf.Sin(a0) * r);
+                Vector3 v1 = center + new Vector3(Mathf.Cos(a1) * r, 0f, Mathf.Sin(a1) * r);
+
+                int vIdx = _vertices.Count;
+                _vertices.Add(center); _vertices.Add(v0); _vertices.Add(v1);
+                _triangles.Add(vIdx); _triangles.Add(vIdx + 1); _triangles.Add(vIdx + 2);
+                _colors.Add(color); _colors.Add(color); _colors.Add(color);
+                _triangleToCell[triStart + i] = idx;
+            }
+        }
+
+        _mesh.vertices  = _vertices.ToArray();
+        _mesh.triangles = _triangles.ToArray();
+        _mesh.colors    = _colors.ToArray();
+        _mesh.RecalculateNormals();
+        _mesh.RecalculateBounds();
+        _meshCollider.sharedMesh = _mesh;
+    }
+
     // =========================================================
     // Géométrie Mercator
     // =========================================================

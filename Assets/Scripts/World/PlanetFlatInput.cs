@@ -41,7 +41,7 @@ public class PlanetFlatInput : MonoBehaviour
         _cam      = Camera.main;
 
         if (terraformHUD == null)
-            terraformHUD = FindObjectOfType<TerraformHUD>();
+            terraformHUD = FindFirstObjectByType<TerraformHUD>();
     }
 
     private void Update()
@@ -77,18 +77,18 @@ public class PlanetFlatInput : MonoBehaviour
             _flatView.SetHover(gridIndex);
             _hoveredGridIndex = gridIndex;
 
-            // Tooltip au survol
-            HexCell hoveredCell = _flatView.GetCell(gridIndex);
-            if (hoveredCell != null)
-                terraformHUD?.ShowHexPanel(hoveredCell);
+            // Tooltip au survol — données H3 authoritatives
+            GoldbergTileState? h3Tile = _flatView.GetH3Tile(gridIndex);
+            if (h3Tile.HasValue)
+                terraformHUD?.ShowH3TileInfo(h3Tile.Value);
         }
 
         // Clic gauche
         if (Mouse.current.leftButton.wasPressedThisFrame)
         {
             (float latNorm, float lonNorm) = _flatView.GridIndexToLatLon(gridIndex);
-            HexCell cell = _flatView.GetCell(gridIndex);
-            string terrain = cell?.terrain != null ? cell.terrain.displayName : "?";
+            GoldbergTileState? tile = _flatView.GetH3Tile(gridIndex);
+            string terrain = tile.HasValue ? tile.Value.terrainType.ToString() : "?";
             Debug.Log($"[PlanetFlatInput] Clic tuile {gridIndex} | lat={latNorm:F3} lon={lonNorm:F3} | {terrain}");
             OnRegionClicked?.Invoke(latNorm, lonNorm);
         }

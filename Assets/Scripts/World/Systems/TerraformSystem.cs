@@ -40,6 +40,7 @@ public class TerraformSystem : MonoBehaviour
     [SerializeField] private bool fallbackToLocalSimulationOnServerFailure = true;
     [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
     [SerializeField] private float simulationServerTimeoutSeconds = 2f;
+    [SerializeField] private float serverPollingIntervalSeconds = 5f;
 
     private ITickSource _tickSource;
     private IHexCellStore _cellStore;
@@ -52,6 +53,7 @@ public class TerraformSystem : MonoBehaviour
     private readonly TerraformSimulationSession _simulationSession = new TerraformSimulationSession();
     private bool _hasAuthoritativeWorldState;
     private WorldState _lastAuthoritativeWorldState;
+    private int _lastServerTickCount = -1;
 
     public bool HasAuthoritativeWorldState => _hasAuthoritativeWorldState;
     public WorldState LastAuthoritativeWorldState => _lastAuthoritativeWorldState;
@@ -73,6 +75,9 @@ public class TerraformSystem : MonoBehaviour
             _tickSource.OnTick += HandleTick;
         else
             Debug.LogWarning("[TerraformSystem] TickManager introuvable — souscription différée.");
+
+        if (preferServerCommands)
+            StartCoroutine(PollServerWorldState());
     }
 
     private void OnDestroy()
@@ -176,7 +181,58 @@ public class TerraformSystem : MonoBehaviour
 
     private void HandleTick(int tickNumber)
     {
+        if (_hasAuthoritativeWorldState) return; // serveur autoritatif → tick local inhibé
         _simulationSession.ProcessTick(_refreshSink, cellChanged => OnCellBiomeChanged?.Invoke(cellChanged));
+    }
+
+    // =========================================================
+    // Polling serveur §4.1
+    // =========================================================
+
+    private IEnumerator PollServerWorldState()
+    {
+        var wait = new WaitForSeconds(serverPollingIntervalSeconds);
+        while (true)
+        {
+            yield return wait;
+            if (isActiveAndEnabled)
+                yield return FetchServerWorldState();
+        }
+    }
+
+    private IEnumerator FetchServerWorldState()
+    {
+        string url = simulationServerUrl.TrimEnd('/') + "/world";
+        using UnityWebRequest request = UnityWebRequest.Get(url);
+        request.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+
+        yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogWarning($"[TerraformSystem] Polling serveur indisponible ({request.error}).");
+            yield break;
+        }
+
+        WorldState worldState;
+        try
+        {
+            worldState = JsonUtility.FromJson<WorldState>(request.downloadHandler.text);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TerraformSystem] Réponse polling invalide ({ex.Message}).");
+            yield break;
+        }
+
+        if (!worldState.isValid)
+            yield break;
+
+        if (worldState.tickCount <= _lastServerTickCount)
+            yield break;
+
+        _lastServerTickCount = worldState.tickCount;
+        ApplyAuthoritativeWorldState(worldState, null);
     }
 
     private bool ShouldUseServerCommands(HexCell cell, TerraformActionData action)
