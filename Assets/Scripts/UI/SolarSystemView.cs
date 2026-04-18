@@ -70,8 +70,14 @@ public class SolarSystemView : MonoBehaviour
     [Tooltip("URL du serveur pour fetcher les tuiles biome des mini-planètes.")]
     [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
 
-    [Tooltip("Subdivisions du mini mesh Goldberg. 2 = 12 faces, 3 = 32 faces.")]
-    [SerializeField] private int miniGoldbergDivisions = 2;
+    [Tooltip("Subdivisions de base du mini mesh Goldberg. Coût réel ~= 10*N^2+2 tuiles/faces.")]
+    [SerializeField] private int miniGoldbergDivisions = 4;
+
+    [Tooltip("Subdivisions utilisées pour les plus gros astres visibles en vue système.")]
+    [SerializeField] private int miniGoldbergHighDivisions = 5;
+
+    [Tooltip("Au-dessus de ce rayon visuel, les gros astres passent au niveau de détail élevé.")]
+    [SerializeField] private float miniGoldbergHighDetailRadius = 2.0f;
 
     [Tooltip("Matériau vertex-color (Terraformation/HexVertexColor). Si null, utilise la sphère Unity standard.")]
     [SerializeField] private Material goldbergMaterial;
@@ -164,11 +170,11 @@ public class SolarSystemView : MonoBehaviour
     {
         float displayRadius = ComputeDisplayRadius(slot.body);
         GameObject go;
+        int goldbergDivisions = ResolveMiniGoldbergDivisions(displayRadius, slot.body);
 
         bool useMiniGoldberg = goldbergMaterial != null
-                               && !(slot.body is Moon)
                                && _miniMeshes.Count < maxMiniGoldbergBodies
-                               && displayRadius >= miniGoldbergMinDisplayRadius;
+                               && goldbergDivisions > 0;
 
         if (useMiniGoldberg)
         {
@@ -186,7 +192,7 @@ public class SolarSystemView : MonoBehaviour
             MeshCollider mc = go.AddComponent<MeshCollider>();
 
             GoldbergSphereGenerator.GoldbergMeshData md =
-                GoldbergSphereGenerator.GenerateWithDivisions(miniGoldbergDivisions);
+                GoldbergSphereGenerator.GenerateWithDivisions(goldbergDivisions);
 
             // Couleur uniforme displayColor en fallback immédiat (remplacée async par biomes serveur)
             for (int i = 0; i < md.faces.Length; i++)
@@ -198,6 +204,8 @@ public class SolarSystemView : MonoBehaviour
             mc.sharedMesh = md.mesh;
 
             _miniMeshes[slot.body.bodyName] = md;
+
+            Debug.Log($"[SolarSystemView] Mini Goldberg {slot.body.bodyName} | radius={displayRadius:F2} | div={goldbergDivisions} | faces={md.faces.Length}");
         }
         else
         {
@@ -214,6 +222,8 @@ public class SolarSystemView : MonoBehaviour
                 rend.material = new Material(rend.sharedMaterial);
                 rend.material.color = slot.body.displayColor;
             }
+
+            Debug.Log($"[SolarSystemView] Sphere fallback {slot.body.bodyName} | radius={displayRadius:F2}");
         }
 
         // Composant de clic
@@ -235,6 +245,18 @@ public class SolarSystemView : MonoBehaviour
         float earthRadiusRatio = body.radius / EarthRadiusKm;
         float scaledRadius = earthRadiusRatio * planetRadiusScale;
         return Mathf.Clamp(scaledRadius, minPlanetRadius, maxPlanetRadius);
+    }
+
+    private int ResolveMiniGoldbergDivisions(float displayRadius, OrbitalBody body)
+    {
+        if (goldbergMaterial == null) return 0;
+        if (body is Moon) return 0;
+        if (displayRadius < miniGoldbergMinDisplayRadius) return 0;
+
+        int baseDivisions = Mathf.Clamp(miniGoldbergDivisions, 2, 15);
+        int highDivisions = Mathf.Clamp(Mathf.Max(baseDivisions, miniGoldbergHighDivisions), 2, 15);
+
+        return displayRadius >= miniGoldbergHighDetailRadius ? highDivisions : baseDivisions;
     }
 
     private void CreateStarMarker()
