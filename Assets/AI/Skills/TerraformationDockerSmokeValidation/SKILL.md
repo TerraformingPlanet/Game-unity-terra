@@ -18,7 +18,12 @@ Treat Docker validation as a repeatable gate, not an informal check.
 
 - `docker-compose.yml`
 - `.vscode/tasks.json`
+- `.github/workflows/generation-smoke.yml`
+- `.github/workflows/mcp-http-probe.yml`
 - `DedicatedServer/Dockerfile`
+- `DedicatedServer/app/generation_smoke.py`
+- `DedicatedServer/app/compare_generation_runs.py`
+- `Mcp/ci_mcp_http_probe.py`
 - `Tools/Test-GenerationQuality.ps1`
 - `Tools/Invoke-DedicatedServerGenerationSmoke.ps1`
 - `Tools/Invoke-TerraformationDebugSmokeTest.ps1`
@@ -28,8 +33,11 @@ Treat Docker validation as a repeatable gate, not an informal check.
 
 1. Rebuild `terraformation-dedicated-server` with Docker Compose.
 2. Run `run_generation_quality_suite` or `Tools/Test-GenerationQuality.ps1`.
-3. Only if needed, run Unity-side smoke checks for preset visuals and console state.
-4. Report exact failing checks, not vague regression summaries.
+3. Prefer the Compose smoke profile or CI workflow when you need a Linux-native, PowerShell-free gate.
+4. Use the MCP HTTP probe workflow when you need to validate the real FastMCP session flow, not just Python imports.
+5. When comparing two runs, use the diffable JSON outputs and `compare_generation_runs.py` instead of eyeballing tables.
+6. Only if needed, run Unity-side smoke checks for preset visuals and console state.
+7. Report exact failing checks, not vague regression summaries.
 
 ## Working rules
 

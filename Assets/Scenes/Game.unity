@@ -2918,7 +2918,8 @@ MonoBehaviour:
   orbitSensitivity: 0.3
   orbitMinDistance: 8
   orbitMaxDistance: 40
-  orbitScrollSpeed: 12
+  orbitScrollSpeed: 0.5
+  orbitKeyboardPanSpeed: 20
   orbitMinElevation: 5
   orbitMaxElevation: 89
 --- !u!20 &707163113
@@ -3576,7 +3577,7 @@ MonoBehaviour:
   localOverlaySurfaceOffset: 0.05
   solarOrbitMinDistance: 20
   solarOrbitMaxDistance: 120
-  solarOrbitStartDistance: 55
+  solarOrbitStartDistance: 50
   localMinZoom: 6
   localMaxZoom: 1000
   localStartZoom: 360
@@ -3584,6 +3585,9 @@ MonoBehaviour:
   planetOrbitMinDistance: 12
   planetOrbitMaxDistance: 40
   planetOrbitStartDistance: 22
+  planetH3MinZoom: 5
+  planetH3MaxZoom: 120
+  planetH3StartZoom: 120
   directPlanetClickToLocal: 0
   startingView: 1
   preferServerRegionSync: 1
@@ -9079,7 +9083,18 @@ MonoBehaviour:
   orbitColor: {r: 0.5, g: 0.5, b: 0.5, a: 0.4}
   simulationServerUrl: http://127.0.0.1:8080
   miniGoldbergDivisions: 2
+  miniGoldbergHighDivisions: 5
+  miniGoldbergHighDetailRadius: 2
   goldbergMaterial: {fileID: 2100000, guid: c79605f887085e14cade0332cc7d3d35, type: 2}
+  maxMiniGoldbergBodies: 8
+  miniGoldbergMinDisplayRadius: 1.1
+  minMoonRadius: 0.35
+  maxMoonRadius: 0.9
+  moonOrbitScaleMultiplier: 120
+  starDisplayRadius: 2.4
+  showDetailedDebugLabels: 0
+  debugLabelToggleKey: 102
+  logSystemValidationOnLoad: 1
 --- !u!4 &1709760143
 Transform:
   m_ObjectHideFlags: 0
