@@ -33,11 +33,23 @@ public class PlanetFlatMesh : MonoBehaviour
     // Tableau triangleIndex → gridIndex (pour GetCellFromTriangleIndex)
     private int[] _triangleToCell;
 
+    private void EnsureInitialized()
+    {
+        if (_mesh == null)
+        {
+            _mesh = new Mesh { name = "Planet Flat Mesh" };
+            MeshFilter meshFilter = GetComponent<MeshFilter>();
+            if (meshFilter != null)
+                meshFilter.mesh = _mesh;
+        }
+
+        if (_meshCollider == null)
+            _meshCollider = GetComponent<MeshCollider>();
+    }
+
     private void Awake()
     {
-        _mesh = new Mesh { name = "Planet Flat Mesh" };
-        GetComponent<MeshFilter>().mesh = _mesh;
-        _meshCollider = GetComponent<MeshCollider>();
+        EnsureInitialized();
     }
 
     // =========================================================
@@ -47,6 +59,7 @@ public class PlanetFlatMesh : MonoBehaviour
     /// <summary>Construit ou reconstruit le mesh complet depuis la grille planétaire.</summary>
     public void Triangulate(HexCell[] cells, int cols, int rows)
     {
+        EnsureInitialized();
         _mesh.Clear();
         _vertices.Clear();
         _triangles.Clear();
@@ -112,6 +125,7 @@ public class PlanetFlatMesh : MonoBehaviour
     /// </summary>
     public void TriangulateH3(GoldbergTileState[] tiles, System.Collections.Generic.Dictionary<TerrainType, Color> colorByType)
     {
+        EnsureInitialized();
         _mesh.Clear();
         _vertices.Clear();
         _triangles.Clear();

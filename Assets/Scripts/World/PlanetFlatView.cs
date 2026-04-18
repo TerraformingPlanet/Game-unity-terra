@@ -48,6 +48,7 @@ public class PlanetFlatView : MonoBehaviour
     private PlanetFlatMesh  _flatMesh;
     private PlanetFlatInput _flatInput;
     private GameObject      _meshObject;
+    private bool            _initialized;
 
     private GoldbergTileState[]              _h3Tiles;
     private Dictionary<TerrainType, Color>   _colorByType;
@@ -64,37 +65,7 @@ public class PlanetFlatView : MonoBehaviour
 
     private void Awake()
     {
-        // Crée un enfant dédié au mesh (pour isolation du collider)
-        _meshObject = new GameObject("FlatMeshRenderer");
-        _meshObject.transform.SetParent(transform, false);
-
-        // Isole le mesh sur le layer MinimapOnly (invisible à la Main Camera)
-        int minimapLayer = LayerMask.NameToLayer("MinimapOnly");
-        if (minimapLayer >= 0) _meshObject.layer = minimapLayer;
-
-        _flatMesh = _meshObject.AddComponent<PlanetFlatMesh>();
-
-        // Matériau
-        var mr = _meshObject.GetComponent<UnityEngine.Renderer>();
-        if (flatMaterial != null)
-        {
-            mr.sharedMaterial = flatMaterial;
-        }
-        else
-        {
-            Shader s = Shader.Find("Terraformation/HexVertexColor");
-            if (s != null)
-                mr.material = new Material(s);
-            else
-                Debug.LogWarning("[PlanetFlatView] Shader 'Terraformation/HexVertexColor' introuvable.");
-        }
-
-        // Input — sur ce même GameObject (pas sur _meshObject)
-        _flatInput = gameObject.GetComponent<PlanetFlatInput>();
-        if (_flatInput == null)
-            _flatInput = gameObject.AddComponent<PlanetFlatInput>();
-
-        _flatInput.OnRegionClicked += (lat, lon) => OnRegionClicked?.Invoke(lat, lon);
+        EnsureInitialized();
     }
 
     // =========================================================
@@ -107,6 +78,8 @@ public class PlanetFlatView : MonoBehaviour
     /// </summary>
     public void LoadPlanetFromH3(GoldbergTileState[] tiles, Dictionary<TerrainType, Color> colorByType)
     {
+        EnsureInitialized();
+
         if (tiles == null || tiles.Length == 0)
         {
             Debug.LogWarning("[PlanetFlatView] Aucune tuile H3 fournie.");
@@ -140,6 +113,7 @@ public class PlanetFlatView : MonoBehaviour
 
     public void SetHover(int gridIndex)
     {
+        EnsureInitialized();
         if (_cachedColors == null || gridIndex < 0) return;
         var mf = _meshObject.GetComponent<MeshFilter>();
         if (mf == null || mf.sharedMesh == null) return;
@@ -157,6 +131,7 @@ public class PlanetFlatView : MonoBehaviour
 
     public void ClearHover(int gridIndex)
     {
+        EnsureInitialized();
         if (_cachedColors == null || gridIndex < 0) return;
         var mf = _meshObject.GetComponent<MeshFilter>();
         if (mf == null || mf.sharedMesh == null) return;
@@ -177,7 +152,10 @@ public class PlanetFlatView : MonoBehaviour
     // =========================================================
 
     public int GetGridIndexFromTriangle(int triangleIndex)
-        => _flatMesh != null ? _flatMesh.GetGridIndexFromTriangle(triangleIndex) : -1;
+    {
+        EnsureInitialized();
+        return _flatMesh != null ? _flatMesh.GetGridIndexFromTriangle(triangleIndex) : -1;
+    }
 
     /// <summary>Retourne les coordonnées lat/lon normalisées [0–1] de la tuile H3 à cet index.</summary>
     public (float latNorm, float lonNorm) GridIndexToLatLon(int gridIndex)
@@ -197,4 +175,56 @@ public class PlanetFlatView : MonoBehaviour
 
     /// <summary>Méthode de compatibilité — toujours null après migration H3.</summary>
     public HexCell GetCell(int gridIndex) => null;
+
+    private void EnsureInitialized()
+    {
+        if (_initialized)
+            return;
+
+        if (_meshObject == null)
+        {
+            Transform existing = transform.Find("FlatMeshRenderer");
+            _meshObject = existing != null ? existing.gameObject : new GameObject("FlatMeshRenderer");
+            _meshObject.transform.SetParent(transform, false);
+        }
+
+        int minimapLayer = LayerMask.NameToLayer("MinimapOnly");
+        if (minimapLayer >= 0)
+            _meshObject.layer = minimapLayer;
+
+        _flatMesh = _meshObject.GetComponent<PlanetFlatMesh>();
+        if (_flatMesh == null)
+            _flatMesh = _meshObject.AddComponent<PlanetFlatMesh>();
+
+        var meshRenderer = _meshObject.GetComponent<MeshRenderer>();
+        if (meshRenderer != null)
+        {
+            if (flatMaterial != null)
+            {
+                meshRenderer.sharedMaterial = flatMaterial;
+            }
+            else if (meshRenderer.sharedMaterial == null)
+            {
+                Shader shader = Shader.Find("Terraformation/HexVertexColor");
+                if (shader != null)
+                    meshRenderer.material = new Material(shader);
+                else
+                    Debug.LogWarning("[PlanetFlatView] Shader 'Terraformation/HexVertexColor' introuvable.");
+            }
+        }
+
+        _flatInput = gameObject.GetComponent<PlanetFlatInput>();
+        if (_flatInput == null)
+            _flatInput = gameObject.AddComponent<PlanetFlatInput>();
+
+        _flatInput.OnRegionClicked -= HandleRegionClicked;
+        _flatInput.OnRegionClicked += HandleRegionClicked;
+
+        _initialized = true;
+    }
+
+    private void HandleRegionClicked(float lat, float lon)
+    {
+        OnRegionClicked?.Invoke(lat, lon);
+    }
 }

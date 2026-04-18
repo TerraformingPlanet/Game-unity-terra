@@ -1,5 +1,7 @@
 using UnityEngine;
 using System;
+using System.Collections.Generic;
+using System.Text;
 
 /// <summary>
 /// Association entre un corps céleste, son orbite, ses lunes et son état de colonisation.
@@ -39,6 +41,19 @@ public class OrbitalSlot
 [CreateAssetMenu(menuName = "Terraformation/Solar System", fileName = "NewSolarSystem")]
 public class SolarSystemData : ScriptableObject
 {
+    [Serializable]
+    public struct ValidationIssue
+    {
+        public string severity;
+        public string message;
+
+        public ValidationIssue(string severity, string message)
+        {
+            this.severity = severity;
+            this.message = message;
+        }
+    }
+
     [Header("Identité")]
     [Tooltip("Nom du système (ex: Kepler-442, Sol)")]
     public string systemName = "Système Inconnu";
@@ -54,6 +69,75 @@ public class SolarSystemData : ScriptableObject
 
     [Header("Corps en orbite (triés par semiMajorAxis croissant)")]
     public OrbitalSlot[] orbitalSlots;
+
+    public int CountBodies()
+    {
+        int count = primaryStar != null ? 1 : 0;
+        if (orbitalSlots == null) return count;
+
+        foreach (OrbitalSlot slot in orbitalSlots)
+            count += CountBodiesRecursive(slot);
+
+        return count;
+    }
+
+    public ValidationIssue[] ValidateHierarchy()
+    {
+        var issues = new List<ValidationIssue>();
+        var seenBodies = new HashSet<OrbitalBody>();
+
+        if (primaryStar == null)
+            issues.Add(new ValidationIssue("error", "Aucune étoile primaire définie."));
+
+        if (orbitalSlots == null || orbitalSlots.Length == 0)
+            issues.Add(new ValidationIssue("warning", "Aucun corps orbital chargé dans le système."));
+
+        if (orbitalSlots != null)
+        {
+            float previousAxis = -1f;
+            foreach (OrbitalSlot slot in orbitalSlots)
+            {
+                ValidateSlotRecursive(slot, issues, seenBodies, 0, false);
+
+                if (slot?.orbit.semiMajorAxis > 0f && slot.orbit.semiMajorAxis < previousAxis)
+                    issues.Add(new ValidationIssue("warning", "Les corps top-level ne sont pas triés par demi-grand axe croissant."));
+
+                if (slot?.orbit.semiMajorAxis > 0f)
+                    previousAxis = slot.orbit.semiMajorAxis;
+            }
+        }
+
+        return issues.ToArray();
+    }
+
+    public string BuildDebugSummary()
+    {
+        var builder = new StringBuilder();
+        int topLevelCount = orbitalSlots?.Length ?? 0;
+        int totalBodies = CountBodies();
+        ValidationIssue[] issues = ValidateHierarchy();
+
+        builder.Append(systemName);
+        builder.Append(" | étoiles=");
+        builder.Append(primaryStar != null ? 1 + (companionStars?.Length ?? 0) : 0);
+        builder.Append(" | top-level=");
+        builder.Append(topLevelCount);
+        builder.Append(" | corps=");
+        builder.Append(totalBodies);
+        builder.Append(" | anomalies=");
+        builder.Append(issues.Length);
+
+        if (primaryStar != null)
+        {
+            builder.Append(" | étoile=");
+            builder.Append(primaryStar.bodyName);
+            builder.Append(" [");
+            builder.Append(primaryStar.spectralType);
+            builder.Append("]");
+        }
+
+        return builder.ToString();
+    }
 
     // =============================================================
     // API physique
@@ -101,6 +185,72 @@ public class SolarSystemData : ScriptableObject
                     if (moon.body == body) return moon;
         }
         return null;
+    }
+
+    private static int CountBodiesRecursive(OrbitalSlot slot)
+    {
+        if (slot?.body == null) return 0;
+
+        int count = 1;
+        if (slot.moons == null) return count;
+
+        foreach (OrbitalSlot moon in slot.moons)
+            count += CountBodiesRecursive(moon);
+
+        return count;
+    }
+
+    private static void ValidateSlotRecursive(
+        OrbitalSlot slot,
+        List<ValidationIssue> issues,
+        HashSet<OrbitalBody> seenBodies,
+        int depth,
+        bool expectMoon)
+    {
+        if (slot == null)
+        {
+            issues.Add(new ValidationIssue("error", "OrbitalSlot null détecté."));
+            return;
+        }
+
+        if (slot.body == null)
+        {
+            issues.Add(new ValidationIssue("error", "OrbitalSlot sans body détecté."));
+            return;
+        }
+
+        if (!seenBodies.Add(slot.body))
+            issues.Add(new ValidationIssue("warning", $"Corps dupliqué dans la hiérarchie: {slot.body.bodyName}."));
+
+        if (slot.body is StarBody)
+            issues.Add(new ValidationIssue("error", $"Une étoile a été injectée dans les OrbitalSlots: {slot.body.bodyName}."));
+
+        if (slot.orbit.semiMajorAxis <= 0f)
+            issues.Add(new ValidationIssue("warning", $"Orbite invalide pour {slot.body.bodyName}: semiMajorAxis <= 0."));
+
+        if (slot.orbit.orbitalPeriodDays <= 0f)
+            issues.Add(new ValidationIssue("warning", $"Période orbitale invalide pour {slot.body.bodyName}."));
+
+        if (expectMoon && slot.body is not Moon)
+            issues.Add(new ValidationIssue("warning", $"Corps enfant non-lune sous un parent orbital: {slot.body.bodyName}."));
+
+        if (!expectMoon && slot.body is Moon)
+            issues.Add(new ValidationIssue("warning", $"Lune top-level détectée sans parent: {slot.body.bodyName}."));
+
+        if (slot.moons == null || slot.moons.Length == 0)
+            return;
+
+        float previousAxis = -1f;
+        foreach (OrbitalSlot moon in slot.moons)
+        {
+            ValidateSlotRecursive(moon, issues, seenBodies, depth + 1, true);
+
+            if (moon?.orbit.semiMajorAxis > 0f && moon.orbit.semiMajorAxis < previousAxis)
+                issues.Add(new ValidationIssue("warning", $"Les lunes de {slot.body.bodyName} ne sont pas triées par demi-grand axe croissant."));
+
+            if (moon?.orbit.semiMajorAxis > 0f)
+                previousAxis = moon.orbit.semiMajorAxis;
+        }
     }
 
     /// <summary>
