@@ -94,6 +94,16 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     [SerializeField] private float planetOrbitMaxDistance   = 40f;
     [SerializeField] private float planetOrbitStartDistance = 22f;
 
+    [Header("Vue planète H3 / plan tangent")]
+    [Tooltip("Zoom orthographique minimum pendant la transition vers le plan tangent / H3.")]
+    [SerializeField] private float planetH3MinZoom = 5f;
+
+    [Tooltip("Zoom orthographique maximum pendant la transition vers le plan tangent / H3.")]
+    [SerializeField] private float planetH3MaxZoom = 80f;
+
+    [Tooltip("Zoom de départ quand on bascule de la sphère vers le plan tangent / H3. Augmenter = caméra plus haute.")]
+    [SerializeField] private float planetH3StartZoom = 20f;
+
     [Header("Navigation")]
     [SerializeField] private bool directPlanetClickToLocal = false;
     [Tooltip("Vue affichée au démarrage. Galaxy = normal ; SolarSystem = debug preset Sol.")]
@@ -143,6 +153,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         // Souscriptions aux events des vues
         if (galaxyView        != null) galaxyView.OnSystemClicked         += OpenSystem;
         if (solarSystemView   != null) solarSystemView.OnPlanetClicked    += OpenPlanet;
+        if (solarSystemView   != null) solarSystemView.OnPrimaryStarClicked += FocusSolarCameraOnPrimaryStar;
         if (planetSphere      != null) planetSphere.OnRegionClicked       += OnGlobeRegionClicked;
         if (planetSphere      != null) planetSphere.OnH3TileResolved      += OnGlobeH3TileResolved;
         if (planetSphere      != null) planetSphere.OnH3TilesReady        += OnGlobeH3TilesReady;
@@ -172,6 +183,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     {
         if (galaxyView        != null) galaxyView.OnSystemClicked         -= OpenSystem;
         if (solarSystemView   != null) solarSystemView.OnPlanetClicked    -= OpenPlanet;
+        if (solarSystemView   != null) solarSystemView.OnPrimaryStarClicked -= FocusSolarCameraOnPrimaryStar;
         if (planetSphere      != null) planetSphere.OnRegionClicked       -= OnGlobeRegionClicked;
         if (planetSphere      != null) planetSphere.OnH3TileResolved      -= OnGlobeH3TileResolved;
         if (planetSphere      != null) planetSphere.OnH3TilesReady        -= OnGlobeH3TilesReady;
@@ -187,6 +199,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     public void EnterGalaxy()
     {
         ResetPlanetVisuals();
+        cameraController?.SetOrbitKeyboardPanEnabled(false);
         SetActiveRoot(galaxyRoot);
         Vector3 galaxyPivot = galaxyRoot != null ? galaxyRoot.transform.position : Vector3.zero;
         cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
@@ -214,6 +227,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
                                  solarOrbitMinDistance, solarOrbitMaxDistance,
                                  solarPivot);
         cameraController.SetOrbitPivot(solarPivot, solarOrbitStartDistance);
+        cameraController.SetOrbitKeyboardPanEnabled(true);
         _state = ViewState.SolarSystem;
         OnViewChanged?.Invoke(_state);
         Debug.Log("[ViewManager] → Vue Système Solaire");
@@ -260,6 +274,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         // Démarre en sous-vue Globe
         _planetSubView = PlanetSubView.Globe;
         ApplyPlanetSubView();
+        cameraController?.SetOrbitKeyboardPanEnabled(false);
 
         _state = ViewState.Planet;
         OnViewChanged?.Invoke(_state);
@@ -309,8 +324,8 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
                 if (planetSphere != null) planetSphere.gameObject.SetActive(false);
             });
 
-            cameraController.SetMode(CameraController.CameraMode.OrthoTopDown, 5f, 80f);
-            cameraController.FocusOn(Vector3.zero, 20f);
+            cameraController.SetMode(CameraController.CameraMode.OrthoTopDown, planetH3MinZoom, planetH3MaxZoom);
+            cameraController.FocusOn(Vector3.zero, planetH3StartZoom);
         }
     }
 
@@ -343,10 +358,39 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     // Distribue les tuiles H3 aux vues Plate et Tangente
     private void OnGlobeH3TilesReady(GoldbergTileState[] tiles, Dictionary<TerrainType, Color> colorByType)
     {
+        int tileCount = tiles?.Length ?? 0;
+        bool flatAssigned = planetFlatView != null;
+        bool tangentAssigned = planetTangentView != null;
+        bool flatActiveInHierarchy = flatAssigned && planetFlatView.gameObject.activeInHierarchy;
+        bool tangentActiveInHierarchy = tangentAssigned && planetTangentView.gameObject.activeInHierarchy;
+        bool flatLoadedBeforeDispatch = flatAssigned && planetFlatView.IsLoaded;
+        bool tangentLoadedBeforeDispatch = tangentAssigned && planetTangentView.IsLoaded;
+
+        Debug.Log(
+            $"[ViewManager] OnGlobeH3TilesReady | state={_state} | subView={_planetSubView} | tiles={tileCount} | " +
+            $"flat(assigned={flatAssigned}, active={flatActiveInHierarchy}, loaded={flatLoadedBeforeDispatch}) | " +
+            $"tangent(assigned={tangentAssigned}, active={tangentActiveInHierarchy}, loaded={tangentLoadedBeforeDispatch})");
+
         planetFlatView?.LoadPlanetFromH3(tiles, colorByType);
         planetTangentView?.RefreshColorsFromH3(tiles, colorByType);
+
+        bool flatLoadedAfterDispatch = flatAssigned && planetFlatView.IsLoaded;
+        bool tangentLoadedAfterDispatch = tangentAssigned && planetTangentView.IsLoaded;
+
+        Debug.Log(
+            $"[ViewManager] OnGlobeH3TilesReady complete | flatLoaded={flatLoadedAfterDispatch} | " +
+            $"tangentLoaded={tangentLoadedAfterDispatch}");
     }
     private void OnFlatRegionClicked(float lat, float lon)  => ShowLocalView(lat, lon);
+
+    private void FocusSolarCameraOnPrimaryStar(Vector3 worldPos)
+    {
+        if (_state != ViewState.SolarSystem || cameraController == null)
+            return;
+
+        cameraController.SetOrbitPivot(worldPos, cameraController.OrbitDistance);
+        Debug.Log("[ViewManager] Recentrage caméra sur l'étoile primaire");
+    }
 
     /// <summary>
     /// Ouvre la Vue Locale sur la région à la lat/lon donnée.
@@ -355,6 +399,8 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     public void ShowLocalView(float latitude, float longitude)
     {
         if (_activePlanet == null) return;
+
+        cameraController?.SetOrbitKeyboardPanEnabled(false);
 
         _previousStateBeforeLocal   = _state;
         _previousSubViewBeforeLocal = _planetSubView;

@@ -4,6 +4,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// Visualisation 2D du système solaire en vue OrthoTopDown.
@@ -24,6 +25,16 @@ using TMPro;
 /// </summary>
 public class SolarSystemView : MonoBehaviour
 {
+    private enum ServerBodyType
+    {
+        Star = 0,
+        Planet = 1,
+        Moon = 2,
+        Asteroid = 3,
+        GasGiant = 4,
+        SpaceStation = 5,
+    }
+
     // =========================================================
     // Events
     // =========================================================
@@ -34,6 +45,9 @@ public class SolarSystemView : MonoBehaviour
     /// worldPos  : position world de la sphère (centre d'orbite pour la caméra).
     /// </summary>
     public event Action<OrbitalBody, Vector3> OnPlanetClicked;
+
+    /// <summary>Déclenché quand l'utilisateur clique sur l'étoile primaire pour recentrer la caméra.</summary>
+    public event Action<Vector3> OnPrimaryStarClicked;
 
     // =========================================================
     // Inspector
@@ -88,6 +102,29 @@ public class SolarSystemView : MonoBehaviour
     [Tooltip("Rayon visuel minimum pour utiliser un mini Goldberg plutôt qu'une sphère simple.")]
     [SerializeField] private float miniGoldbergMinDisplayRadius = 1.1f;
 
+    [Header("Lisibilité système")]
+    [Tooltip("Rayon visuel minimum des lunes pour éviter qu'elles ne paraissent aussi grosses que des planètes.")]
+    [SerializeField] private float minMoonRadius = 0.35f;
+
+    [Tooltip("Rayon visuel maximum des lunes.")]
+    [SerializeField] private float maxMoonRadius = 0.9f;
+
+    [Tooltip("Multiplicateur visuel appliqué aux orbites de lunes pour les rendre lisibles en vue système.")]
+    [SerializeField] private float moonOrbitScaleMultiplier = 120f;
+
+    [Tooltip("Rayon visuel de l'étoile primaire dans la vue système.")]
+    [SerializeField] private float starDisplayRadius = 2.4f;
+
+    [Header("Debug système")]
+    [Tooltip("Affiche des labels détaillés avec type, parent et orbite.")]
+    [SerializeField] private bool showDetailedDebugLabels;
+
+    [Tooltip("Touche de bascule des labels détaillés en vue système.")]
+    [SerializeField] private Key debugLabelToggleKey = Key.F9;
+
+    [Tooltip("Log automatiquement un résumé de validation après chargement serveur.")]
+    [SerializeField] private bool logSystemValidationOnLoad = true;
+
     // =========================================================
     // Runtime
     // =========================================================
@@ -98,7 +135,23 @@ public class SolarSystemView : MonoBehaviour
     private readonly Dictionary<string, GoldbergSphereGenerator.GoldbergMeshData> _miniMeshes
         = new Dictionary<string, GoldbergSphereGenerator.GoldbergMeshData>();
 
+    private readonly Dictionary<OrbitalBody, BodyDebugInfo> _debugInfoByBody
+        = new Dictionary<OrbitalBody, BodyDebugInfo>();
+
+    private readonly List<TextMeshPro> _debugLabels = new List<TextMeshPro>();
+    private Coroutine _miniPlanetColorizeCoroutine;
+    private int _miniMeshRevision;
+    private int _serverLoadGeneration;
+
     public SolarSystemData CurrentSystem => solarSystem;
+
+    private sealed class BodyDebugInfo
+    {
+        public string typeName;
+        public string parentName;
+        public float semiMajorAxisAu;
+        public float orbitalPeriodDays;
+    }
 
     // =========================================================
     // Unity lifecycle
@@ -113,15 +166,46 @@ public class SolarSystemView : MonoBehaviour
         }
 
         BuildSystem();
+        RestartMiniPlanetColorization();
+    }
 
-        if (goldbergMaterial != null && _miniMeshes.Count > 0)
-            StartCoroutine(FetchAndColorizeMiniPlanets());
+    private void Update()
+    {
+        if (Keyboard.current == null || !Keyboard.current[debugLabelToggleKey].wasPressedThisFrame)
+            return;
+
+        showDetailedDebugLabels = !showDetailedDebugLabels;
+        RefreshDebugLabels();
+        Debug.Log($"[SolarSystemView] Labels debug détaillés: {(showDetailedDebugLabels ? "ON" : "OFF")}");
     }
 
     private void OnDestroy()
     {
+        StopMiniPlanetColorization();
+
         // Les GOs sont enfants de ce transform → Unity les détruit automatiquement.
         _planetObjects.Clear();
+        _debugInfoByBody.Clear();
+        _debugLabels.Clear();
+    }
+
+    private void StopMiniPlanetColorization()
+    {
+        if (_miniPlanetColorizeCoroutine == null)
+            return;
+
+        StopCoroutine(_miniPlanetColorizeCoroutine);
+        _miniPlanetColorizeCoroutine = null;
+    }
+
+    private void RestartMiniPlanetColorization()
+    {
+        StopMiniPlanetColorization();
+
+        if (goldbergMaterial == null || _miniMeshes.Count == 0 || !isActiveAndEnabled)
+            return;
+
+        _miniPlanetColorizeCoroutine = StartCoroutine(FetchAndColorizeMiniPlanets());
     }
 
     // =========================================================
@@ -130,7 +214,10 @@ public class SolarSystemView : MonoBehaviour
 
     private void BuildSystem()
     {
+        _debugLabels.Clear();
+
         // Étoile centrale (visuelle uniquement, pas cliquable)
+        // Étoile centrale (visuelle + cliquable pour recentrer la caméra)
         CreateStarMarker();
 
         if (solarSystem.orbitalSlots == null) return;
@@ -138,18 +225,28 @@ public class SolarSystemView : MonoBehaviour
         foreach (OrbitalSlot slot in solarSystem.orbitalSlots)
         {
             if (slot?.body == null) continue;
-
-            Vector3 pos = OrbitalPosition(slot.orbit);
-            GameObject planetGO = CreatePlanetObject(slot, pos);
-
-            DrawOrbit(slot.orbit.semiMajorAxis);
-
-            _planetObjects.Add(planetGO);
+            BuildSlotRecursive(slot, Vector3.zero, false, 0);
         }
     }
 
+    private void BuildSlotRecursive(OrbitalSlot slot, Vector3 parentWorldPos, bool isMoonOrbit, int depth)
+    {
+        if (slot?.body == null) return;
+
+        Vector3 localOffset = OrbitalPosition(slot.orbit, isMoonOrbit);
+        Vector3 worldPos = parentWorldPos + localOffset;
+        GameObject bodyGO = CreatePlanetObject(slot, worldPos, depth);
+        _planetObjects.Add(bodyGO);
+
+        DrawOrbit(slot.orbit.semiMajorAxis, parentWorldPos, isMoonOrbit);
+
+        if (slot.moons == null) return;
+        foreach (OrbitalSlot moonSlot in slot.moons)
+            BuildSlotRecursive(moonSlot, worldPos, true, depth + 1);
+    }
+
     /// <summary>Calcule la position world d'un corps depuis ses paramètres orbitaux.</summary>
-    private Vector3 OrbitalPosition(OrbitalParameters orbit)
+    private Vector3 OrbitalPosition(OrbitalParameters orbit, bool isMoonOrbit)
     {
         // Position angulaire sur l'orbite : currentOrbitalPosition [0–1] → angle radians
         float angle = orbit.currentOrbitalPosition * 2f * Mathf.PI;
@@ -159,16 +256,18 @@ public class SolarSystemView : MonoBehaviour
         float e = orbit.eccentricity;
         float r = a * (1f - e * e) / (1f + e * Mathf.Cos(angle));
 
+        float effectiveOrbitScale = orbitScale * (isMoonOrbit ? moonOrbitScaleMultiplier : 1f);
+
         return new Vector3(
-            Mathf.Cos(angle) * r * orbitScale,
+            Mathf.Cos(angle) * r * effectiveOrbitScale,
             0f,
-            Mathf.Sin(angle) * r * orbitScale
+            Mathf.Sin(angle) * r * effectiveOrbitScale
         );
     }
 
-    private GameObject CreatePlanetObject(OrbitalSlot slot, Vector3 worldPos)
+    private GameObject CreatePlanetObject(OrbitalSlot slot, Vector3 worldPos, int depth)
     {
-        float displayRadius = ComputeDisplayRadius(slot.body);
+        float displayRadius = ComputeDisplayRadius(slot.body, depth);
         GameObject go;
         int goldbergDivisions = ResolveMiniGoldbergDivisions(displayRadius, slot.body);
 
@@ -231,12 +330,12 @@ public class SolarSystemView : MonoBehaviour
         handler.Init(slot.body, worldPos, OnPlanetClicked);
 
         // Label débug
-        CreateDebugLabel(slot.body.bodyName, go.transform.position, displayRadius + 1.2f);
+        CreateDebugLabel(slot.body, go.transform.position, displayRadius + 1.2f);
 
         return go;
     }
 
-    private float ComputeDisplayRadius(OrbitalBody body)
+    private float ComputeDisplayRadius(OrbitalBody body, int depth)
     {
         if (body == null || body.radius <= 0f)
             return defaultPlanetRadius;
@@ -244,6 +343,13 @@ public class SolarSystemView : MonoBehaviour
         const float EarthRadiusKm = 6371f;
         float earthRadiusRatio = body.radius / EarthRadiusKm;
         float scaledRadius = earthRadiusRatio * planetRadiusScale;
+
+        if (body is Moon || depth > 0)
+            return Mathf.Clamp(scaledRadius * 0.65f, minMoonRadius, maxMoonRadius);
+
+        if (body is GasGiant)
+            return Mathf.Clamp(scaledRadius, minPlanetRadius, maxPlanetRadius);
+
         return Mathf.Clamp(scaledRadius, minPlanetRadius, maxPlanetRadius);
     }
 
@@ -261,13 +367,18 @@ public class SolarSystemView : MonoBehaviour
 
     private void CreateStarMarker()
     {
-        if (solarSystem.primaryStar.name == null && solarSystem.primaryStar.luminosity <= 0f) return;
+        if (solarSystem?.primaryStar == null) return;
+        if (string.IsNullOrEmpty(solarSystem.primaryStar.bodyName) && solarSystem.primaryStar.luminosity <= 0f) return;
 
         GameObject go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        go.name = (!string.IsNullOrEmpty(solarSystem.primaryStar.name) ? solarSystem.primaryStar.name : "Star") + "_Star";
+        string primaryStarName = !string.IsNullOrEmpty(solarSystem.primaryStar.bodyName)
+            ? solarSystem.primaryStar.bodyName
+            : "Star";
+
+        go.name = primaryStarName + "_Star";
         go.transform.SetParent(transform, false);
         go.transform.localPosition = Vector3.zero;
-        go.transform.localScale = Vector3.one * 1.5f;
+        go.transform.localScale = Vector3.one * (starDisplayRadius * 2f);
 
         Color starColor = StarColorFromType(solarSystem.primaryStar.spectralType);
 
@@ -281,30 +392,101 @@ public class SolarSystemView : MonoBehaviour
         }
 
         // L'étoile n'est pas cliquable — retirer le collider
-        Collider col = go.GetComponent<Collider>();
-        if (col != null) Destroy(col);
+        // L'étoile est cliquable pour recentrer la caméra sur le pivot du système.
+        StarClickHandler clickHandler = go.AddComponent<StarClickHandler>();
+        clickHandler.Init(go.transform.position, OnPrimaryStarClicked);
 
         // Label débug
-        string starName = !string.IsNullOrEmpty(solarSystem.primaryStar.name)
-            ? solarSystem.primaryStar.name
+        string starName = !string.IsNullOrEmpty(solarSystem.primaryStar.bodyName)
+            ? solarSystem.primaryStar.bodyName
             : "Étoile";
-        CreateDebugLabel(starName, Vector3.zero, 1.5f + 1.2f);
+        CreateStarDebugLabel(starName);
+        _planetObjects.Add(go);
     }
 
-    private void CreateDebugLabel(string text, Vector3 worldPos, float offsetY)
+    private void CreateDebugLabel(OrbitalBody body, Vector3 worldPos, float offsetY)
     {
-        var labelGO = new GameObject("Label_" + text);
+        string labelName = body != null ? body.bodyName : "Unknown";
+        var labelGO = new GameObject("Label_" + labelName);
         labelGO.transform.SetParent(transform, false);
         labelGO.transform.position = worldPos + Vector3.up * offsetY;
         labelGO.AddComponent<BillboardLabel>();
         var tmp = labelGO.AddComponent<TextMeshPro>();
-        tmp.text         = text;
+        tmp.text         = BuildDebugLabelText(body);
         tmp.fontSize     = 2.5f;
         tmp.alignment    = TextAlignmentOptions.Center;
         tmp.color        = Color.white;
         tmp.outlineWidth = 0.2f;
         tmp.outlineColor = Color.black;
+        _debugLabels.Add(tmp);
         _planetObjects.Add(labelGO);
+    }
+
+    private void CreateStarDebugLabel(string starName)
+    {
+        var labelGO = new GameObject("Label_" + starName);
+        labelGO.transform.SetParent(transform, false);
+        labelGO.transform.position = Vector3.up * (starDisplayRadius + 1.2f);
+        labelGO.AddComponent<BillboardLabel>();
+        var tmp = labelGO.AddComponent<TextMeshPro>();
+        tmp.text = showDetailedDebugLabels
+            ? $"{starName}\nStar | centre du système\n{solarSystem.primaryStar.spectralType} | lum={solarSystem.primaryStar.luminosity:F2}"
+            : starName;
+        tmp.fontSize = 2.5f;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = Color.white;
+        tmp.outlineWidth = 0.2f;
+        tmp.outlineColor = Color.black;
+        _debugLabels.Add(tmp);
+        _planetObjects.Add(labelGO);
+    }
+
+    private string BuildDebugLabelText(OrbitalBody body)
+    {
+        if (body == null)
+            return "Corps inconnu";
+
+        if (!showDetailedDebugLabels)
+            return body.bodyName;
+
+        if (!_debugInfoByBody.TryGetValue(body, out BodyDebugInfo info) || info == null)
+            return body.bodyName;
+
+        string parentName = string.IsNullOrEmpty(info.parentName) ? "Soleil" : info.parentName;
+        return $"{body.bodyName}\n{info.typeName} | parent={parentName}\n{info.semiMajorAxisAu:F3} AU | {info.orbitalPeriodDays:F0} j";
+    }
+
+    private void RefreshDebugLabels()
+    {
+        foreach (TextMeshPro label in _debugLabels)
+        {
+            if (label == null) continue;
+
+            string objectName = label.gameObject.name;
+            if (!objectName.StartsWith("Label_", StringComparison.Ordinal))
+                continue;
+
+            string bodyName = objectName.Substring("Label_".Length);
+            if (solarSystem?.primaryStar != null && bodyName == solarSystem.primaryStar.bodyName)
+            {
+                label.text = showDetailedDebugLabels
+                    ? $"{bodyName}\nStar | centre du système\n{solarSystem.primaryStar.spectralType} | lum={solarSystem.primaryStar.luminosity:F2}"
+                    : bodyName;
+                continue;
+            }
+
+            OrbitalBody match = null;
+            foreach (OrbitalBody body in _debugInfoByBody.Keys)
+            {
+                if (body != null && body.bodyName == bodyName)
+                {
+                    match = body;
+                    break;
+                }
+            }
+
+            label.text = BuildDebugLabelText(match);
+        }
     }
 
     /// <summary>Retourne une couleur approximative selon la classe spectrale de l'étoile.</summary>
@@ -322,27 +504,34 @@ public class SolarSystemView : MonoBehaviour
         }
     }
 
-    private void DrawOrbit(float semiMajorAxisAU)
+    private void DrawOrbit(float semiMajorAxisAU, Vector3 center, bool isMoonOrbit)
     {
         GameObject lineGO = new GameObject("Orbit_" + semiMajorAxisAU.ToString("F2"));
         lineGO.transform.SetParent(transform, false);
+        lineGO.transform.localPosition = center;
 
         LineRenderer lr = lineGO.AddComponent<LineRenderer>();
         lr.loop = true;
         lr.positionCount = orbitSegments;
-        lr.startWidth  = 0.05f;
-        lr.endWidth    = 0.05f;
+        lr.startWidth  = isMoonOrbit ? 0.025f : 0.05f;
+        lr.endWidth    = isMoonOrbit ? 0.025f : 0.05f;
         lr.useWorldSpace = false;
         lr.material = new Material(Shader.Find("Sprites/Default"));
-        lr.startColor = orbitColor;
-        lr.endColor   = orbitColor;
+        Color effectiveOrbitColor = isMoonOrbit
+            ? new Color(orbitColor.r, orbitColor.g, orbitColor.b, orbitColor.a * 0.6f)
+            : orbitColor;
+        lr.startColor = effectiveOrbitColor;
+        lr.endColor   = effectiveOrbitColor;
 
-        float radius = semiMajorAxisAU * orbitScale;
+        float effectiveOrbitScale = orbitScale * (isMoonOrbit ? moonOrbitScaleMultiplier : 1f);
+        float radius = semiMajorAxisAU * effectiveOrbitScale;
         for (int i = 0; i < orbitSegments; i++)
         {
             float angle = i * 2f * Mathf.PI / orbitSegments;
             lr.SetPosition(i, new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius));
         }
+
+        _planetObjects.Add(lineGO);
     }
 
     // =========================================================
@@ -352,17 +541,20 @@ public class SolarSystemView : MonoBehaviour
     /// <summary>Permet de changer le système solaire affiché à chaud.</summary>
     public void LoadSystem(SolarSystemData data)
     {
+        _miniMeshRevision++;
+        StopMiniPlanetColorization();
+
         // Nettoyer les anciens objets
         foreach (GameObject go in _planetObjects)
             if (go != null) Destroy(go);
         _planetObjects.Clear();
         _miniMeshes.Clear();
+        _debugInfoByBody.Clear();
+        _debugLabels.Clear();
 
         solarSystem = data;
         BuildSystem();
-
-        if (goldbergMaterial != null && _miniMeshes.Count > 0)
-            StartCoroutine(FetchAndColorizeMiniPlanets());
+        RestartMiniPlanetColorization();
     }
 
     // =========================================================
@@ -370,10 +562,202 @@ public class SolarSystemView : MonoBehaviour
     // =========================================================
 
     [Serializable] private class OrbitalParamsDto  { public float semiMajorAxisAU; public float eccentricity; public float initialPhaseDeg; public int periodTicks; }
-    [Serializable] private class BodyDto           { public string bodyId; public string name; public string bodyType; public float radiusKm; public float waterLevel; public OrbitalParamsDto orbitalParams; }
+    [Serializable] private class BodyDto           { public string bodyId; public string name; public int bodyType; public string parentId; public string spectralType; public float radiusKm; public float waterLevel; public OrbitalParamsDto orbitalParams; }
     [Serializable] private class SystemDto         { public string systemId; public string name; public string rootBodyId; public string[] bodyIds; }
     [Serializable] private class BodyListWrapper   { public BodyDto[] items; }
     [Serializable] private class SystemListWrapper { public SystemDto[] items; }
+
+    private static StarType SpectralTypeFromServer(string spectralType)
+    {
+        if (string.IsNullOrWhiteSpace(spectralType)) return StarType.G;
+        switch (char.ToUpperInvariant(spectralType[0]))
+        {
+            case 'M': return StarType.M;
+            case 'K': return StarType.K;
+            case 'G': return StarType.G;
+            case 'F': return StarType.F;
+            case 'A': return StarType.A;
+            default: return StarType.G;
+        }
+    }
+
+    private static float StableOrbitalPhase01(string bodyId, float currentPhase)
+    {
+        if (currentPhase > 0.0001f) return Mathf.Repeat(currentPhase, 1f);
+        if (string.IsNullOrEmpty(bodyId)) return 0f;
+
+        unchecked
+        {
+            int hash = 17;
+            for (int i = 0; i < bodyId.Length; i++)
+                hash = hash * 31 + bodyId[i];
+            int positiveHash = hash & 0x7fffffff;
+            return (positiveHash % 360) / 360f;
+        }
+    }
+
+    private static PlanetaryPhysics InferPhysics(BodyDto dto)
+    {
+        float waterLevel = Mathf.Clamp01(dto.waterLevel);
+        float baseTemperature = Mathf.Lerp(-55f, 18f, waterLevel);
+
+        return new PlanetaryPhysics
+        {
+            baseEquatorTemperature = baseTemperature,
+            rotationSpeed = Mathf.Lerp(0.35f, 0.78f, 1f - Mathf.Abs(waterLevel - 0.5f)),
+            axialTilt = Mathf.Lerp(6f, 26f, Mathf.Clamp01(dto.radiusKm / 7000f)),
+        };
+    }
+
+    private static GeologicalProfile InferGeology(BodyDto dto, ServerBodyType bodyType)
+    {
+        float clampedWater = Mathf.Clamp01(dto.waterLevel);
+        float geologicalActivity = bodyType == ServerBodyType.Moon
+            ? Mathf.Lerp(0.15f, 0.55f, clampedWater)
+            : Mathf.Lerp(0.2f, 0.65f, 1f - clampedWater * 0.4f);
+
+        if (bodyType == ServerBodyType.GasGiant)
+            geologicalActivity = 0f;
+
+        return new GeologicalProfile
+        {
+            waterAbundance = clampedWater,
+            geologicalActivity = geologicalActivity,
+            mineralRichness = Mathf.Lerp(0.35f, 0.75f, Mathf.Clamp01(dto.radiusKm / 9000f)),
+            magneticField = dto.radiusKm >= 3000f,
+        };
+    }
+
+    private static AtmosphericComposition InferAtmosphere(BodyDto dto, ServerBodyType bodyType)
+    {
+        float clampedWater = Mathf.Clamp01(dto.waterLevel);
+
+        if (bodyType == ServerBodyType.GasGiant)
+        {
+            return new AtmosphericComposition
+            {
+                density = 1f,
+                n2Ratio = 0.05f,
+                o2Ratio = 0f,
+                co2Ratio = 0.05f,
+                ch4Ratio = 0.12f,
+                toxinRatio = 0.08f,
+            };
+        }
+
+        if (bodyType == ServerBodyType.Moon)
+        {
+            return clampedWater >= 0.35f
+                ? AtmosphericComposition.IcyMoon
+                : new AtmosphericComposition
+                {
+                    density = 0.03f,
+                    n2Ratio = 0.82f,
+                    o2Ratio = 0f,
+                    co2Ratio = 0.08f,
+                    ch4Ratio = 0.02f,
+                    toxinRatio = 0f,
+                };
+        }
+
+        if (clampedWater >= 0.45f)
+        {
+            AtmosphericComposition atmosphere = AtmosphericComposition.EarthLike;
+            atmosphere.density = Mathf.Lerp(0.55f, 0.92f, clampedWater);
+            return atmosphere;
+        }
+
+        if (clampedWater <= 0.08f)
+            return AtmosphericComposition.Mars;
+
+        return new AtmosphericComposition
+        {
+            density = Mathf.Lerp(0.15f, 0.55f, clampedWater),
+            n2Ratio = 0.62f,
+            o2Ratio = Mathf.Lerp(0.01f, 0.12f, clampedWater),
+            co2Ratio = Mathf.Lerp(0.28f, 0.08f, clampedWater),
+            ch4Ratio = 0.01f,
+            toxinRatio = Mathf.Lerp(0.08f, 0.01f, clampedWater),
+        };
+    }
+
+    private static void PopulateOrbitalBodyProfile(OrbitalBody body, BodyDto dto, ServerBodyType bodyType)
+    {
+        if (body == null || dto == null)
+            return;
+
+        body.physics = InferPhysics(dto);
+        body.geology = InferGeology(dto, bodyType);
+        body.atmosphere = InferAtmosphere(dto, bodyType);
+    }
+
+    private static OrbitalBody BuildOrbitalBodyFromDto(BodyDto dto)
+    {
+        ServerBodyType bodyType = (ServerBodyType)dto.bodyType;
+
+        if (bodyType == ServerBodyType.GasGiant)
+        {
+            GasGiant gasGiant = ScriptableObject.CreateInstance<GasGiant>();
+            gasGiant.bodyName = dto.name;
+            gasGiant.radius = dto.radiusKm;
+            gasGiant.displayColor = new Color(0.8f, 0.6f, 0.3f);
+            PopulateOrbitalBodyProfile(gasGiant, dto, bodyType);
+            return gasGiant;
+        }
+
+        if (bodyType == ServerBodyType.Moon)
+        {
+            Moon moon = ScriptableObject.CreateInstance<Moon>();
+            moon.bodyName = dto.name;
+            moon.radius = dto.radiusKm;
+            moon.displayColor = Color.gray;
+            moon.moonType = dto.waterLevel >= 0.35f ? MoonType.Oceanic : MoonType.Rocky;
+            PopulateOrbitalBodyProfile(moon, dto, bodyType);
+            return moon;
+        }
+
+        Planet planet = ScriptableObject.CreateInstance<Planet>();
+        planet.bodyName = dto.name;
+        planet.radius = dto.radiusKm;
+        planet.displayColor = WaterLevelToColor(dto.waterLevel);
+        planet.planetType = dto.waterLevel >= 0.75f
+            ? PlanetType.OceanWorld
+            : dto.waterLevel <= 0.08f
+                ? PlanetType.Desert
+                : PlanetType.Rocky;
+        PopulateOrbitalBodyProfile(planet, dto, bodyType);
+        return planet;
+    }
+
+    private void RegisterDebugInfo(OrbitalBody body, BodyDto dto, string parentName)
+    {
+        if (body == null || dto == null)
+            return;
+
+        _debugInfoByBody[body] = new BodyDebugInfo
+        {
+            typeName = ((ServerBodyType)dto.bodyType).ToString(),
+            parentName = parentName,
+            semiMajorAxisAu = dto.orbitalParams != null ? dto.orbitalParams.semiMajorAxisAU : 0f,
+            orbitalPeriodDays = dto.orbitalParams != null ? Mathf.Max(1f, dto.orbitalParams.periodTicks) : 0f,
+        };
+    }
+
+    private void LogSystemValidation(SolarSystemData data)
+    {
+        if (data == null || !logSystemValidationOnLoad)
+            return;
+
+        Debug.Log($"[SolarSystemView] Validation système: {data.BuildDebugSummary()}");
+        SolarSystemData.ValidationIssue[] issues = data.ValidateHierarchy();
+        foreach (SolarSystemData.ValidationIssue issue in issues)
+        {
+            if (string.Equals(issue.severity, "error", StringComparison.OrdinalIgnoreCase))
+                Debug.LogError("[SolarSystemView] Validation système: " + issue.message);
+            else
+                Debug.LogWarning("[SolarSystemView] Validation système: " + issue.message);
+        }
+    }
 
     /// <summary>
     /// Fetch le serveur, reconstruit un SolarSystemData temporaire en mémoire
@@ -381,41 +765,63 @@ public class SolarSystemView : MonoBehaviour
     /// </summary>
     public IEnumerator LoadFromServer(string serverUrl, float timeoutSeconds = 2f)
     {
+        int requestGeneration = ++_serverLoadGeneration;
         string baseUrl = serverUrl.TrimEnd('/');
         int timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
+        const int maxAttempts = 3;
+        const float retryDelaySeconds = 0.25f;
 
-        // 1. Fetch le système actif depuis /galaxy/systems
         SystemDto activeSystem = null;
-        using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/galaxy/systems"))
-        {
-            req.timeout = timeout;
-            yield return req.SendWebRequest();
-            if (req.result == UnityWebRequest.Result.Success)
-            {
-                string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-                SystemListWrapper list = JsonUtility.FromJson<SystemListWrapper>(wrapped);
-                if (list?.items != null && list.items.Length > 0)
-                    activeSystem = list.items[0]; // premier système = système actif
-            }
-        }
-
-        // 2. Fetch tous les corps depuis /bodies
         BodyDto[] bodies = null;
-        using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/bodies"))
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            req.timeout = timeout;
-            yield return req.SendWebRequest();
-            if (req.result == UnityWebRequest.Result.Success)
+            activeSystem = null;
+            bodies = null;
+
+            // 1. Fetch le système actif depuis /galaxy/systems
+            using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/galaxy/systems"))
             {
-                string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-                BodyListWrapper list = JsonUtility.FromJson<BodyListWrapper>(wrapped);
-                bodies = list?.items;
+                req.timeout = timeout;
+                yield return req.SendWebRequest();
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
+                    SystemListWrapper list = JsonUtility.FromJson<SystemListWrapper>(wrapped);
+                    if (list?.items != null && list.items.Length > 0)
+                        activeSystem = list.items[0]; // premier système = système actif
+                }
             }
+
+            if (requestGeneration != _serverLoadGeneration || !isActiveAndEnabled || !gameObject.activeInHierarchy)
+                yield break;
+
+            // 2. Fetch tous les corps depuis /bodies
+            using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/bodies"))
+            {
+                req.timeout = timeout;
+                yield return req.SendWebRequest();
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
+                    BodyListWrapper list = JsonUtility.FromJson<BodyListWrapper>(wrapped);
+                    bodies = list?.items;
+                }
+            }
+
+            if (requestGeneration != _serverLoadGeneration || !isActiveAndEnabled || !gameObject.activeInHierarchy)
+                yield break;
+
+            if (bodies != null && bodies.Length > 0)
+                break;
+
+            if (attempt < maxAttempts)
+                yield return new WaitForSeconds(retryDelaySeconds);
         }
 
         if (bodies == null || bodies.Length == 0)
         {
-            Debug.LogWarning("[SolarSystemView] Aucun corps reçu du serveur.");
+            Debug.Log($"[SolarSystemView] Chargement serveur ignoré: aucun corps reçu après {maxAttempts} tentatives.");
             yield break;
         }
 
@@ -442,64 +848,67 @@ public class SolarSystemView : MonoBehaviour
         // Étoile racine
         BodyDto rootBody = activeSystem != null
             ? System.Array.Find(bodies, b => b.bodyId == activeSystem.rootBodyId)
-            : System.Array.Find(bodies, b => b.bodyType == "Star");
+            : System.Array.Find(bodies, b => b.bodyType == (int)ServerBodyType.Star);
         if (rootBody != null)
         {
             StarBody star = ScriptableObject.CreateInstance<StarBody>();
-            star.bodyName  = rootBody.name;
-            star.radius    = rootBody.radiusKm;
-            star.luminosity = 1f;
+            star.spectralType = SpectralTypeFromServer(rootBody.spectralType);
+            star.ApplySpectralDefaults();
+            star.bodyName = rootBody.name;
+            star.radius = rootBody.radiusKm;
             data.primaryStar = star;
         }
 
-        // Planètes et lunes (tous les corps non-étoiles)
-        var slots = new List<OrbitalSlot>();
+        // Planètes et lunes: reconstruire la hiérarchie parent → enfant au lieu de tout aplatir.
+        var slotsByBodyId = new Dictionary<string, OrbitalSlot>();
         foreach (BodyDto b in bodies)
         {
-            if (b.bodyType == "Star") continue;
+            if (b.bodyType == (int)ServerBodyType.Star) continue;
 
-            OrbitalBody body;
-            if (b.bodyType == "GasGiant")
-            {
-                GasGiant gg = ScriptableObject.CreateInstance<GasGiant>();
-                gg.bodyName = b.name;
-                gg.radius   = b.radiusKm;
-                gg.displayColor = new Color(0.8f, 0.6f, 0.3f); // ocre
-                body = gg;
-            }
-            else if (b.bodyType == "Moon")
-            {
-                Moon m = ScriptableObject.CreateInstance<Moon>();
-                m.bodyName = b.name;
-                m.radius   = b.radiusKm;
-                m.displayColor = Color.gray;
-                body = m;
-            }
-            else
-            {
-                Planet p = ScriptableObject.CreateInstance<Planet>();
-                p.bodyName = b.name;
-                p.radius   = b.radiusKm;
-                p.displayColor = WaterLevelToColor(b.waterLevel);
-                body = p;
-            }
+            OrbitalBody body = BuildOrbitalBodyFromDto(b);
 
             OrbitalParameters orbit = new OrbitalParameters();
             if (b.orbitalParams != null)
             {
                 orbit.semiMajorAxis = b.orbitalParams.semiMajorAxisAU;
                 orbit.eccentricity  = b.orbitalParams.eccentricity;
-                orbit.currentOrbitalPosition = b.orbitalParams.initialPhaseDeg / 360f;
+                orbit.currentOrbitalPosition = StableOrbitalPhase01(b.bodyId, b.orbitalParams.initialPhaseDeg / 360f);
+                orbit.orbitalPeriodDays = Mathf.Max(1f, b.orbitalParams.periodTicks);
             }
-            slots.Add(new OrbitalSlot { body = body, orbit = orbit, moons = new OrbitalSlot[0] });
+            else
+            {
+                orbit.currentOrbitalPosition = StableOrbitalPhase01(b.bodyId, 0f);
+            }
+
+            slotsByBodyId[b.bodyId] = new OrbitalSlot { body = body, orbit = orbit, moons = new OrbitalSlot[0] };
         }
 
-        // Tri par demi-grand axe croissant
-        slots.Sort((a, b) => a.orbit.semiMajorAxis.CompareTo(b.orbit.semiMajorAxis));
-        data.orbitalSlots = slots.ToArray();
+        var topLevelSlots = new List<OrbitalSlot>();
+        foreach (BodyDto b in bodies)
+        {
+            if (b.bodyType == (int)ServerBodyType.Star) continue;
+            if (!slotsByBodyId.TryGetValue(b.bodyId, out OrbitalSlot slot)) continue;
+
+            if (!string.IsNullOrEmpty(b.parentId) && slotsByBodyId.TryGetValue(b.parentId, out OrbitalSlot parentSlot))
+            {
+                var moonSlots = new List<OrbitalSlot>(parentSlot.moons ?? new OrbitalSlot[0]) { slot };
+                moonSlots.Sort((left, right) => left.orbit.semiMajorAxis.CompareTo(right.orbit.semiMajorAxis));
+                parentSlot.moons = moonSlots.ToArray();
+                RegisterDebugInfo(slot.body, b, parentSlot.body != null ? parentSlot.body.bodyName : null);
+            }
+            else
+            {
+                topLevelSlots.Add(slot);
+                RegisterDebugInfo(slot.body, b, null);
+            }
+        }
+
+        topLevelSlots.Sort((left, right) => left.orbit.semiMajorAxis.CompareTo(right.orbit.semiMajorAxis));
+        data.orbitalSlots = topLevelSlots.ToArray();
 
         LoadSystem(data);
-        Debug.Log($"[SolarSystemView] Système chargé depuis serveur : {data.systemName} ({slots.Count} corps)");
+        LogSystemValidation(data);
+        Debug.Log($"[SolarSystemView] Système chargé depuis serveur : {data.systemName} ({topLevelSlots.Count} corps top-level)");
     }
 
     // =========================================================
@@ -512,7 +921,9 @@ public class SolarSystemView : MonoBehaviour
 
     private IEnumerator FetchAndColorizeMiniPlanets()
     {
+        int revision = _miniMeshRevision;
         string baseUrl = simulationServerUrl.TrimEnd('/');
+        var meshEntries = new List<KeyValuePair<string, GoldbergSphereGenerator.GoldbergMeshData>>(_miniMeshes);
 
         // 1) Résoudre name → bodyId
         Dictionary<string, string> nameToId = new Dictionary<string, string>();
@@ -520,6 +931,9 @@ public class SolarSystemView : MonoBehaviour
         {
             req.timeout = 10;
             yield return req.SendWebRequest();
+            if (revision != _miniMeshRevision || !isActiveAndEnabled)
+                yield break;
+
             if (req.result == UnityWebRequest.Result.Success)
             {
                 MiniBodyList list = JsonUtility.FromJson<MiniBodyList>("{\"items\":" + req.downloadHandler.text + "}");
@@ -539,8 +953,11 @@ public class SolarSystemView : MonoBehaviour
         Dictionary<TerrainType, Color> colorByType = BuildDefaultColorByType();
 
         // 2) Fetcher les tuiles de chaque planète et coloriser son mini-mesh
-        foreach (var kv in _miniMeshes)
+        foreach (KeyValuePair<string, GoldbergSphereGenerator.GoldbergMeshData> kv in meshEntries)
         {
+            if (revision != _miniMeshRevision || !isActiveAndEnabled)
+                yield break;
+
             string bodyName = kv.Key;
             GoldbergSphereGenerator.GoldbergMeshData md = kv.Value;
 
@@ -556,6 +973,9 @@ public class SolarSystemView : MonoBehaviour
                 using UnityWebRequest req = UnityWebRequest.Get(url);
                 req.timeout = 15;
                 yield return req.SendWebRequest();
+                if (revision != _miniMeshRevision || !isActiveAndEnabled)
+                    yield break;
+
                 if (req.result != UnityWebRequest.Result.Success) break;
 
                 MiniTileList batch;
@@ -569,14 +989,20 @@ public class SolarSystemView : MonoBehaviour
 
             if (allTiles.Count == 0) continue;
 
-            GoldbergFaceColorizer.ColorizeFromServerTiles(md.faces, allTiles.ToArray(), colorByType);
-            GoldbergSphereGenerator.ApplyFaceColors(md.mesh, md.faces, md.vertexFaceId);
+            if (!_miniMeshes.TryGetValue(bodyName, out GoldbergSphereGenerator.GoldbergMeshData currentMesh) || !ReferenceEquals(currentMesh.mesh, md.mesh))
+                continue;
 
-            Debug.Log($"[SolarSystemView] {bodyName} : {allTiles.Count} tuiles → {md.faces.Length} faces colorisées.");
+            GoldbergFaceColorizer.ColorizeFromServerTiles(currentMesh.faces, allTiles.ToArray(), colorByType);
+            GoldbergSphereGenerator.ApplyFaceColors(currentMesh.mesh, currentMesh.faces, currentMesh.vertexFaceId);
+
+            Debug.Log($"[SolarSystemView] {bodyName} : {allTiles.Count} tuiles → {currentMesh.faces.Length} faces colorisées.");
 
             // Étale légèrement le travail sur plusieurs frames pour éviter les pics au lancement.
             yield return null;
         }
+
+        if (revision == _miniMeshRevision)
+            _miniPlanetColorizeCoroutine = null;
     }
 
     private static Dictionary<TerrainType, Color> BuildDefaultColorByType()
@@ -605,6 +1031,31 @@ public class SolarSystemView : MonoBehaviour
 // =============================================================================
 // Composant auxiliaire interne — gère le clic sur un objet planète
 // =============================================================================
+
+/// <summary>
+/// Composant léger ajouté dynamiquement sur chaque sphère planétaire.
+/// Évite d'utiliser OnMouseDown dans SolarSystemView directement.
+/// </summary>
+internal class StarClickHandler : MonoBehaviour
+{
+    private Vector3 _worldPos;
+    private Action<Vector3> _callback;
+
+    public void Init(Vector3 worldPos, Action<Vector3> callback)
+    {
+        _worldPos = worldPos;
+        _callback = callback;
+    }
+
+    private void OnMouseDown()
+    {
+        if (UIEventSystemUtility.IsPointerOverUI())
+            return;
+
+        Debug.Log("[SolarSystemView] Clic étoile primaire → recentrage caméra");
+        _callback?.Invoke(_worldPos);
+    }
+}
 
 /// <summary>
 /// Composant léger ajouté dynamiquement sur chaque sphère planétaire.

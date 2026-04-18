@@ -47,6 +47,7 @@ public class CameraController : MonoBehaviour
     [SerializeField] private float orbitMinDistance = 5f;
     [SerializeField] private float orbitMaxDistance = 200f;
     [SerializeField] private float orbitScrollSpeed = 3f;
+    [SerializeField] private float orbitKeyboardPanSpeed = 20f;
     [SerializeField] private float orbitMinElevation = 5f;   // degrés min au-dessus de l'horizon
     [SerializeField] private float orbitMaxElevation = 89f;  // degrés max (quasi zénith)
 
@@ -73,6 +74,7 @@ public class CameraController : MonoBehaviour
     private float   _activeOrbitMaxDistance;
     private bool    _isOrbiting;
     private Vector2 _lastMousePos;
+    private bool    _orbitKeyboardPanEnabled;
 
     // --- Animation ---
     private bool _isAnimating;  // bloque l'input orbit/zoom pendant OrbitToFace
@@ -107,6 +109,7 @@ public class CameraController : MonoBehaviour
         else
         {
             HandleOrbit();
+            HandleOrbitKeyboardPan();
             HandleZoomOrbit();
         }
     }
@@ -164,6 +167,11 @@ public class CameraController : MonoBehaviour
         _orbitPivot    = pivot;
         _orbitDistance = Mathf.Clamp(distance, _activeOrbitMinDistance, _activeOrbitMaxDistance);
         ApplyOrbitTransform();
+    }
+
+    public void SetOrbitKeyboardPanEnabled(bool enabled)
+    {
+        _orbitKeyboardPanEnabled = enabled;
     }
 
     /// <summary>
@@ -345,6 +353,37 @@ public class CameraController : MonoBehaviour
             _minEventFired = false;
             _maxEventFired = false;
         }
+    }
+
+    private void HandleOrbitKeyboardPan()
+    {
+        if (!_orbitKeyboardPanEnabled || Keyboard.current == null)
+            return;
+
+        Vector2 move = Vector2.zero;
+
+        if (Keyboard.current.leftArrowKey.isPressed || Keyboard.current.aKey.isPressed || Keyboard.current.qKey.isPressed)
+            move.x -= 1f;
+        if (Keyboard.current.rightArrowKey.isPressed || Keyboard.current.dKey.isPressed)
+            move.x += 1f;
+        if (Keyboard.current.upArrowKey.isPressed || Keyboard.current.wKey.isPressed || Keyboard.current.zKey.isPressed)
+            move.y += 1f;
+        if (Keyboard.current.downArrowKey.isPressed || Keyboard.current.sKey.isPressed)
+            move.y -= 1f;
+
+        if (move.sqrMagnitude <= 0f)
+            return;
+
+        move = move.normalized;
+
+        Vector3 right = Vector3.ProjectOnPlane(transform.right, Vector3.up).normalized;
+        Vector3 forward = Vector3.ProjectOnPlane(transform.forward, Vector3.up).normalized;
+        if (right.sqrMagnitude < 0.001f) right = Vector3.right;
+        if (forward.sqrMagnitude < 0.001f) forward = Vector3.forward;
+
+        float speed = orbitKeyboardPanSpeed * Mathf.Max(1f, _orbitDistance * 0.05f) * Time.deltaTime;
+        _orbitPivot += (right * move.x + forward * move.y) * speed;
+        ApplyOrbitTransform();
     }
 
     private void ApplyOrbitTransform()
