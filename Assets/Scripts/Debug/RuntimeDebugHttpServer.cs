@@ -40,7 +40,7 @@ public class RuntimeDebugHttpServer : MonoBehaviour
         get
         {
             if (_instance == null)
-                _instance = FindObjectOfType<RuntimeDebugHttpServer>();
+                _instance = FindAnyObjectByType<RuntimeDebugHttpServer>();
 
             if (_instance == null)
             {

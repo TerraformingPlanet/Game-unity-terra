@@ -24,7 +24,10 @@ public enum SimulationEventType
     CellUpdated = 5,
     TickAdvanced = 6,
     SnapshotCaptured = 7,
-    Error = 8
+    Error = 8,
+    ThermalEquilibrium = 9,
+    HabitabilityThreshold = 10,
+    AtmosphereFormed = 11
 }
 
 [Serializable]
@@ -157,6 +160,17 @@ public struct ProjectionState
 }
 
 [Serializable]
+public struct AtmosphericState
+{
+    public float co2Ratio;
+    public float o2Ratio;
+    public float atmosphericPressure;
+    public float averageTemperature;
+    public float toxinRatio;
+    public float habitabilityScore;
+}
+
+[Serializable]
 public struct RegionState
 {
     public bool isValid;
@@ -164,6 +178,7 @@ public struct RegionState
     public string planetName;
     public SimulationCoordinates coordinates;
     public float terraformationProgress;
+    public AtmosphericState atmosphericState;
     public SimulationWeatherState weather;
     public SimulationCoherenceState coherence;
     public HexGridDebugSummary summary;
@@ -241,4 +256,40 @@ public struct SimulationEvent
     public SimulationCoordinates coordinates;
     public bool hasCell;
     public SimulationCellAddress cell;
+}
+
+/// <summary>
+/// Tuile de surface d'un corps sphérique (planète, lune, astéroïde).
+/// Miroir de GoldbergTileState (Python) — utiliser GET /bodies/{id}/tiles.
+/// tileId est un index H3 hexagonal (ex: "820007fffffffff"), pas un entier.
+/// neighborIds liste les H3 voisins directs (jusqu'à 6, ou 5 pour les 12 pentagones).
+/// </summary>
+[Serializable]
+public struct GoldbergTileState
+{
+    public string tileId;
+    public string[] neighborIds;
+    public float latNorm;
+    public float lonNorm;
+    public float latDeg;
+    public float lonDeg;
+    public TerrainType terrainType;
+    public WaterClassification waterClassification;
+    public TerrainClass terrainClass;
+    public float waterRatio;
+    public float temperature;
+    public float toxinLevel;
+    public bool isHabitable;
+}
+
+/// <summary>
+/// Entrée minimale d'un corps (planet, moon…) dans la liste GET /bodies.
+/// Utilisée pour résoudre le bodyId avant de paginer les tuiles.
+/// </summary>
+[Serializable]
+public struct BodyListEntry
+{
+    public string bodyId;
+    public string name;
+    public string surfaceType;
 }

@@ -28,7 +28,7 @@ public class RuntimeDebugFacade : MonoBehaviour
         get
         {
             if (_instance == null)
-                _instance = FindObjectOfType<RuntimeDebugFacade>();
+                _instance = FindAnyObjectByType<RuntimeDebugFacade>();
 
             if (_instance == null)
             {
@@ -326,15 +326,15 @@ public class RuntimeDebugFacade : MonoBehaviour
     private void ResolveReferences()
     {
         if (viewManager == null)
-            viewManager = FindObjectOfType<ViewManager>();
+            viewManager = FindFirstObjectByType<ViewManager>();
         if (_clientSnapshotSource == null)
             _clientSnapshotSource = viewManager;
         if (terraformHUD == null)
-            terraformHUD = FindObjectOfType<TerraformHUD>();
+            terraformHUD = FindFirstObjectByType<TerraformHUD>();
         if (terraformProgressTracker == null)
-            terraformProgressTracker = FindObjectOfType<TerraformProgressTracker>();
+            terraformProgressTracker = FindFirstObjectByType<TerraformProgressTracker>();
         if (testLaunchMenu == null)
-            testLaunchMenu = FindObjectOfType<TestLaunchMenu>();
+            testLaunchMenu = FindFirstObjectByType<TestLaunchMenu>();
         if (_tickSource == null)
             _tickSource = TickManager.Instance;
     }
