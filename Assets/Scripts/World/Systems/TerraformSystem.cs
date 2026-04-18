@@ -1,6 +1,9 @@
-using UnityEngine;
 using System;
 using System.Collections.Generic;
+using System.Collections;
+using System.Globalization;
+using UnityEngine;
+using UnityEngine.Networking;
 
 /// <summary>
 /// Applique des actions de terraformation sur des hexagones, fait évoluer
@@ -25,36 +28,33 @@ public class TerraformSystem : MonoBehaviour
 
     /// <summary>Déclenché quand le biome d'une cellule change suite à une action.</summary>
     public event Action<HexCell> OnCellBiomeChanged;
+    public event Action<HexCell> OnAuthoritativeCellSynchronized;
+    public event Action<WorldState> OnAuthoritativeWorldStateSynchronized;
 
     // =========================================================
     // Inspector
     // =========================================================
 
     [SerializeField] private HexGrid hexGrid;
+    [SerializeField] private bool preferServerCommands = true;
+    [SerializeField] private bool fallbackToLocalSimulationOnServerFailure = true;
+    [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
+    [SerializeField] private float simulationServerTimeoutSeconds = 2f;
+
+    private ITickSource _tickSource;
+    private IHexCellStore _cellStore;
+    private IGridRefreshSink _refreshSink;
 
     // =========================================================
     // Runtime
     // =========================================================
 
-    private readonly List<ActionPending> _pending = new List<ActionPending>();
-    private readonly BiomeSystem         _biomeSystem = new BiomeSystem();
-    private readonly HydrologySystem _hydrologySystem = new HydrologySystem();
-    private readonly WaterClassificationSystem _waterClassificationSystem = new WaterClassificationSystem();
-    private readonly RiverSystem _riverSystem = new RiverSystem();
+    private readonly TerraformSimulationSession _simulationSession = new TerraformSimulationSession();
+    private bool _hasAuthoritativeWorldState;
+    private WorldState _lastAuthoritativeWorldState;
 
-    // Contexte biome minimal (corps actif — mis à jour par SetContext)
-    private GenerationContext _ctx;
-
-    // =========================================================
-    // Struct interne
-    // =========================================================
-
-    private struct ActionPending
-    {
-        public HexCell          cell;
-        public TerraformActionData action;
-        public int              ticksRemaining;
-    }
+    public bool HasAuthoritativeWorldState => _hasAuthoritativeWorldState;
+    public WorldState LastAuthoritativeWorldState => _lastAuthoritativeWorldState;
 
     // =========================================================
     // Unity lifecycle
@@ -62,16 +62,23 @@ public class TerraformSystem : MonoBehaviour
 
     private void Start()
     {
-        if (TickManager.Instance != null)
-            TickManager.Instance.OnTick += HandleTick;
+        if (_cellStore == null)
+            _cellStore = hexGrid;
+        if (_refreshSink == null)
+            _refreshSink = hexGrid;
+        if (_tickSource == null)
+            _tickSource = TickManager.Instance;
+
+        if (_tickSource != null)
+            _tickSource.OnTick += HandleTick;
         else
             Debug.LogWarning("[TerraformSystem] TickManager introuvable — souscription différée.");
     }
 
     private void OnDestroy()
     {
-        if (TickManager.Instance != null)
-            TickManager.Instance.OnTick -= HandleTick;
+        if (_tickSource != null)
+            _tickSource.OnTick -= HandleTick;
     }
 
     // =========================================================
@@ -84,7 +91,38 @@ public class TerraformSystem : MonoBehaviour
     /// </summary>
     public void SetContext(GenerationContext ctx)
     {
-        _ctx = ctx;
+        _simulationSession.SetContext(ctx);
+    }
+
+    /// <summary>
+    /// Applique un contexte injecté depuis l'état serveur autoritatif,
+    /// sans recalculer la météo et la cohérence localement.
+    /// </summary>
+    public void ApplyAuthoritativeContext(RegionState regionState, MapRegion region)
+    {
+        if (_cellStore == null)
+            return;
+
+        var injectedWeather = regionState.weather.ToPlanetaryWeatherState();
+        var injectedCoherence = regionState.coherence.ToCoherenceConstraint();
+
+        var cells = _cellStore.GetCells();
+        var ctx = GenerationContext.BuildWithInjected(cells, region, injectedWeather, injectedCoherence);
+
+        _simulationSession.SetContext(ctx);
+    }
+
+    public void ConfigureRuntime(ITickSource tickSource, IHexCellStore cellStore, IGridRefreshSink refreshSink)
+    {
+        if (_tickSource != null)
+            _tickSource.OnTick -= HandleTick;
+
+        _tickSource = tickSource;
+        _cellStore = cellStore;
+        _refreshSink = refreshSink;
+
+        if (_tickSource != null && isActiveAndEnabled)
+            _tickSource.OnTick += HandleTick;
     }
 
     /// <summary>
@@ -93,18 +131,18 @@ public class TerraformSystem : MonoBehaviour
     /// </summary>
     public bool ApplyAction(HexCell cell, TerraformActionData action)
     {
-        if (cell == null || action == null) return false;
-        if (!action.CanApply(cell)) return false;
-
-        _pending.Add(new ActionPending
+        if (ShouldUseServerCommands(cell, action))
         {
-            cell          = cell,
-            action        = action,
-            ticksRemaining = action.durationTicks
-        });
+            StartCoroutine(QueueActionOnServer(cell, action));
+            return true;
+        }
 
-        Debug.Log($"[TerraformSystem] Action ajoutée : {action.displayName} sur ({cell.Q},{cell.R})");
-        return true;
+        bool queued = _simulationSession.EnqueueAction(cell, action);
+
+        if (queued)
+            Debug.Log($"[TerraformSystem] Action ajoutee : {action.displayName} sur ({cell.Q},{cell.R})");
+
+        return queued;
     }
 
     public bool DebugApplyDirectState(HexCell cell, float waterDelta, float temperatureDelta)
@@ -112,31 +150,25 @@ public class TerraformSystem : MonoBehaviour
         if (cell == null)
             return false;
 
-        if (_ctx == null)
+        if (ShouldUseServerCommands(cell, null))
+        {
+            StartCoroutine(ApplyDirectCellDeltaOnServer(cell, waterDelta, temperatureDelta));
+            return true;
+        }
+
+        if (!_simulationSession.HasContext)
         {
             Debug.LogWarning("[TerraformSystem] DebugApplyDirectState impossible sans GenerationContext.");
             return false;
         }
 
-        HexPhysicalState state = cell.state;
-        state.waterRatio = Mathf.Clamp01(state.waterRatio + waterDelta);
-        state.tempLocale += temperatureDelta;
-        cell.state = state;
-
-        TerrainData previousTerrain = cell.terrain;
-        RecomputeDebugLocalState();
-        hexGrid?.RefreshAllCells();
-
-        if (cell.terrain != previousTerrain)
-            OnCellBiomeChanged?.Invoke(cell);
-
-        return true;
+        return _simulationSession.DebugApplyDirectState(cell, waterDelta, temperatureDelta, _cellStore, _refreshSink, cellChanged => OnCellBiomeChanged?.Invoke(cellChanged));
     }
 
     /// <summary>Nombre d'actions de terraformation en cours.</summary>
-    public int PendingCount => _pending.Count;
-    public bool HasContext => _ctx != null;
-    public GenerationContext CurrentContext => _ctx;
+    public int PendingCount => _simulationSession.PendingCount;
+    public bool HasContext => _simulationSession.HasContext;
+    public GenerationContext CurrentContext => _simulationSession.CurrentContext;
 
     // =========================================================
     // Tick handler
@@ -144,89 +176,222 @@ public class TerraformSystem : MonoBehaviour
 
     private void HandleTick(int tickNumber)
     {
-        if (_pending.Count == 0) return;
+        _simulationSession.ProcessTick(_refreshSink, cellChanged => OnCellBiomeChanged?.Invoke(cellChanged));
+    }
 
-        // Traitement en arrière pour supprimer les actions terminées pendant l'itération
-        for (int i = _pending.Count - 1; i >= 0; i--)
+    private bool ShouldUseServerCommands(HexCell cell, TerraformActionData action)
+    {
+        if (!preferServerCommands || !isActiveAndEnabled || cell == null)
+            return false;
+
+        if (action == null)
+            return true;
+
+        return true;
+    }
+
+    private IEnumerator QueueActionOnServer(HexCell cell, TerraformActionData action)
+    {
+        string url = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}/commands/queue-action?action_type={1}&q={2}&r={3}",
+            simulationServerUrl.TrimEnd('/'),
+            (int)action.actionType,
+            cell.Q,
+            cell.R);
+
+        yield return SendWorldStateCommand(
+            url,
+            $"Action serveur soumise : {action.displayName} sur ({cell.Q},{cell.R})",
+            () => FallbackQueueAction(cell, action),
+            cell);
+    }
+
+    private IEnumerator ApplyDirectCellDeltaOnServer(HexCell cell, float waterDelta, float temperatureDelta)
+    {
+        string url = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}/commands/apply-cell-delta?water_delta={1}&temperature_delta={2}&q={3}&r={4}",
+            simulationServerUrl.TrimEnd('/'),
+            waterDelta,
+            temperatureDelta,
+            cell.Q,
+            cell.R);
+
+        yield return SendWorldStateCommand(
+            url,
+            $"Delta serveur applique sur ({cell.Q},{cell.R})",
+            () => FallbackApplyDirectState(cell, waterDelta, temperatureDelta),
+            cell);
+    }
+
+    private IEnumerator SendWorldStateCommand(string url, string successMessage, Action fallbackAction, HexCell preferredCell)
+    {
+        using UnityWebRequest request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST)
         {
-            ActionPending entry = _pending[i];
+            downloadHandler = new DownloadHandlerBuffer(),
+            uploadHandler = new UploadHandlerRaw(Array.Empty<byte>()),
+            timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds))
+        };
+        request.SetRequestHeader("Content-Type", "application/json");
 
-            // Applique les modificateurs de ce tick
-            ApplyModifier(entry.cell, entry.action.modifier);
+        yield return request.SendWebRequest();
 
-            // Rejoue le biome localement
-            TerrainData previousTerrain = entry.cell.terrain;
-            ReevaluateBiome(entry.cell);
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogWarning($"[TerraformSystem] Commande serveur indisponible ({request.error}).");
+            fallbackAction?.Invoke();
+            yield break;
+        }
 
-            // Notifie si le biome a changé
-            if (entry.cell.terrain != previousTerrain)
+        WorldState worldState;
+        try
+        {
+            worldState = JsonUtility.FromJson<WorldState>(request.downloadHandler.text);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TerraformSystem] Réponse serveur invalide ({ex.Message}).");
+            fallbackAction?.Invoke();
+            yield break;
+        }
+
+        ApplyAuthoritativeWorldState(worldState, preferredCell);
+        Debug.Log($"[TerraformSystem] {successMessage}");
+    }
+
+    private void FallbackQueueAction(HexCell cell, TerraformActionData action)
+    {
+        if (!fallbackToLocalSimulationOnServerFailure)
+            return;
+
+        bool queued = _simulationSession.EnqueueAction(cell, action);
+        if (queued)
+            Debug.Log($"[TerraformSystem] Fallback local : action ajoutee {action.displayName} sur ({cell.Q},{cell.R})");
+    }
+
+    private void FallbackApplyDirectState(HexCell cell, float waterDelta, float temperatureDelta)
+    {
+        if (!fallbackToLocalSimulationOnServerFailure || !_simulationSession.HasContext)
+            return;
+
+        _simulationSession.DebugApplyDirectState(cell, waterDelta, temperatureDelta, _cellStore, _refreshSink, cellChanged => OnCellBiomeChanged?.Invoke(cellChanged));
+    }
+
+    private void ApplyAuthoritativeWorldState(WorldState worldState, HexCell preferredCell)
+    {
+        _lastAuthoritativeWorldState = worldState;
+        _hasAuthoritativeWorldState = worldState.isValid;
+        OnAuthoritativeWorldStateSynchronized?.Invoke(worldState);
+
+        if (!worldState.hasRegion)
+            return;
+
+        ApplyAuthoritativeRegionState(worldState.region, preferredCell);
+    }
+
+    public void SynchronizeAuthoritativeRegionState(RegionState regionState)
+    {
+        ApplyAuthoritativeRegionState(regionState, null);
+    }
+
+    private void ApplyAuthoritativeRegionState(RegionState regionState, HexCell preferredCell)
+    {
+        if (regionState.cells != null)
+        {
+            for (int index = 0; index < regionState.cells.Length; index++)
             {
-                hexGrid?.RefreshCell(entry.cell);
-                OnCellBiomeChanged?.Invoke(entry.cell);
-                Debug.Log($"[TerraformSystem] Biome modifié ({entry.cell.Q},{entry.cell.R}) → {entry.cell.terrain?.displayName}");
-            }
+                SimulationCellState cellState = regionState.cells[index];
+                HexCell regionCell = ResolveTargetCell(null, cellState.address);
+                if (regionCell == null)
+                    continue;
 
-            // Décrémente le compteur de ticks
-            _pending[i] = new ActionPending
-            {
-                cell          = entry.cell,
-                action        = entry.action,
-                ticksRemaining = entry.ticksRemaining - 1
-            };
+                TerrainData previousTerrain = regionCell.terrain;
+                ApplySimulationCellState(regionCell, cellState);
+                _refreshSink?.RefreshCell(regionCell);
 
-            if (_pending[i].ticksRemaining <= 0)
-            {
-                Debug.Log($"[TerraformSystem] Action terminée : {entry.action.displayName} sur ({entry.cell.Q},{entry.cell.R})");
-                _pending.RemoveAt(i);
+                if (previousTerrain != regionCell.terrain)
+                    OnCellBiomeChanged?.Invoke(regionCell);
             }
         }
-    }
 
-    // =========================================================
-    // Helpers internes
-    // =========================================================
-
-    private static void ApplyModifier(HexCell cell, HexStateModifier mod)
-    {
-        HexPhysicalState s = cell.state;   // copie de la struct
-
-        s.tempLocale               += mod.tempDelta;
-        s.waterRatio                = Mathf.Clamp01(s.waterRatio    + mod.waterDelta);
-        s.toxinLevel                = Mathf.Clamp01(s.toxinLevel    + mod.toxinDelta);
-        s.soil.organicContent       = Mathf.Clamp01(s.soil.organicContent  + mod.organicDelta);
-        s.soil.rockHardness         = Mathf.Clamp01(s.soil.rockHardness    + mod.hardnessDelta);
-        s.soil.mineralDensity       = Mathf.Clamp01(s.soil.mineralDensity  + mod.mineralDelta);
-
-        // Si les toxines sont éradiquées, nettoyer toxicSoil
-        if (s.toxinLevel <= 0f) s.soil.toxicSoil = false;
-
-        cell.state = s;   // réaffecte la struct modifiée
-    }
-
-    private void ReevaluateBiome(HexCell cell)
-    {
-        if (_ctx == null)
-        {
-            Debug.LogWarning("[TerraformSystem] Pas de GenerationContext — réévaluation impossible.");
+        if (!regionState.hasSelectedCell)
             return;
+
+        SimulationCellState serverCellState = regionState.selectedCell;
+
+        HexCell targetCell = ResolveTargetCell(preferredCell, serverCellState.address);
+        if (targetCell == null)
+            return;
+
+        OnAuthoritativeCellSynchronized?.Invoke(targetCell);
+    }
+
+    private HexCell ResolveTargetCell(HexCell preferredCell, SimulationCellAddress address)
+    {
+        if (_cellStore == null)
+            return preferredCell;
+
+        HexCell targetCell = _cellStore.GetCell(address.q, address.r);
+        return targetCell ?? preferredCell;
+    }
+
+    private void ApplySimulationCellState(HexCell cell, SimulationCellState state)
+    {
+        HexPhysicalState physicalState = cell.state;
+        physicalState.altitude = state.altitude;
+        physicalState.tempLocale = state.temperature;
+        physicalState.waterRatio = state.waterRatio;
+        physicalState.toxinLevel = state.toxinLevel;
+        physicalState.windVector = new Vector2(state.windVector.x, state.windVector.y);
+        physicalState.windSpeed = state.windSpeed;
+        physicalState.rainShadow = state.rainShadow;
+        physicalState.hasRiver = state.hasRiver;
+        physicalState.flowAccumulation = state.flowAccumulation;
+        physicalState.terrainClass = state.terrainClass;
+        physicalState.waterClassification = state.waterClassification;
+        physicalState.hasDownstream = state.hasDownstream;
+        physicalState.downstreamQ = state.downstream.q;
+        physicalState.downstreamR = state.downstream.r;
+        physicalState.hasOverflowOutlet = state.hasOverflowOutlet;
+        physicalState.overflowQ = state.overflowOutlet.q;
+        physicalState.overflowR = state.overflowOutlet.r;
+        physicalState.soil = new SoilProfile
+        {
+            rockHardness = state.soil.rockHardness,
+            organicContent = state.soil.organicContent,
+            porosity = state.soil.porosity,
+            mineralDensity = state.soil.mineralDensity,
+            toxicSoil = state.soil.toxicSoil,
+            thermalConductivity = state.soil.thermalConductivity,
+        };
+
+        cell.state = physicalState;
+        cell.layer = state.layer;
+
+        TerrainData resolvedTerrain = ResolveTerrainData(state.terrainType);
+        if (resolvedTerrain != null)
+            cell.terrain = resolvedTerrain;
+    }
+
+    private TerrainData ResolveTerrainData(TerrainType terrainType)
+    {
+        OrbitalBody body = CurrentContext != null ? CurrentContext.body : null;
+        if (body == null || body.layers == null)
+            return null;
+
+        foreach (LayerZone layer in body.layers)
+        {
+            if (layer == null || layer.biomes == null)
+                continue;
+
+            foreach (TerrainData terrain in layer.biomes)
+            {
+                if (terrain != null && terrain.terrainType == terrainType)
+                    return terrain;
+            }
         }
 
-        // BiomeSystem.Execute() travaille sur un tableau → on l'applique sur ce seul hex
-        _biomeSystem.Execute(new HexCell[] { cell }, _ctx);
-    }
-
-    private void RecomputeDebugLocalState()
-    {
-        if (_ctx == null || hexGrid == null)
-            return;
-
-        HexCell[] cells = hexGrid.GetCells();
-        if (cells == null || cells.Length == 0)
-            return;
-
-        _hydrologySystem.Execute(cells, _ctx);
-        _waterClassificationSystem.Execute(cells, _ctx);
-        _biomeSystem.Execute(cells, _ctx);
-        _riverSystem.Execute(cells, _ctx);
+        return null;
     }
 }

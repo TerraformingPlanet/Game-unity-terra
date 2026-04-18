@@ -19,7 +19,7 @@ public class GenerationContext
     // =========================================================
 
     public SolarSystemData       solarSystem;
-    public CelestialBodyData     body;
+    public OrbitalBody           body;
     public MapRegion             region;
     public MapRegion.CoherenceConstraint coherence;
     public PlanetaryWeatherState weather;
@@ -73,7 +73,7 @@ public class GenerationContext
     /// </summary>
     public static GenerationContext Build(HexCell[] cells, MapRegion region)
     {
-        CelestialBodyData body     = region.planet;
+        OrbitalBody body     = region.planet;
         MapGenParameters  p        = region.genParams != null ? region.genParams : body.genParams;
         int               seed     = p.randomSeedOnPlay ? Random.Range(0, 100000) : p.seed;
         System.Random     rng      = new System.Random(seed);
@@ -100,6 +100,43 @@ public class GenerationContext
         Debug.Log($"[GenerationContext] seed={seed} | corps='{body.bodyName}'" +
                   $" | Toffset={wx.temperatureOffset:F1}°C | précip={wx.precipitationRate:F2}" +
                   $" | cohérence eau={coherence.oceanicity:F2} désert={coherence.deserticity:F2} gel={coherence.frigidity:F2}");
+
+        return ctx;
+    }
+
+    /// <summary>
+    /// Construit un GenerationContext en injectant des valeurs météo/coherence autoritatives
+    /// depuis le serveur, au lieu de les recalculer localement.
+    /// </summary>
+    public static GenerationContext BuildWithInjected(
+        HexCell[] cells, MapRegion region,
+        PlanetaryWeatherState injectedWeather, MapRegion.CoherenceConstraint injectedCoherence)
+    {
+        OrbitalBody body          = region.planet;
+        MapGenParameters  p        = region.genParams != null ? region.genParams : body.genParams;
+        int               seed     = p.randomSeedOnPlay ? Random.Range(0, 100000) : p.seed;
+        System.Random     rng      = new System.Random(seed);
+
+        var ctx = new GenerationContext
+        {
+            solarSystem  = region.solarSystem,
+            body         = body,
+            region       = region,
+            coherence    = injectedCoherence,
+            weather      = injectedWeather,
+            genParams    = p,
+            seed         = seed,
+            rng          = rng,
+            heightOffset = new Vector2(rng.Next(-10000, 10000), rng.Next(-10000, 10000)),
+            biomeOffset  = new Vector2(rng.Next(-10000, 10000), rng.Next(-10000, 10000)),
+            geoOffset    = new Vector2(rng.Next(-10000, 10000), rng.Next(-10000, 10000)),
+        };
+
+        ctx.cellLookup = BuildLookup(cells);
+
+        Debug.Log($"[GenerationContext] INJECTED seed={seed} | corps='{body.bodyName}'" +
+                  $" | Toffset={injectedWeather.temperatureOffset:F1}°C | précip={injectedWeather.precipitationRate:F2}" +
+                  $" | cohérence eau={injectedCoherence.oceanicity:F2} désert={injectedCoherence.deserticity:F2} gel={injectedCoherence.frigidity:F2}");
 
         return ctx;
     }

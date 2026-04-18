@@ -29,11 +29,15 @@ public class TerraformProgressTracker : MonoBehaviour
 
     [SerializeField] private HexGrid hexGrid;
 
+    private ITickSource _tickSource;
+    private IHexCellStore _cellStore;
+
     // =========================================================
     // Runtime
     // =========================================================
 
     private float _lastProgress = -1f;
+    private bool _useAuthoritativeProgress;
 
     // =========================================================
     // Propriété publique
@@ -48,14 +52,31 @@ public class TerraformProgressTracker : MonoBehaviour
 
     private void Start()
     {
-        if (TickManager.Instance != null)
-            TickManager.Instance.OnTick += HandleTick;
+        if (_tickSource == null)
+            _tickSource = TickManager.Instance;
+        if (_cellStore == null)
+            _cellStore = hexGrid;
+
+        if (_tickSource != null)
+            _tickSource.OnTick += HandleTick;
     }
 
     private void OnDestroy()
     {
-        if (TickManager.Instance != null)
-            TickManager.Instance.OnTick -= HandleTick;
+        if (_tickSource != null)
+            _tickSource.OnTick -= HandleTick;
+    }
+
+    public void ConfigureRuntime(ITickSource tickSource, IHexCellStore cellStore)
+    {
+        if (_tickSource != null)
+            _tickSource.OnTick -= HandleTick;
+
+        _tickSource = tickSource;
+        _cellStore = cellStore;
+
+        if (_tickSource != null && isActiveAndEnabled)
+            _tickSource.OnTick += HandleTick;
     }
 
     // =========================================================
@@ -74,20 +95,37 @@ public class TerraformProgressTracker : MonoBehaviour
     /// <summary>Force un recalcul immédiat (utile à l'ouverture d'une région).</summary>
     public void Refresh()
     {
-        HexCell[] cells = hexGrid?.GetCells();
+        if (_useAuthoritativeProgress)
+            return;
+
+        HexCell[] cells = _cellStore?.GetCells();
         if (cells == null || cells.Length == 0) return;
 
         int habitable = 0;
         foreach (HexCell cell in cells)
         {
-            if (IsHabitable(cell))
+            if (TerraformHabitabilityEvaluator.IsHabitable(cell))
                 habitable++;
         }
 
-        float newProgress = (float)habitable / cells.Length;
+        ApplyProgress((float)habitable / cells.Length);
+    }
+
+    public void SetAuthoritativeProgress(float progress)
+    {
+        _useAuthoritativeProgress = true;
+        ApplyProgress(Mathf.Clamp01(progress));
+    }
+
+    public void ClearAuthoritativeProgress()
+    {
+        _useAuthoritativeProgress = false;
+    }
+
+    private void ApplyProgress(float newProgress)
+    {
         Progress = newProgress;
 
-        // N'émet l'event que si la valeur a varié de façon significative
         if (Mathf.Abs(newProgress - _lastProgress) > 0.001f)
         {
             _lastProgress = newProgress;
@@ -95,24 +133,4 @@ public class TerraformProgressTracker : MonoBehaviour
         }
     }
 
-    // =========================================================
-    // Critère d'habitabilité
-    // =========================================================
-
-    private static bool IsHabitable(HexCell cell)
-    {
-        if (cell == null) return false;
-
-        // Biomes directement habitables
-        if (cell.terrain != null)
-        {
-            if (cell.terrain.terrainType == TerrainType.Vegetation) return true;
-            if (cell.terrain.terrainType == TerrainType.Eau) return true;
-        }
-
-        // Critère physique : température viable et eau minimale
-        float t = cell.state.tempLocale;
-        float w = cell.state.waterRatio;
-        return (t >= -10f && t <= 50f && w >= 0.05f);
-    }
 }

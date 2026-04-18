@@ -27,10 +27,10 @@ public class SolarSystemView : MonoBehaviour
 
     /// <summary>
     /// Déclenché quand l'utilisateur clique sur une planète.
-    /// body      : le CelestialBodyData de la planète cliquée.
+    /// body      : le OrbitalBody de la planète cliquée.
     /// worldPos  : position world de la sphère (centre d'orbite pour la caméra).
     /// </summary>
-    public event Action<CelestialBodyData, Vector3> OnPlanetClicked;
+    public event Action<OrbitalBody, Vector3> OnPlanetClicked;
 
     // =========================================================
     // Inspector
@@ -160,7 +160,7 @@ public class SolarSystemView : MonoBehaviour
         return go;
     }
 
-    private float ComputeDisplayRadius(CelestialBodyData body)
+    private float ComputeDisplayRadius(OrbitalBody body)
     {
         if (body == null || body.radius <= 0f)
             return defaultPlanetRadius;
@@ -262,12 +262,12 @@ public class SolarSystemView : MonoBehaviour
 /// </summary>
 internal class PlanetClickHandler : MonoBehaviour
 {
-    private CelestialBodyData                       _body;
+    private OrbitalBody                             _body;
     private Vector3                                 _worldPos;
-    private Action<CelestialBodyData, Vector3>      _callback;
+    private Action<OrbitalBody, Vector3>            _callback;
 
-    public void Init(CelestialBodyData body, Vector3 worldPos,
-                     Action<CelestialBodyData, Vector3> callback)
+    public void Init(OrbitalBody body, Vector3 worldPos,
+                     Action<OrbitalBody, Vector3> callback)
     {
         _body     = body;
         _worldPos = worldPos;

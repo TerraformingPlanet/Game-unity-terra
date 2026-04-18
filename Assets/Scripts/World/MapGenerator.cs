@@ -44,18 +44,21 @@ public static class MapGenerator
     }
 
     /// <summary>
-    /// Surcharge de rétro-compatibilité : accepte un CelestialBodyData directement.
+    /// Surcharge de rétro-compatibilité : accepte un OrbitalBody directement.
     /// Crée une région équatoriale par défaut sans système solaire.
     /// </summary>
-    public static void Populate(HexCell[] cells, CelestialBodyData body)
+    public static void Populate(HexCell[] cells, OrbitalBody body)
     {
         if (!ValidateBody(body)) return;
 
         MapRegion tempRegion = UnityEngine.ScriptableObject.CreateInstance<MapRegion>();
-        tempRegion.planet    = body;
-        tempRegion.genParams = body.genParams;
-        tempRegion.latitude  = 0.5f;
-        tempRegion.longitude = 0.5f;
+        tempRegion.planet              = body;
+        tempRegion.genParams           = body.genParams;
+        tempRegion.latitude            = 0.5f;
+        tempRegion.longitude           = 0.5f;
+        // Fournit une référence d'eau représentative pour éviter que CoherenceConstraint
+        // ne déclenche isExtremeArid à tort quand aucune cellule projetée n'existe.
+        tempRegion.projectedWaterRatio = body.geology.waterAbundance;
 
         Populate(cells, tempRegion);
 
@@ -88,10 +91,10 @@ public static class MapGenerator
     // Validation
     // =========================================================
 
-    private static bool ValidateBody(CelestialBodyData body)
+    private static bool ValidateBody(OrbitalBody body)
     {
         if (body == null)
-        { Debug.LogWarning("[MapGenerator] CelestialBodyData manquant."); return false; }
+        { Debug.LogWarning("[MapGenerator] OrbitalBody manquant."); return false; }
         if (body.genParams == null)
         { Debug.LogWarning($"[MapGenerator] {body.bodyName} : genParams manquant."); return false; }
         if (body.layers == null || body.layers.Length == 0)

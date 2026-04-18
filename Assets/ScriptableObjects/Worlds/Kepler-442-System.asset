@@ -14,11 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SolarSystemData
   systemName: Kepler-442
   distanceLightYears: 1115
-  primaryStar:
-    name: Kepler-442
-    spectralType: 1
-    luminosity: 0.36
-    mass: 0.61
+  primaryStar: {fileID: 11400000, guid: 73b8e5639da0428e874a3575c7c93b5a, type: 2}
   companionStars: []
   orbitalSlots:
   - body: {fileID: 11400000, guid: 4a79f933108fa824d990f5e85f1f3b42, type: 2}

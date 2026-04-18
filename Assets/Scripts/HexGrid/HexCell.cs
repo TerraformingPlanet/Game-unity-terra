@@ -115,7 +115,10 @@ public class HexCell
     public TerrainData       terrain;
     public Vector3           center;
     public WorldLayer        layer  = WorldLayer.Surface;
-    public CelestialBodyData world;
+    public OrbitalBody world;
+
+    /// <summary>Appartenance politique de cet hex (Corporation, Nation ou Neutral).</summary>
+    public HexOwnership ownership;
 
     /// <summary>État physique complet calculé par MapGenerator à la génération.</summary>
     public HexPhysicalState  state;
@@ -126,4 +129,12 @@ public class HexCell
         R = r;
         center = HexMetrics.AxialToWorld(q, r);
     }
+
+    /// <summary>
+    /// Coordonnées sur la sphère planétaire, normalisées [0,1].
+    /// Calculées par ViewManager.PlaceHexGridOnGlobe() lors de l'affichage overlay.
+    /// Utilisées par le serveur dédié pour connaître la position globale de chaque tuile.
+    /// </summary>
+    public float latOnSphere;
+    public float lonOnSphere;
 }

@@ -67,6 +67,18 @@ public class TerraformActionData : ScriptableObject
     [Header("Effets sur HexPhysicalState")]
     public HexStateModifier modifier;
 
+    public void ApplyAuthoritativeDefinition(SimulationActionDefinition definition)
+    {
+        if (definition.actionType != actionType)
+            return;
+
+        if (!string.IsNullOrEmpty(definition.displayName))
+            displayName = definition.displayName;
+
+        durationTicks = Mathf.Max(1, definition.durationTicks);
+        modifier = definition.modifier;
+    }
+
     // =========================================================
     // Validation
     // =========================================================

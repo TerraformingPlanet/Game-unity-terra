@@ -14,7 +14,7 @@ using System.Collections;
 ///   TickManager.Instance.Pause();
 ///   TickManager.Instance.Resume();
 /// </summary>
-public class TickManager : MonoBehaviour
+public class TickManager : MonoBehaviour, ITickSource
 {
     // =========================================================
     // Singleton

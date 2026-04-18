@@ -24,4 +24,11 @@ public class MapGenParameters : ScriptableObject
     [Range(0.5f, 1f)] public float basinCapacity = 0.8f;
     [Range(0.6f, 0.95f)] public float lakeWaterThreshold = 0.75f;
     public Vector2 coastalWaterThreshold = new Vector2(0.55f, 0.85f);
+
+    [Header("Cohérence macro vers micro")]
+    [Range(0f, 1f)] public float coherenceWaterBlend = 0.55f;
+    [Range(0f, 1f)] public float coherenceRetentionBias = 0.45f;
+    [Range(0f, 1f)] public float coherenceRunoffBias = 0.35f;
+    [Range(0f, 1f)] public float coherenceBiomeBias = 0.5f;
+    [Range(0f, 1f)] public float coherenceRiverBias = 0.45f;
 }

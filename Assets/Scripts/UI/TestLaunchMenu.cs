@@ -33,6 +33,8 @@ public class TestLaunchMenu : MonoBehaviour
     private bool _hasDirectPresetButtons;
     private CanvasGroup _menuCanvasGroup;
 
+    public TestScenarioPreset[] Presets => presets;
+
     private void Awake()
     {
         UIEventSystemUtility.EnsureEventSystem();
@@ -43,7 +45,7 @@ public class TestLaunchMenu : MonoBehaviour
         if (menuRoot == null)
             menuRoot = gameObject;
 
-    ResolveControls();
+        ResolveControls();
     }
 
     private void Start()

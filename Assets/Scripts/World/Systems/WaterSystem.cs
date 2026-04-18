@@ -56,7 +56,7 @@ public class WaterSystem : IHexSystem
             // Précipitations ajoutées par la météo régionale
             w += ctx.weather.precipitationRate * 0.2f;
 
-            w = ApplyCoherenceBias(w, temp, coherence);
+            w = ApplyCoherenceBias(w, temp, coherence, p);
 
             cell.state.waterRatio = Mathf.Clamp01(w);
             cell.state.rainShadow = false;
@@ -77,20 +77,21 @@ public class WaterSystem : IHexSystem
                 if (cell.state.hasDownstream &&
                     ctx.cellLookup.TryGetValue((cell.state.downstreamQ, cell.state.downstreamR), out HexCell downstream))
                 {
-                    float retainedWater = ComputeRetainedWater(cell, p);
+                    float retainedWater = ComputeRetainedWater(cell, p, coherence);
                     float availableWater = Mathf.Max(0f, cell.state.waterRatio - retainedWater);
                     float altDiff = cell.state.altitude - downstream.state.altitude;
 
                     if (altDiff > 0f && availableWater > 0f)
                     {
-                        float flow = altDiff * RunoffFactor * availableWater;
+                        float runoffMultiplier = ComputeRunoffMultiplier(coherence, p);
+                        float flow = altDiff * RunoffFactor * runoffMultiplier * availableWater;
                         flow = Mathf.Min(flow, availableWater * 0.5f);
 
                         cell.state.waterRatio -= flow;
                         downstream.state.waterRatio += flow;
                     }
 
-                    cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
+                    cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, p);
                     continue;
                 }
 
@@ -100,8 +101,9 @@ public class WaterSystem : IHexSystem
                     float altDiff = cell.state.altitude - nb.state.altitude;
                     if (altDiff > 0f)
                     {
+                        float runoffMultiplier = ComputeRunoffMultiplier(coherence, p);
                         // Eau qui s'écoule du hex courant vers son voisin plus bas
-                        float flow = altDiff * RunoffFactor * cell.state.waterRatio
+                        float flow = altDiff * RunoffFactor * runoffMultiplier * cell.state.waterRatio
                                    * cell.state.soil.porosity; // infiltration réduit le flux
                         flow = Mathf.Min(flow, cell.state.waterRatio * 0.3f); // cap
 
@@ -109,8 +111,17 @@ public class WaterSystem : IHexSystem
                         nb.state.waterRatio   += flow;
                     }
                 }
-                cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
+                cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, p);
             }
+        }
+
+        // --- Phase B suite : passe supplémentaire pour le chaînage bassin → bassin ---
+        // Quand un bassin déborde vers un voisin qui est lui-même un bassin,
+        // les 2 passes précédentes ne suffisent pas à propager complètement l'excédent.
+        foreach (HexCell cell in cells)
+        {
+            if (cell.state.terrainClass == TerrainClass.Basin)
+                ApplyBasinRetention(cell, ctx, p, coherence);
         }
 
         // --- Phase C : ombre pluviométrique ---
@@ -136,7 +147,7 @@ public class WaterSystem : IHexSystem
                 }
             }
 
-            cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
+            cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, p);
         }
     }
 
@@ -147,6 +158,8 @@ public class WaterSystem : IHexSystem
     {
         float accumulationFactor = Mathf.InverseLerp(1f, 10f, cell.state.flowAccumulation);
         float basinFloor = Mathf.Lerp(parameters.lakeWaterThreshold * 0.35f, parameters.basinCapacity, accumulationFactor);
+        float retentionMultiplier = ComputeRetentionMultiplier(coherence, parameters);
+        basinFloor *= retentionMultiplier;
 
         if (coherence.isExtremeOcean)
         {
@@ -158,11 +171,16 @@ public class WaterSystem : IHexSystem
         }
         else
         {
-            float coherenceFloor = Mathf.Lerp(0f, parameters.basinCapacity, coherence.projectedWaterRatio);
-            basinFloor = Mathf.Max(basinFloor * 0.45f, coherenceFloor);
+            float projectedFloor = Mathf.Lerp(parameters.lakeWaterThreshold * 0.1f,
+                                              parameters.basinCapacity,
+                                              Mathf.Clamp01(coherence.projectedWaterRatio));
+            float climateFloor = Mathf.Lerp(projectedFloor * 0.4f,
+                                            projectedFloor,
+                                            Mathf.Clamp01((coherence.oceanicity + coherence.frigidity * 0.5f) - coherence.deserticity * 0.35f));
+            basinFloor = Mathf.Max(basinFloor * 0.45f, climateFloor);
         }
 
-        cell.state.waterRatio = Mathf.Max(cell.state.waterRatio, basinFloor);
+        cell.state.waterRatio = Mathf.Max(cell.state.waterRatio, Mathf.Clamp01(basinFloor));
 
         if (cell.state.hasOverflowOutlet &&
             cell.state.waterRatio > parameters.lakeWaterThreshold &&
@@ -186,23 +204,31 @@ public class WaterSystem : IHexSystem
             }
         }
 
-        cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence);
+        cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, parameters);
     }
 
-    private static float ComputeRetainedWater(HexCell cell, MapGenParameters parameters)
+    private static float ComputeRetainedWater(HexCell cell,
+                                              MapGenParameters parameters,
+                                              MapRegion.CoherenceConstraint coherence)
     {
         float porosityRetention = Mathf.Lerp(0.05f, 0.25f, cell.state.soil.porosity);
+        float retentionMultiplier = ComputeRetentionMultiplier(coherence, parameters);
 
-        return cell.state.terrainClass switch
+        float retained = cell.state.terrainClass switch
         {
             TerrainClass.Source => Mathf.Max(parameters.basinCapacity * 0.35f, porosityRetention),
             TerrainClass.Channel => Mathf.Max(parameters.basinCapacity * 0.2f, porosityRetention * 0.6f),
             TerrainClass.Ridge => porosityRetention * 0.35f,
             _ => porosityRetention,
         };
+
+        return Mathf.Clamp01(retained * retentionMultiplier);
     }
 
-    private static float ApplyCoherenceBias(float waterRatio, float temperature, MapRegion.CoherenceConstraint coherence)
+    private static float ApplyCoherenceBias(float waterRatio,
+                                            float temperature,
+                                            MapRegion.CoherenceConstraint coherence,
+                                            MapGenParameters parameters)
     {
         float adjusted = waterRatio;
 
@@ -215,8 +241,9 @@ public class WaterSystem : IHexSystem
         if (coherence.isExtremeFrozen)
             return Mathf.Max(adjusted, 0.65f);
 
-        float targetWater = coherence.projectedWaterRatio;
-        float influence = Mathf.Clamp01(Mathf.Max(coherence.oceanicity, coherence.deserticity) * 0.5f + coherence.frigidity * 0.3f);
+        float targetWater = ComputePreferredWaterTarget(coherence, temperature);
+        float influence = Mathf.Clamp01((Mathf.Max(coherence.oceanicity, coherence.deserticity) * 0.5f + coherence.frigidity * 0.3f)
+                        * Mathf.Lerp(0.35f, 1f, parameters.coherenceWaterBlend));
         adjusted = Mathf.Lerp(adjusted, targetWater, influence);
 
         if (coherence.frigidity > 0.55f && temperature < 0f)
@@ -225,7 +252,9 @@ public class WaterSystem : IHexSystem
         return Mathf.Clamp01(adjusted);
     }
 
-    private static float ApplyCoherencePostFlow(float waterRatio, MapRegion.CoherenceConstraint coherence)
+    private static float ApplyCoherencePostFlow(float waterRatio,
+                                                MapRegion.CoherenceConstraint coherence,
+                                                MapGenParameters parameters)
     {
         float adjusted = Mathf.Clamp01(waterRatio);
 
@@ -243,10 +272,11 @@ public class WaterSystem : IHexSystem
         if (influence <= 0.01f)
             return adjusted;
 
-        float tolerance = Mathf.Lerp(0.45f, 0.18f, influence);
-        float minPreferred = Mathf.Clamp01(coherence.projectedWaterRatio - tolerance);
-        float maxPreferred = Mathf.Clamp01(coherence.projectedWaterRatio + tolerance);
-        float correctionStrength = 0.2f + influence * 0.2f;
+        float targetWater = ComputePreferredWaterTarget(coherence, 5f);
+        float tolerance = Mathf.Lerp(0.48f, 0.15f, influence) * Mathf.Lerp(1.1f, 0.75f, parameters.coherenceWaterBlend);
+        float minPreferred = Mathf.Clamp01(targetWater - tolerance);
+        float maxPreferred = Mathf.Clamp01(targetWater + tolerance);
+        float correctionStrength = 0.16f + influence * Mathf.Lerp(0.12f, 0.34f, parameters.coherenceWaterBlend);
 
         if (adjusted < minPreferred)
             adjusted = Mathf.Lerp(adjusted, minPreferred, correctionStrength);
@@ -254,5 +284,33 @@ public class WaterSystem : IHexSystem
             adjusted = Mathf.Lerp(adjusted, maxPreferred, correctionStrength);
 
         return Mathf.Clamp01(adjusted);
+    }
+
+    private static float ComputePreferredWaterTarget(MapRegion.CoherenceConstraint coherence, float temperature)
+    {
+        float targetWater = coherence.projectedWaterRatio;
+        targetWater = Mathf.Lerp(targetWater, 0.9f, coherence.oceanicity * 0.7f);
+        targetWater = Mathf.Lerp(targetWater, 0.08f, coherence.deserticity * 0.75f);
+
+        if (temperature < 0f || coherence.frigidity > 0.45f)
+            targetWater = Mathf.Lerp(targetWater, 0.72f, coherence.frigidity * 0.65f);
+
+        return Mathf.Clamp01(targetWater);
+    }
+
+    private static float ComputeRetentionMultiplier(MapRegion.CoherenceConstraint coherence, MapGenParameters parameters)
+    {
+        float climateBias = 1f + coherence.oceanicity * 0.55f + coherence.frigidity * 0.25f - coherence.deserticity * 0.55f;
+        float projectedBias = Mathf.Lerp(0.75f, 1.35f, coherence.projectedWaterRatio);
+        float strength = Mathf.Lerp(1f, climateBias * projectedBias, parameters.coherenceRetentionBias);
+        return Mathf.Clamp(strength, 0.2f, 1.8f);
+    }
+
+    private static float ComputeRunoffMultiplier(MapRegion.CoherenceConstraint coherence, MapGenParameters parameters)
+    {
+        float climateBias = 1f + coherence.deserticity * 0.4f - coherence.oceanicity * 0.22f - coherence.frigidity * 0.12f;
+        float projectedBias = Mathf.Lerp(0.82f, 1.18f, 1f - coherence.projectedWaterRatio);
+        float strength = Mathf.Lerp(1f, climateBias * projectedBias, parameters.coherenceRunoffBias);
+        return Mathf.Clamp(strength, 0.7f, 1.45f);
     }
 }

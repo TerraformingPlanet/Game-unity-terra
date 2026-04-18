@@ -46,13 +46,38 @@ public class RiverSystem : IHexSystem
 
     private static bool IsRiverSource(HexCell cell, GenerationContext ctx)
     {
-        if (cell.state.waterRatio < SourceWaterThreshold) return false;
+        MapRegion.CoherenceConstraint coherence = ctx.coherence;
+        float sourceThreshold = ComputeSourceThreshold(coherence, ctx.genParams);
+
+        if (cell.state.waterRatio < sourceThreshold)
+            return false;
 
         if (cell.state.terrainClass == TerrainClass.Basin)
             return false;
 
+        if (coherence.isExtremeArid && cell.state.waterRatio < 0.85f)
+            return false;
+
+        if (coherence.deserticity > 0.8f &&
+            cell.state.waterRatio < 0.7f &&
+            cell.state.terrainClass != TerrainClass.Source &&
+            cell.state.terrainClass != TerrainClass.Channel)
+        {
+            return false;
+        }
+
+        if (coherence.frigidity > 0.75f &&
+            cell.state.tempLocale < -12f &&
+            cell.state.waterClassification == WaterClassification.FrozenWater)
+        {
+            return false;
+        }
+
         if (cell.state.terrainClass == TerrainClass.Source || cell.state.terrainClass == TerrainClass.Channel)
             return cell.state.hasDownstream;
+
+        if (cell.state.flowAccumulation <= 1 && coherence.deserticity > 0.55f)
+            return false;
 
         // Doit avoir au moins un voisin plus bas (pente réelle)
         foreach (HexCell nb in ctx.GetNeighbors(cell))
@@ -70,6 +95,7 @@ public class RiverSystem : IHexSystem
     private static void PropagateRiver(HexCell start, GenerationContext ctx)
     {
         HexCell current = start;
+        MapRegion.CoherenceConstraint coherence = ctx.coherence;
 
         for (int step = 0; step < MaxRiverLength; step++)
         {
@@ -83,6 +109,9 @@ public class RiverSystem : IHexSystem
 
             // Dépression sans sortie ou voisin introuvable → arrêt
             if (next == null || next.state.altitude >= current.state.altitude)
+                break;
+
+            if (!IsPlausibleRiverStep(current, next, coherence, ctx.genParams))
                 break;
 
             // La rivière assèche les hexes en ombre pluviométrique intense
@@ -100,5 +129,49 @@ public class RiverSystem : IHexSystem
 
         ctx.cellLookup.TryGetValue((cell.state.downstreamQ, cell.state.downstreamR), out HexCell downstream);
         return downstream;
+    }
+
+    private static float ComputeSourceThreshold(MapRegion.CoherenceConstraint coherence, MapGenParameters parameters)
+    {
+        float climateThreshold = SourceWaterThreshold;
+        climateThreshold = Mathf.Lerp(climateThreshold, 0.85f, coherence.deserticity);
+        climateThreshold = Mathf.Lerp(climateThreshold, 0.45f, coherence.oceanicity * 0.35f);
+        climateThreshold = Mathf.Lerp(climateThreshold, 0.7f, coherence.frigidity * 0.25f);
+        return Mathf.Lerp(SourceWaterThreshold, climateThreshold, parameters.coherenceRiverBias);
+    }
+
+    private static bool IsPlausibleRiverStep(HexCell current,
+                                             HexCell next,
+                                             MapRegion.CoherenceConstraint coherence,
+                                             MapGenParameters parameters)
+    {
+        float strength = parameters.coherenceRiverBias;
+        float minChannelWater = Mathf.Lerp(0.03f, 0.14f, strength);
+
+        if (coherence.deserticity > 0.7f &&
+            next.state.waterClassification == WaterClassification.Dry &&
+            next.state.waterRatio < minChannelWater)
+        {
+            return false;
+        }
+
+        if (coherence.frigidity > 0.7f &&
+            next.state.waterClassification == WaterClassification.FrozenWater &&
+            next.state.tempLocale < -10f)
+        {
+            return false;
+        }
+
+        if (coherence.isExtremeArid && next.state.flowAccumulation < 3 && next.state.waterRatio < 0.2f)
+            return false;
+
+        if (current.state.flowAccumulation > 0 &&
+            next.state.flowAccumulation + 2 < current.state.flowAccumulation &&
+            next.state.waterClassification == WaterClassification.Dry)
+        {
+            return false;
+        }
+
+        return true;
     }
 }

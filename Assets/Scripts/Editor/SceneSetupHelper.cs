@@ -42,15 +42,23 @@ public static class SceneSetupHelper
             solarSystem = ScriptableObject.CreateInstance<SolarSystemData>();
             solarSystem.systemName = "Kepler-442";
             solarSystem.distanceLightYears = 1115f;
-            solarSystem.primaryStar = new StarData {
-                name = "Kepler-442",
-                spectralType = StarType.K,
-                luminosity = 0.36f,
-                mass = 0.61f
-            };
+
+            // Créer l'étoile principale comme StarBody (ScriptableObject)
+            const string starPath = "Assets/ScriptableObjects/Worlds/Kepler-442-Star.asset";
+            StarBody star = AssetDatabase.LoadAssetAtPath<StarBody>(starPath);
+            if (star == null)
+            {
+                star = ScriptableObject.CreateInstance<StarBody>();
+                star.bodyName = "Kepler-442";
+                star.spectralType = StarType.K;
+                star.luminosity = 0.36f;
+                star.mass = 0.61f;
+                AssetDatabase.CreateAsset(star, starPath);
+            }
+            solarSystem.primaryStar = star;
 
             // Charger Kepler-442b
-            CelestialBodyData kepler442b = AssetDatabase.LoadAssetAtPath<CelestialBodyData>("Assets/ScriptableObjects/Worlds/Kepler-442b.asset");
+            OrbitalBody kepler442b = AssetDatabase.LoadAssetAtPath<OrbitalBody>("Assets/ScriptableObjects/Worlds/Kepler-442b.asset");
             if (kepler442b != null)
             {
                 kepler442b.radius = 0.9f; // Rayon terrestre

@@ -12,16 +12,5 @@ public enum WorldLayer
     Space       = 5    // orbite basse, vide
 }
 
-/// <summary>
-/// Type de corps céleste gouvernant les biomes disponibles et la génération procédurale.
-/// </summary>
-public enum CelestialBodyType
-{
-    Rocky,      // planète rocheuse classique
-    IcyMoon,    // lune glacée
-    OceanWorld, // monde océanique
-    Desert,     // désert aride
-    Volcanic,   // planète volcanique
-    GasGiant,   // géante gazeuse
-    Asteroid    // astéroïde / corps mineur
-}
+// CelestialBodyType a été remplacé par les classes concrètes PlanetType, MoonType, AsteroidType
+// dans World/Cosmos/Planet.cs, Moon.cs, Asteroid.cs.

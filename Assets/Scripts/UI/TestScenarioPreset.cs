@@ -5,7 +5,9 @@ public enum DebugCoherenceOverride
     None = 0,
     Ocean = 1,
     Arid = 2,
-    Frozen = 3
+    Frozen = 3,
+    Coast = 4,
+    Basin = 5
 }
 
 /// <summary>
@@ -19,7 +21,7 @@ public class TestScenarioPreset : ScriptableObject
     [TextArea] public string description;
 
     [Header("Cible")]
-    public CelestialBodyData body;
+    public OrbitalBody body;
     public bool openLocalView = true;
 
     [Header("Région")]

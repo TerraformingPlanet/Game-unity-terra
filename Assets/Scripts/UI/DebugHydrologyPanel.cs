@@ -187,6 +187,10 @@ public class DebugHydrologyPanel : MonoBehaviour
             viewManager?.ActiveHexGrid?.DebugDumpCellState(selectedCell);
             RefreshStatus();
         }
+        else
+        {
+            RefreshStatus("Erreur : contexte de génération absent (SetContext non appelé ?).");
+        }
     }
 
     public void HandleWaterDeltaChanged(float value)
@@ -334,6 +338,14 @@ public class DebugHydrologyPanel : MonoBehaviour
 
         string projectionWater = viewManager != null ? $" | niveau eau proj={viewManager.ActiveProjectionWaterLevel:+0.00;-0.00;0.00}" : string.Empty;
         string message = $"Vue={state} | planète={planet}{regionInfo}{projectionWater} | sélection={selectedCell}";
+
+        if (viewManager.CurrentState == ViewManager.ViewState.Local &&
+            viewManager.ActiveHexGrid != null &&
+            viewManager.ActiveHexGrid.TryBuildDebugSummary(out HexGridDebugSummary summary))
+        {
+            message += "\n" + summary.FormatMultiline();
+        }
+
         statusLabel.text = string.IsNullOrEmpty(prefix) ? message : prefix + "\n" + message;
     }
 

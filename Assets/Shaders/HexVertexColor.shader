@@ -7,7 +7,7 @@ Shader "Terraformation/HexVertexColor"
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" "Queue"="Geometry" }
+        Tags { "RenderType"="TransparentCutout" "RenderPipeline"="UniversalPipeline" "Queue"="AlphaTest" }
         LOD 100
         Cull Off
         ZWrite On

@@ -45,7 +45,7 @@ public class PlanetaryWeatherState
     /// Calcule la météo régionale depuis la planète et la position de la carte.
     /// Appelé une seule fois dans MapGenerator.Populate().
     /// </summary>
-    public static PlanetaryWeatherState Compute(CelestialBodyData body, MapRegion region)
+    public static PlanetaryWeatherState Compute(OrbitalBody body, MapRegion region)
     {
         var weather = new PlanetaryWeatherState();
 
@@ -71,7 +71,7 @@ public class PlanetaryWeatherState
     // Vent dominant
     // =========================================================
 
-    private static void ComputeWind(CelestialBodyData body, MapRegion region,
+    private static void ComputeWind(OrbitalBody body, MapRegion region,
                                     out Vector2 windDir, out float windSpeed)
     {
         float lat = region.latitude;   // 0 = pôle sud, 0.5 = équateur, 1 = pôle nord

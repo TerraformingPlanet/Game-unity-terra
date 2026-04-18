@@ -141,13 +141,13 @@ public class PlanetSphere : MonoBehaviour
     /// <summary>
     /// Charge et affiche la planète : génère la grille planétaire + texture.
     /// </summary>
-    public void LoadPlanet(CelestialBodyData body,
+    public void LoadPlanet(OrbitalBody body,
                            DebugCoherenceOverride coherenceOverride = DebugCoherenceOverride.None,
                            float waterLevelOffset = 0f)
     {
         if (body == null)
         {
-            Debug.LogError("[PlanetSphere] CelestialBodyData manquant.");
+            Debug.LogError("[PlanetSphere] OrbitalBody manquant.");
             return;
         }
 
@@ -200,6 +200,11 @@ public class PlanetSphere : MonoBehaviour
             return null;
 
         return PlanetaryHexGrid.GetCellAt(_planetGrid.Cells, _planetGrid.Cols, _planetGrid.Rows, latitude, longitude);
+    }
+
+    public bool TryBuildProjectionSummary(out PlanetaryHexGrid.ProjectionDebugSummary summary)
+    {
+        return PlanetaryHexGrid.TryBuildSummary(_planetGrid, out summary);
     }
 
     [ContextMenu("Clear Projection Cache")]

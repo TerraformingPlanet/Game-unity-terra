@@ -1,16 +1,55 @@
 using UnityEngine;
 
+[System.Serializable]
+public struct HexGridDebugSummary
+{
+    public int totalCells;
+    public int dryCells;
+    public int coastCells;
+    public int inlandWaterCells;
+    public int openOceanCells;
+    public int frozenWaterCells;
+    public int ridgeCells;
+    public int basinCells;
+    public int channelCells;
+    public int sourceCells;
+    public int riverCells;
+    public int downstreamCells;
+    public int overflowCells;
+    public int rockTerrainCells;
+    public int iceTerrainCells;
+    public int toxicTerrainCells;
+    public int waterTerrainCells;
+    public int vegetationTerrainCells;
+    public int metalTerrainCells;
+    public float averageWaterRatio;
+    public float averageTemperature;
+    public int maxFlowAccumulation;
+
+    public string FormatMultiline()
+    {
+        if (totalCells <= 0)
+            return "Région : aucune cellule.";
+
+        return
+            $"Région : {totalCells} cellules | eau moy {averageWaterRatio * 100f:F0}% | temp moy {averageTemperature:F1}°C | flux max {maxFlowAccumulation}\n" +
+            $"Hydro : océan {openOceanCells} | côte {coastCells} | intérieur {inlandWaterCells} | gel {frozenWaterCells} | sec {dryCells}\n" +
+            $"Relief : bassins {basinCells} | chenaux {channelCells} | sources {sourceCells} | crêtes {ridgeCells} | aval {downstreamCells} | exutoires {overflowCells} | rivières {riverCells}\n" +
+            $"Biomes : eau {waterTerrainCells} | glace {iceTerrainCells} | roche {rockTerrainCells} | végétation {vegetationTerrainCells} | métal {metalTerrainCells} | toxique {toxicTerrainCells}";
+    }
+}
+
 /// <summary>
 /// Generates the hexagonal planet grid using axial coordinates.
 /// Stores all HexCells, then delegates mesh generation to HexMesh.
 /// </summary>
-public class HexGrid : MonoBehaviour
+public class HexGrid : MonoBehaviour, IHexCellStore, IGridRefreshSink
 {
     [Header("Grid Size")]
     [SerializeField] private int radius = 5;
 
     [Header("Corps Céleste (fallback sans ViewManager)")]
-    [SerializeField] private CelestialBodyData celestialBody;
+    [SerializeField] private OrbitalBody celestialBody;
 
     private HexCell[] _cells;
     private HexMesh _hexMesh;
@@ -53,6 +92,10 @@ public class HexGrid : MonoBehaviour
     /// <summary>Regénère les cellules et retrangule le mesh.</summary>
     public void Regenerate()
     {
+        // Fallback : Awake peut ne pas avoir tourné si le GO était inactif au démarrage
+        if (_hexMesh == null)
+            _hexMesh = GetComponentInChildren<HexMesh>(true);
+
         if (_hexMesh == null) { Debug.LogError("[HexGrid] HexMesh introuvable !"); return; }
         CreateCells();
 
@@ -63,6 +106,9 @@ public class HexGrid : MonoBehaviour
 
         _hexMesh.Triangulate(_cells);
     }
+
+public int Radius => radius;
+
 
     private void CreateCells()
     {
@@ -155,6 +201,97 @@ public class HexGrid : MonoBehaviour
         }
 
         return null;
+    }
+
+    public bool TryBuildDebugSummary(out HexGridDebugSummary summary)
+    {
+        summary = default;
+
+        if (_cells == null || _cells.Length == 0)
+            return false;
+
+        float totalWaterRatio = 0f;
+        float totalTemperature = 0f;
+
+        foreach (HexCell cell in _cells)
+        {
+            HexPhysicalState state = cell.state;
+            summary.totalCells++;
+            totalWaterRatio += state.waterRatio;
+            totalTemperature += state.tempLocale;
+            summary.maxFlowAccumulation = Mathf.Max(summary.maxFlowAccumulation, state.flowAccumulation);
+
+            switch (state.waterClassification)
+            {
+                case WaterClassification.OpenOcean:
+                    summary.openOceanCells++;
+                    break;
+                case WaterClassification.InlandWater:
+                    summary.inlandWaterCells++;
+                    break;
+                case WaterClassification.Coast:
+                    summary.coastCells++;
+                    break;
+                case WaterClassification.FrozenWater:
+                    summary.frozenWaterCells++;
+                    break;
+                default:
+                    summary.dryCells++;
+                    break;
+            }
+
+            switch (state.terrainClass)
+            {
+                case TerrainClass.Ridge:
+                    summary.ridgeCells++;
+                    break;
+                case TerrainClass.Basin:
+                    summary.basinCells++;
+                    break;
+                case TerrainClass.Channel:
+                    summary.channelCells++;
+                    break;
+                case TerrainClass.Source:
+                    summary.sourceCells++;
+                    break;
+            }
+
+            if (state.hasRiver)
+                summary.riverCells++;
+            if (state.hasDownstream)
+                summary.downstreamCells++;
+            if (state.hasOverflowOutlet)
+                summary.overflowCells++;
+
+            if (cell.terrain == null)
+                continue;
+
+            switch (cell.terrain.terrainType)
+            {
+                case TerrainType.Roche:
+                    summary.rockTerrainCells++;
+                    break;
+                case TerrainType.Glace:
+                    summary.iceTerrainCells++;
+                    break;
+                case TerrainType.AtmosphereToxique:
+                    summary.toxicTerrainCells++;
+                    break;
+                case TerrainType.Eau:
+                    summary.waterTerrainCells++;
+                    break;
+                case TerrainType.Vegetation:
+                    summary.vegetationTerrainCells++;
+                    break;
+                case TerrainType.Metal:
+                    summary.metalTerrainCells++;
+                    break;
+            }
+        }
+
+        summary.averageWaterRatio = totalWaterRatio / summary.totalCells;
+        summary.averageTemperature = totalTemperature / summary.totalCells;
+        return true;
     }
 
     public void DebugDumpCellState(HexCell cell)

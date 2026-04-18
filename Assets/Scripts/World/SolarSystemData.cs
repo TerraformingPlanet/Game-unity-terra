@@ -9,12 +9,13 @@ using System;
 public class OrbitalSlot
 {
     [Tooltip("Corps céleste (planète, lune, astéroïde…)")]
-    public CelestialBodyData body;
+    public OrbitalBody body;
 
     [Tooltip("Paramètres orbitaux autour de l'étoile primaire (ou de la planète parente pour une lune)")]
     public OrbitalParameters orbit;
 
     [Tooltip("Lunes en orbite autour de ce corps (laisser vide si aucune)")]
+    [SerializeReference]
     public OrbitalSlot[] moons;
 
     // --- État de colonisation (mis à jour par le TickManager pendant la partie) ---
@@ -46,10 +47,10 @@ public class SolarSystemData : ScriptableObject
     public float distanceLightYears;
 
     [Header("Étoile(s)")]
-    public StarData primaryStar;
+    public StarBody primaryStar;
 
     [Tooltip("Étoile(s) compagnon(s) pour les systèmes binaires ou triples — laisser vide sinon")]
-    public StarData[] companionStars;
+    public StarBody[] companionStars;
 
     [Header("Corps en orbite (triés par semiMajorAxis croissant)")]
     public OrbitalSlot[] orbitalSlots;
@@ -89,7 +90,7 @@ public class SolarSystemData : ScriptableObject
     /// Retourne le slot orbitale d'un corps donné (null si non trouvé).
     /// Cherche aussi dans les lunes de chaque slot.
     /// </summary>
-    public OrbitalSlot FindSlot(CelestialBodyData body)
+    public OrbitalSlot FindSlot(OrbitalBody body)
     {
         if (orbitalSlots == null) return null;
         foreach (var slot in orbitalSlots)
@@ -106,7 +107,7 @@ public class SolarSystemData : ScriptableObject
     /// Calcule l'intensité solaire pour un corps donné depuis son OrbitalSlot.
     /// Retourne la valeur moyenne (basée sur semiMajorAxis).
     /// </summary>
-    public float SolarIntensityFor(CelestialBodyData body)
+    public float SolarIntensityFor(OrbitalBody body)
     {
         OrbitalSlot slot = FindSlot(body);
         if (slot == null)
@@ -120,7 +121,7 @@ public class SolarSystemData : ScriptableObject
     /// <summary>
     /// Vérifie si un corps est tidalement verrouillé, en cherchant son slot.
     /// </summary>
-    public bool IsTidallyLockedBody(CelestialBodyData body)
+    public bool IsTidallyLockedBody(OrbitalBody body)
     {
         OrbitalSlot slot = FindSlot(body);
         if (slot == null) return false;
@@ -135,7 +136,7 @@ public class SolarSystemData : ScriptableObject
     private void LogSystemSummary()
     {
         Debug.Log($"=== Système {systemName} ({distanceLightYears} al) ===");
-        Debug.Log($"Étoile : {primaryStar.name} [{primaryStar.spectralType}] lum={primaryStar.luminosity} | " +
+        Debug.Log($"Étoile : {primaryStar?.bodyName} [{primaryStar?.spectralType}] lum={primaryStar?.luminosity} | " +
                   $"Zone habitable : {primaryStar.HabitableZoneMin:F2}–{primaryStar.HabitableZoneMax:F2} AU | " +
                   $"Seuil tidal : {primaryStar.TidalLockThresholdAU:F2} AU");
 

@@ -31,21 +31,75 @@ public static class PlanetaryHexGrid
         public int Rows { get; }
     }
 
+    [System.Serializable]
+    public struct ProjectionDebugSummary
+    {
+        public int cols;
+        public int rows;
+        public int totalCells;
+        public int dryCells;
+        public int coastCells;
+        public int inlandWaterCells;
+        public int openOceanCells;
+        public int frozenWaterCells;
+        public int rockTerrainCells;
+        public int iceTerrainCells;
+        public int toxicTerrainCells;
+        public int waterTerrainCells;
+        public int vegetationTerrainCells;
+        public int metalTerrainCells;
+        public float averageWaterRatio;
+        public float averageTemperature;
+
+        public string FormatMultiline()
+        {
+            if (totalCells <= 0)
+                return "Projection: aucune cellule.";
+
+            return
+                $"Projection: {cols}x{rows} | cellules {totalCells} | eau moy {averageWaterRatio * 100f:F0}% | temp moy {averageTemperature:F1}°C\n" +
+                $"Hydro: ocean {openOceanCells} | cote {coastCells} | interieur {inlandWaterCells} | gel {frozenWaterCells} | sec {dryCells}\n" +
+                $"Biomes: eau {waterTerrainCells} | glace {iceTerrainCells} | roche {rockTerrainCells} | vegetation {vegetationTerrainCells} | metal {metalTerrainCells} | toxique {toxicTerrainCells}";
+        }
+    }
+
+    // =========================================================
+    // Cache global + event de synchronisation
+    // =========================================================
+
+    /// <summary>
+    /// Déclenché chaque fois que la grille planétaire active est (re)générée.
+    /// Les deux vues (Goldberg + Flat) s'y abonnent pour rafraîchir leurs couleurs.
+    /// </summary>
+    public static event System.Action<GridData> OnPlanetDataChanged;
+
+    /// <summary>
+    /// Dernière grille générée. Valide après le premier appel à Generate().
+    /// Partagée entre PlanetSphereGoldberg et PlanetFlatView.
+    /// </summary>
+    public static GridData ActiveGrid { get; private set; }
+
+    // =========================================================
+
     private const float OceanProjectionThreshold = 0.46f;
     private const float AridProjectionThreshold = 0.68f;
     private const float FrozenProjectionThreshold = 0.62f;
+    private const float CoastOceanThreshold = 0.67f;
+    private const float CoastShoreThreshold = 0.53f;
+    private const float BasinCoreThreshold = 0.74f;
+    private const float BasinShoreThreshold = 0.56f;
 
     /// <summary>
     /// Génère et peuple la grille planétaire pour un corps céleste donné.
     /// Retourne une grille Mercator complète avec dimensions calculées depuis le rayon.
     /// </summary>
-    public static GridData Generate(CelestialBodyData body,
+    public static GridData Generate(OrbitalBody body,
                                     DebugCoherenceOverride coherenceOverride = DebugCoherenceOverride.None,
                                     float waterLevelOffset = 0f)
     {
         if (body == null)
         {
-            Debug.LogError("[PlanetaryHexGrid] CelestialBodyData manquant.");
+            Debug.LogError("[PlanetaryHexGrid] OrbitalBody manquant.");
             return default;
         }
 
@@ -54,7 +108,10 @@ public static class PlanetaryHexGrid
         MapGenerator.Populate(cells, body);
         ApplyProjectionWaterLevel(cells, body, waterLevelOffset);
         ApplyProjectionOverride(cells, cols, rows, body, coherenceOverride);
-        return new GridData(cells, cols, rows);
+        var grid = new GridData(cells, cols, rows);
+        ActiveGrid = grid;
+        OnPlanetDataChanged?.Invoke(grid);
+        return grid;
     }
 
     // =========================================================
@@ -87,7 +144,7 @@ public static class PlanetaryHexGrid
         return cells;
     }
 
-    public static void GetDimensions(CelestialBodyData body, out int cols, out int rows)
+    public static void GetDimensions(OrbitalBody body, out int cols, out int rows)
     {
         if (body == null || body.radius <= 0f)
         {
@@ -123,7 +180,76 @@ public static class PlanetaryHexGrid
         return cells[col * rows + row];
     }
 
-    private static void ApplyProjectionOverride(HexCell[] cells, int cols, int rows, CelestialBodyData body, DebugCoherenceOverride coherenceOverride)
+    public static bool TryBuildSummary(GridData gridData, out ProjectionDebugSummary summary)
+    {
+        summary = default;
+        if (gridData.Cells == null || gridData.Cells.Length == 0)
+            return false;
+
+        summary.cols = gridData.Cols;
+        summary.rows = gridData.Rows;
+
+        float totalWaterRatio = 0f;
+        float totalTemperature = 0f;
+
+        foreach (HexCell cell in gridData.Cells)
+        {
+            HexPhysicalState state = cell.state;
+            summary.totalCells++;
+            totalWaterRatio += state.waterRatio;
+            totalTemperature += state.tempLocale;
+
+            switch (state.waterClassification)
+            {
+                case WaterClassification.OpenOcean:
+                    summary.openOceanCells++;
+                    break;
+                case WaterClassification.InlandWater:
+                    summary.inlandWaterCells++;
+                    break;
+                case WaterClassification.Coast:
+                    summary.coastCells++;
+                    break;
+                case WaterClassification.FrozenWater:
+                    summary.frozenWaterCells++;
+                    break;
+                default:
+                    summary.dryCells++;
+                    break;
+            }
+
+            if (cell.terrain == null)
+                continue;
+
+            switch (cell.terrain.terrainType)
+            {
+                case TerrainType.Roche:
+                    summary.rockTerrainCells++;
+                    break;
+                case TerrainType.Glace:
+                    summary.iceTerrainCells++;
+                    break;
+                case TerrainType.AtmosphereToxique:
+                    summary.toxicTerrainCells++;
+                    break;
+                case TerrainType.Eau:
+                    summary.waterTerrainCells++;
+                    break;
+                case TerrainType.Vegetation:
+                    summary.vegetationTerrainCells++;
+                    break;
+                case TerrainType.Metal:
+                    summary.metalTerrainCells++;
+                    break;
+            }
+        }
+
+        summary.averageWaterRatio = totalWaterRatio / summary.totalCells;
+        summary.averageTemperature = totalTemperature / summary.totalCells;
+        return true;
+    }
+
+    private static void ApplyProjectionOverride(HexCell[] cells, int cols, int rows, OrbitalBody body, DebugCoherenceOverride coherenceOverride)
     {
         if (coherenceOverride == DebugCoherenceOverride.None || cells == null || body == null)
             return;
@@ -132,6 +258,7 @@ public static class PlanetaryHexGrid
         TerrainData rockTerrain = FindTerrain(body, TerrainType.Roche);
         TerrainData iceTerrain = FindTerrain(body, TerrainType.Glace);
         TerrainData metalTerrain = FindTerrain(body, TerrainType.Metal);
+        TerrainData vegetationTerrain = FindTerrain(body, TerrainType.Vegetation);
 
         foreach (HexCell cell in cells)
         {
@@ -140,6 +267,10 @@ public static class PlanetaryHexGrid
             float equatorBias = 1f - Mathf.Abs(v - 0.5f) * 2f;
             float pseudoNoise = Mathf.PerlinNoise(u * 4.1f + 13.7f, v * 3.3f + 2.9f);
             float oceanMask = pseudoNoise * 0.55f + equatorBias * 0.3f + (1f - cell.state.altitude) * 0.15f;
+            float coastMask = (1f - u) * 0.62f + pseudoNoise * 0.28f + (1f - Mathf.Abs(v - 0.5f) * 1.35f) * 0.1f;
+            Vector2 basinCenter = new Vector2(0.58f, 0.56f);
+            float basinDistance = Vector2.Distance(new Vector2(u, v), basinCenter);
+            float basinMask = Mathf.Clamp01(1f - basinDistance / 0.34f) * 0.75f + pseudoNoise * 0.25f;
 
             HexPhysicalState state = cell.state;
             switch (coherenceOverride)
@@ -191,13 +322,63 @@ public static class PlanetaryHexGrid
                         cell.terrain = iceTerrain ?? cell.terrain;
                     }
                     break;
+
+                case DebugCoherenceOverride.Coast:
+                    if (coastMask >= CoastOceanThreshold)
+                    {
+                        state.waterRatio = Mathf.Max(state.waterRatio, 0.94f);
+                        state.waterClassification = WaterClassification.OpenOcean;
+                        state.terrainClass = TerrainClass.Basin;
+                        cell.terrain = waterTerrain ?? cell.terrain;
+                    }
+                    else if (coastMask >= CoastShoreThreshold)
+                    {
+                        state.waterRatio = Mathf.Max(state.waterRatio, Mathf.Lerp(0.58f, 0.8f, Mathf.InverseLerp(CoastShoreThreshold, CoastOceanThreshold, coastMask)));
+                        state.waterClassification = WaterClassification.Coast;
+                        state.terrainClass = TerrainClass.Channel;
+                        cell.terrain = waterTerrain ?? vegetationTerrain ?? rockTerrain ?? cell.terrain;
+                    }
+                    else
+                    {
+                        state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.12f, 0.35f, coastMask));
+                        if (state.waterClassification == WaterClassification.OpenOcean)
+                            state.waterClassification = WaterClassification.Dry;
+                        state.terrainClass = coastMask >= 0.42f ? TerrainClass.Slope : state.terrainClass;
+                        cell.terrain = vegetationTerrain ?? rockTerrain ?? cell.terrain;
+                    }
+                    break;
+
+                case DebugCoherenceOverride.Basin:
+                    if (basinMask >= BasinCoreThreshold)
+                    {
+                        state.waterRatio = Mathf.Max(state.waterRatio, 0.86f);
+                        state.waterClassification = WaterClassification.InlandWater;
+                        state.terrainClass = TerrainClass.Basin;
+                        cell.terrain = waterTerrain ?? cell.terrain;
+                    }
+                    else if (basinMask >= BasinShoreThreshold)
+                    {
+                        state.waterRatio = Mathf.Max(state.waterRatio, Mathf.Lerp(0.5f, 0.72f, Mathf.InverseLerp(BasinShoreThreshold, BasinCoreThreshold, basinMask)));
+                        state.waterClassification = WaterClassification.Coast;
+                        state.terrainClass = TerrainClass.Channel;
+                        cell.terrain = vegetationTerrain ?? waterTerrain ?? rockTerrain ?? cell.terrain;
+                    }
+                    else
+                    {
+                        state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.08f, 0.28f, basinMask));
+                        if (state.waterClassification == WaterClassification.OpenOcean)
+                            state.waterClassification = WaterClassification.Dry;
+                        state.terrainClass = basinMask >= 0.38f ? TerrainClass.Slope : TerrainClass.Ridge;
+                        cell.terrain = rockTerrain ?? vegetationTerrain ?? cell.terrain;
+                    }
+                    break;
             }
 
             cell.state = state;
         }
     }
 
-    private static void ApplyProjectionWaterLevel(HexCell[] cells, CelestialBodyData body, float waterLevelOffset)
+    private static void ApplyProjectionWaterLevel(HexCell[] cells, OrbitalBody body, float waterLevelOffset)
     {
         if (cells == null || body == null || Mathf.Abs(waterLevelOffset) < 0.0001f)
             return;
@@ -255,7 +436,7 @@ public static class PlanetaryHexGrid
         }
     }
 
-    private static TerrainData FindTerrain(CelestialBodyData body, TerrainType target)
+    private static TerrainData FindTerrain(OrbitalBody body, TerrainType target)
     {
         if (body.layers == null)
             return null;

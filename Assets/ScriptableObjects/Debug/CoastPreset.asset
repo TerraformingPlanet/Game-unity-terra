@@ -20,3 +20,4 @@ MonoBehaviour:
   latitude: 0.47
   longitude: 0.18
   clearProjectionCacheBeforeLaunch: 0
+  coherenceOverride: 4

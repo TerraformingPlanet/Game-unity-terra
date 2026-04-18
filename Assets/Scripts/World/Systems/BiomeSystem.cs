@@ -32,7 +32,7 @@ public class BiomeSystem : IHexSystem
             if (zone == null || zone.biomes == null || zone.biomes.Length == 0)
                 continue;
 
-            TerrainType winner = ScoreBiome(cell.state, ctx.coherence);
+            TerrainType winner = ScoreBiome(cell.state, ctx.coherence, ctx.genParams);
             cell.terrain = ResolveFromPool(zone, ctx.body, winner);
         }
     }
@@ -41,7 +41,9 @@ public class BiomeSystem : IHexSystem
     // Scoring
     // =========================================================
 
-    private static TerrainType ScoreBiome(HexPhysicalState s, MapRegion.CoherenceConstraint coherence)
+    private static TerrainType ScoreBiome(HexPhysicalState s,
+                                          MapRegion.CoherenceConstraint coherence,
+                                          MapGenParameters parameters)
     {
         float temp   = s.tempLocale;
         float water  = s.waterRatio;
@@ -58,7 +60,7 @@ public class BiomeSystem : IHexSystem
         float scoreMetal    = ScoreMetal(mineral, hard);
         float scoreToxic    = ScoreToxic(toxin);
 
-        ApplyCoherenceBias(ref scoreGlace, ref scoreEau, ref scoreVeg, ref scoreRoche, ref scoreMetal, coherence, temp, water);
+        ApplyCoherenceBias(ref scoreGlace, ref scoreEau, ref scoreVeg, ref scoreRoche, ref scoreMetal, coherence, temp, water, parameters);
         ApplyHydrologyBias(ref scoreGlace, ref scoreEau, ref scoreVeg, ref scoreRoche, ref scoreMetal, s);
 
         // Priorité absolue : toxines très élevées → AtmosphereToxique
@@ -84,7 +86,8 @@ public class BiomeSystem : IHexSystem
                                            ref float scoreMetal,
                                            MapRegion.CoherenceConstraint coherence,
                                            float temperature,
-                                           float water)
+                                           float water,
+                                           MapGenParameters parameters)
     {
         if (coherence.isExtremeOcean)
         {
@@ -113,14 +116,42 @@ public class BiomeSystem : IHexSystem
             return;
         }
 
-        scoreEau *= 1f + coherence.oceanicity * 0.75f;
-        scoreRoche *= 1f + coherence.deserticity * 0.55f;
-        scoreMetal *= 1f + coherence.deserticity * 0.15f;
-        scoreGlace *= 1f + coherence.frigidity * 0.8f;
-        scoreVeg *= 1f - coherence.deserticity * 0.75f;
+        float strength = Mathf.Lerp(0.25f, 1f, parameters.coherenceBiomeBias);
+        float projectedWater = Mathf.Clamp01(coherence.projectedWaterRatio);
+        float humidityBias = Mathf.Lerp(water, projectedWater, 0.55f * strength);
+        float oceanPull = Mathf.Lerp(0f, coherence.oceanicity, strength);
+        float aridPull = Mathf.Lerp(0f, coherence.deserticity, strength);
+        float frozenPull = Mathf.Lerp(0f, coherence.frigidity, strength);
+
+        scoreEau *= 1f + oceanPull * Mathf.Lerp(0.35f, 1.05f, projectedWater);
+        scoreRoche *= 1f + aridPull * Mathf.Lerp(0.25f, 0.85f, 1f - humidityBias);
+        scoreMetal *= 1f + aridPull * 0.25f;
+        scoreGlace *= 1f + frozenPull * Mathf.Lerp(0.35f, 1f, Mathf.Max(humidityBias, projectedWater));
+        scoreVeg *= 1f + humidityBias * 0.35f - aridPull * 0.9f - frozenPull * 0.25f;
+
+        if (projectedWater > 0.6f)
+        {
+            scoreEau += projectedWater * 0.25f * strength;
+            scoreRoche *= 1f - 0.25f * strength;
+        }
+
+        if (projectedWater < 0.2f)
+        {
+            scoreVeg *= 1f - (0.35f - projectedWater) * strength;
+            scoreEau *= 1f - (0.4f - projectedWater) * 0.5f * strength;
+        }
 
         if (coherence.frigidity > 0.5f && temperature < 0f && water > 0.3f)
             scoreGlace += coherence.frigidity * 0.5f;
+
+        if (coherence.deserticity > 0.45f && temperature > 18f)
+            scoreVeg *= 1f - coherence.deserticity * 0.35f * strength;
+
+        scoreVeg = Mathf.Max(0f, scoreVeg);
+        scoreEau = Mathf.Max(0f, scoreEau);
+        scoreGlace = Mathf.Max(0f, scoreGlace);
+        scoreRoche = Mathf.Max(0f, scoreRoche);
+        scoreMetal = Mathf.Max(0f, scoreMetal);
     }
 
     private static void ApplyHydrologyBias(ref float scoreGlace,
@@ -235,7 +266,7 @@ public class BiomeSystem : IHexSystem
     // Résolution TerrainType → TerrainData depuis le pool de zone
     // =========================================================
 
-    private static TerrainData ResolveFromPool(LayerZone zone, CelestialBodyData body, TerrainType target)
+    private static TerrainData ResolveFromPool(LayerZone zone, OrbitalBody body, TerrainType target)
     {
         // Cherche d'abord une TerrainData correspondant exactement au type cible
         foreach (TerrainData td in zone.biomes)

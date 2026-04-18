@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System;
+using System.Collections;
 
 /// <summary>
 /// Contrôleur de caméra multi-mode pour le système de vues 3 niveaux.
@@ -73,6 +74,9 @@ public class CameraController : MonoBehaviour
     private bool    _isOrbiting;
     private Vector2 _lastMousePos;
 
+    // --- Animation ---
+    private bool _isAnimating;  // bloque l'input orbit/zoom pendant OrbitToFace
+
     // =========================================================
     // Unity lifecycle
     // =========================================================
@@ -86,6 +90,8 @@ public class CameraController : MonoBehaviour
 
     private void Update()
     {
+        if (_isAnimating) return;
+
         if (mode == CameraMode.OrthoTopDown)
         {
             HandlePan();
@@ -151,6 +157,56 @@ public class CameraController : MonoBehaviour
         _orbitPivot    = pivot;
         _orbitDistance = Mathf.Clamp(distance, _activeOrbitMinDistance, _activeOrbitMaxDistance);
         ApplyOrbitTransform();
+    }
+
+    /// <summary>
+    /// Anime l'orbite pour faire face à une direction 3D (centroïde de face GP).
+    /// Utilisé pour orienter la caméra vers la face sélectionnée avant d'ouvrir l'overlay local.
+    /// </summary>
+    public void OrbitToFace(Vector3 worldDir, float targetDistance, float duration = 0.5f, Action onComplete = null)
+    {
+        StopAllCoroutines();
+        StartCoroutine(OrbitToFaceCoroutine(worldDir, targetDistance, duration, onComplete));
+    }
+
+    private IEnumerator OrbitToFaceCoroutine(Vector3 worldDir, float targetDistance, float duration, Action onComplete)
+    {
+        _isAnimating = true;
+
+        // Calcule azimut et élévation cibles depuis worldDir
+        Vector3 dir = worldDir.normalized;
+        float targetElevation = Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f)) * Mathf.Rad2Deg;
+        float targetAzimuth   = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+
+        // Normalise la différence d'azimut pour prendre le chemin le plus court
+        float deltAz = Mathf.DeltaAngle(_orbitAzimuth, targetAzimuth);
+        float targetAzNorm = _orbitAzimuth + deltAz;
+
+        float startAz   = _orbitAzimuth;
+        float startEl   = _orbitElevation;
+        float startDist = _orbitDistance;
+        float targetEl  = Mathf.Clamp(targetElevation, orbitMinElevation, orbitMaxElevation);
+        float clampedDist = Mathf.Clamp(targetDistance, _activeOrbitMinDistance, _activeOrbitMaxDistance);
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
+            _orbitAzimuth   = Mathf.Lerp(startAz,   targetAzNorm, t);
+            _orbitElevation = Mathf.Lerp(startEl,   targetEl,     t);
+            _orbitDistance  = Mathf.Lerp(startDist, clampedDist,  t);
+            ApplyOrbitTransform();
+            yield return null;
+        }
+
+        _orbitAzimuth   = targetAzNorm;
+        _orbitElevation = targetEl;
+        _orbitDistance  = clampedDist;
+        ApplyOrbitTransform();
+
+        _isAnimating = false;
+        onComplete?.Invoke();
     }
 
     // =========================================================

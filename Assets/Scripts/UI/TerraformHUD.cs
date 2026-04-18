@@ -1,4 +1,6 @@
+using System.Collections;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.UI;
 using TMPro;
 
@@ -30,13 +32,23 @@ public class TerraformHUD : MonoBehaviour
     [Header("Panel hex sélectionné")]
     [SerializeField] private GameObject     selectedHexPanel;
     [SerializeField] private TextMeshProUGUI hexInfoLabel;
+    [Tooltip("Bouton 'Voir en local' — visible seulement en vue Globe avec une tuile sélectionnée.")]
+    [SerializeField] private Button openLocalButton;
+    [Tooltip("Bouton 'Fermer' de l'overlay local — dans LocalOverlayPanel.")]
+    [SerializeField] private Button closeLocalButton;
 
     [Header("Systèmes")]
     [SerializeField] private TerraformProgressTracker progressTracker;
     [SerializeField] private TerraformSystem          terraformSystem;
+    [SerializeField] private ViewManager              viewManager;
 
     [Header("Actions disponibles")]
     [SerializeField] private TerraformActionData[] actions;
+
+    [Header("Serveur de simulation")]
+    [SerializeField] private bool preferServerActionDefinitions = true;
+    [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
+    [SerializeField] private float simulationServerTimeoutSeconds = 2f;
 
     // =========================================================
     // Runtime
@@ -44,9 +56,15 @@ public class TerraformHUD : MonoBehaviour
 
     private HexCell _selectedCell;
     private GenerationContext _regionContext;
+    private bool _serverActionCatalogLoaded;
+    private bool _hasAuthoritativeRegionState;
+    private RegionState _authoritativeRegionState;
 
     public HexCell SelectedCell => _selectedCell;
     public GenerationContext RegionContext => _regionContext;
+    public bool HasServerActionCatalog => _serverActionCatalogLoaded;
+    public bool HasAuthoritativeRegionState => _hasAuthoritativeRegionState;
+    public RegionState AuthoritativeRegionState => _authoritativeRegionState;
 
     // =========================================================
     // Unity lifecycle
@@ -60,14 +78,41 @@ public class TerraformHUD : MonoBehaviour
             progressTracker.Refresh(); // valeur initiale
         }
 
+        if (terraformSystem != null)
+        {
+            terraformSystem.OnAuthoritativeCellSynchronized += HandleAuthoritativeCellSynchronized;
+            terraformSystem.OnAuthoritativeWorldStateSynchronized += HandleAuthoritativeWorldStateSynchronized;
+        }
+
+        if (viewManager == null)
+            viewManager = FindObjectOfType<ViewManager>();
+
+        if (openLocalButton != null)
+        {
+            openLocalButton.onClick.AddListener(() => viewManager?.EnterLocalFromSelection());
+            openLocalButton.gameObject.SetActive(false);
+        }
+
+        if (closeLocalButton != null)
+            closeLocalButton.onClick.AddListener(() => viewManager?.CloseLocalOverlay());
+
         if (selectedHexPanel != null)
             selectedHexPanel.SetActive(false);
+
+        if (preferServerActionDefinitions)
+            StartCoroutine(SyncActionDefinitionsFromServer());
     }
 
     private void OnDestroy()
     {
         if (progressTracker != null)
             progressTracker.OnProgressChanged -= UpdateProgress;
+
+        if (terraformSystem != null)
+        {
+            terraformSystem.OnAuthoritativeCellSynchronized -= HandleAuthoritativeCellSynchronized;
+            terraformSystem.OnAuthoritativeWorldStateSynchronized -= HandleAuthoritativeWorldStateSynchronized;
+        }
     }
 
     // =========================================================
@@ -79,6 +124,14 @@ public class TerraformHUD : MonoBehaviour
     {
         _selectedCell = cell;
         if (selectedHexPanel != null) selectedHexPanel.SetActive(true);
+
+        // Bouton local visible uniquement en vue Globe (pas en vue Locale)
+        bool inGlobeView = viewManager != null &&
+                           viewManager.CurrentState == ViewManager.ViewState.Planet &&
+                           viewManager.CurrentPlanetSubView == ViewManager.PlanetSubView.Globe;
+        if (openLocalButton != null)
+            openLocalButton.gameObject.SetActive(inGlobeView);
+
         RefreshHexInfo();
     }
 
@@ -88,6 +141,24 @@ public class TerraformHUD : MonoBehaviour
 
         if (_selectedCell != null)
             RefreshHexInfo();
+    }
+
+    public void SetAuthoritativeRegionState(RegionState regionState)
+    {
+        _authoritativeRegionState = regionState;
+        _hasAuthoritativeRegionState = regionState.isValid;
+
+        if (progressTracker != null && regionState.isValid)
+            progressTracker.SetAuthoritativeProgress(regionState.terraformationProgress);
+
+        if (_selectedCell != null)
+            RefreshHexInfo();
+    }
+
+    public void ClearAuthoritativeRegionState()
+    {
+        _hasAuthoritativeRegionState = false;
+        _authoritativeRegionState = default;
     }
 
     /// <summary>Ferme le panel hex.</summary>
@@ -130,6 +201,83 @@ public class TerraformHUD : MonoBehaviour
             Debug.Log($"[TerraformHUD] Action {actions[actionIndex].displayName} refusée (pré-conditions non remplies).");
     }
 
+    private IEnumerator SyncActionDefinitionsFromServer()
+    {
+        if (actions == null || actions.Length == 0)
+            yield break;
+
+        string requestUrl = $"{simulationServerUrl.TrimEnd('/')}/actions/catalog";
+        using UnityWebRequest request = UnityWebRequest.Get(requestUrl);
+        request.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+
+        yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogWarning($"[TerraformHUD] Catalogue d'actions serveur indisponible ({request.error}). Fallback local conserve.");
+            yield break;
+        }
+
+        SimulationActionCatalog catalog;
+        try
+        {
+            catalog = JsonUtility.FromJson<SimulationActionCatalog>(request.downloadHandler.text);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[TerraformHUD] Catalogue d'actions serveur invalide ({ex.Message}). Fallback local conserve.");
+            yield break;
+        }
+
+        if (catalog.actions == null || catalog.actions.Length == 0)
+        {
+            Debug.LogWarning("[TerraformHUD] Catalogue d'actions serveur vide. Fallback local conserve.");
+            yield break;
+        }
+
+        int appliedCount = 0;
+        for (int index = 0; index < actions.Length; index++)
+        {
+            TerraformActionData action = actions[index];
+            if (action == null)
+                continue;
+
+            for (int definitionIndex = 0; definitionIndex < catalog.actions.Length; definitionIndex++)
+            {
+                SimulationActionDefinition definition = catalog.actions[definitionIndex];
+                if (definition.actionType != action.actionType)
+                    continue;
+
+                action.ApplyAuthoritativeDefinition(definition);
+                appliedCount++;
+                break;
+            }
+        }
+
+        _serverActionCatalogLoaded = appliedCount > 0;
+        if (_serverActionCatalogLoaded)
+            Debug.Log($"[TerraformHUD] Catalogue d'actions serveur synchronise ({appliedCount} action(s)).");
+    }
+
+    private void HandleAuthoritativeCellSynchronized(HexCell cell)
+    {
+        if (cell == null || _selectedCell == null)
+            return;
+
+        if (_selectedCell.Q != cell.Q || _selectedCell.R != cell.R)
+            return;
+
+        ShowHexPanel(cell);
+    }
+
+    private void HandleAuthoritativeWorldStateSynchronized(WorldState worldState)
+    {
+        if (!worldState.hasRegion)
+            return;
+
+        SetAuthoritativeRegionState(worldState.region);
+    }
+
     // =========================================================
     // Mise à jour de l'affichage
     // =========================================================
@@ -153,24 +301,41 @@ public class TerraformHUD : MonoBehaviour
 
         if (_regionContext != null)
         {
-            MapRegion region = _regionContext.region;
-            PlanetaryWeatherState weather = _regionContext.weather;
-            MapRegion.CoherenceConstraint coherence = _regionContext.coherence;
-            string bodyName = _regionContext.body != null ? _regionContext.body.bodyName : "?";
-            float solarIntensity = region != null ? region.SolarIntensity : 1f;
-            bool tidalLock = region != null && region.IsTidallyLocked;
-            string projectedTerrain = region != null && region.projectedTerrain != null
-                ? region.projectedTerrain.displayName
-                : "?";
+            if (_hasAuthoritativeRegionState && _authoritativeRegionState.isValid)
+            {
+                string bodyName = !string.IsNullOrEmpty(_authoritativeRegionState.planetName)
+                    ? _authoritativeRegionState.planetName
+                    : (_regionContext.body != null ? _regionContext.body.bodyName : "?");
 
-            regionInfo =
-                $"Astre : {bodyName}\n" +
-                $"Région : lat {region.latitude:F2} | lon {region.longitude:F2}\n" +
-                $"Projection : {projectedTerrain} | eau {region.projectedWaterRatio * 100f:F0}%\n" +
-                $"Solaire : {solarIntensity:F2} | Tidal lock : {(tidalLock ? "Oui" : "Non")}\n" +
-                $"Climat : dT {weather.temperatureOffset:+0.0;-0.0;0.0}°C | pluie {weather.precipitationRate * 100f:F0}%\n" +
-                $"Vent : {weather.prevailingWindSpeed:F2} ({weather.prevailingWindDir.x:F1}, {weather.prevailingWindDir.y:F1})\n" +
-                $"Cohérence : mer {coherence.oceanicity:F2} | aride {coherence.deserticity:F2} | gel {coherence.frigidity:F2}\n\n";
+                regionInfo =
+                    $"Astre : {bodyName}\n" +
+                    $"Région : lat {_authoritativeRegionState.coordinates.latitude:F2} | lon {_authoritativeRegionState.coordinates.longitude:F2}\n" +
+                    $"Projection : {_authoritativeRegionState.coherence.dominantTerrainType} | eau {_authoritativeRegionState.coherence.projectedWaterRatio * 100f:F0}%\n" +
+                    $"Climat : dT {_authoritativeRegionState.weather.temperatureOffset:+0.0;-0.0;0.0}°C | pluie {_authoritativeRegionState.weather.precipitationRate * 100f:F0}%\n" +
+                    $"Vent : {_authoritativeRegionState.weather.prevailingWindSpeed:F2} ({_authoritativeRegionState.weather.prevailingWindDirection.x:F1}, {_authoritativeRegionState.weather.prevailingWindDirection.y:F1})\n" +
+                    $"Cohérence : mer {_authoritativeRegionState.coherence.oceanicity:F2} | aride {_authoritativeRegionState.coherence.deserticity:F2} | gel {_authoritativeRegionState.coherence.frigidity:F2}\n\n";
+            }
+            else
+            {
+                MapRegion region = _regionContext.region;
+                PlanetaryWeatherState weather = _regionContext.weather;
+                MapRegion.CoherenceConstraint coherence = _regionContext.coherence;
+                string bodyName = _regionContext.body != null ? _regionContext.body.bodyName : "?";
+                float solarIntensity = region != null ? region.SolarIntensity : 1f;
+                bool tidalLock = region != null && region.IsTidallyLocked;
+                string projectedTerrain = region != null && region.projectedTerrain != null
+                    ? region.projectedTerrain.displayName
+                    : "?";
+
+                regionInfo =
+                    $"Astre : {bodyName}\n" +
+                    $"Région : lat {region.latitude:F2} | lon {region.longitude:F2}\n" +
+                    $"Projection : {projectedTerrain} | eau {region.projectedWaterRatio * 100f:F0}%\n" +
+                    $"Solaire : {solarIntensity:F2} | Tidal lock : {(tidalLock ? "Oui" : "Non")}\n" +
+                    $"Climat : dT {weather.temperatureOffset:+0.0;-0.0;0.0}°C | pluie {weather.precipitationRate * 100f:F0}%\n" +
+                    $"Vent : {weather.prevailingWindSpeed:F2} ({weather.prevailingWindDir.x:F1}, {weather.prevailingWindDir.y:F1})\n" +
+                    $"Cohérence : mer {coherence.oceanicity:F2} | aride {coherence.deserticity:F2} | gel {coherence.frigidity:F2}\n\n";
+            }
         }
 
         hexInfoLabel.text =

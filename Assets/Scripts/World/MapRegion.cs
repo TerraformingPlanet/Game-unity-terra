@@ -25,7 +25,7 @@ public class MapRegion : ScriptableObject
     public SolarSystemData solarSystem;
 
     [Tooltip("Le corps céleste sur lequel se trouve cette carte")]
-    public CelestialBodyData planet;
+    public OrbitalBody planet;
 
     [Tooltip("Paramètres du bruit de Perlin pour cette région")]
     public MapGenParameters genParams;
@@ -170,7 +170,7 @@ public class MapRegion : ScriptableObject
             deserticity = Mathf.Clamp01(deserticity),
             frigidity = Mathf.Clamp01(frigidity),
             isExtremeOcean = forceOpenWaterRegion || (dominantType == TerrainType.Eau && waterRatio >= 0.95f),
-            isExtremeArid = forceAridRegion || (dominantType != TerrainType.Glace && waterRatio <= 0.05f),
+            isExtremeArid = forceAridRegion || (projectedTerrain != null && dominantType != TerrainType.Glace && waterRatio <= 0.05f),
             isExtremeFrozen = forceFrozenRegion || (dominantType == TerrainType.Glace && regionalTemperature <= -15f)
         };
     }

@@ -30,6 +30,7 @@ public class WaterClassificationSystem : IHexSystem
         {
             HexPhysicalState state = cell.state;
             if (state.waterClassification == WaterClassification.Dry &&
+                state.terrainClass != TerrainClass.Basin &&
                 state.waterRatio >= coastMin &&
                 state.waterRatio <= coastMax &&
                 HasNeighboringOpenWater(cell, ctx) &&
@@ -121,9 +122,7 @@ public class WaterClassificationSystem : IHexSystem
     {
         foreach (HexCell neighbor in ctx.GetNeighbors(cell))
         {
-            WaterClassification classification = neighbor.state.waterClassification;
-            if (classification == WaterClassification.OpenOcean ||
-                classification == WaterClassification.FrozenWater)
+            if (neighbor.state.waterClassification == WaterClassification.OpenOcean)
                 return true;
         }
 

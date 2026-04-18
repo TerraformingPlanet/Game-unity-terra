@@ -9,13 +9,30 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 01320878e02c9cf43b3464f1b967208b, type: 3}
+  m_Script: {fileID: 11500000, guid: 17403c15bbc31a54cabf0e0479256013, type: 3}
   m_Name: Kepler-442b
-  m_EditorClassIdentifier: Assembly-CSharp::CelestialBodyData
+  m_EditorClassIdentifier: Assembly-CSharp::Planet
   bodyName: Kepler-442b
-  bodyType: 0
   radius: 5733.9
   displayColor: {r: 0.34, g: 0.6, b: 0.83, a: 1}
+  isLandable: 1
+  physics:
+    baseEquatorTemperature: 12
+    rotationSpeed: 0.65
+    axialTilt: 20
+  atmosphere:
+    density: 0.75
+    n2Ratio: 0.78
+    o2Ratio: 0.2
+    co2Ratio: 0.015
+    ch4Ratio: 0.001
+    toxinRatio: 0
+  geology:
+    waterAbundance: 0.65
+    geologicalActivity: 0.4
+    mineralRichness: 0.55
+    magneticField: 1
+  planetType: 0
   genParams: {fileID: 11400000, guid: 6988e83144b595946a2501307cf471c3, type: 2}
   layers:
   - layer: 0
