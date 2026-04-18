@@ -9080,6 +9080,8 @@ MonoBehaviour:
   simulationServerUrl: http://127.0.0.1:8080
   miniGoldbergDivisions: 2
   goldbergMaterial: {fileID: 2100000, guid: c79605f887085e14cade0332cc7d3d35, type: 2}
+  maxMiniGoldbergBodies: 8
+  miniGoldbergMinDisplayRadius: 1.1
 --- !u!4 &1709760143
 Transform:
   m_ObjectHideFlags: 0
