@@ -313,7 +313,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
         GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataHi.faces, allTiles.ToArray(), _cachedColorByType);
         // Ownership tint on top of res=3 biome colors (Phase 7.1)
         if (_ownershipTints != null && _ownershipTints.Count > 0 && _cachedServerTiles != null && _tileToCorpId != null)
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId, 0.80f);
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
         GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
 
         // Si le LOD haut est affiché, resync snapshot hover pour refléter les nouvelles couleurs
@@ -401,19 +401,19 @@ public class PlanetSphereGoldberg : MonoBehaviour
         // Apply border tint on LOD low
         if (enableLod && _sphereDataLo.faces != null)
         {
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataLo.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId, 0.80f);
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataLo.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
             GoldbergSphereGenerator.ApplyFaceColors(_sphereDataLo.mesh, _sphereDataLo.faces, _sphereDataLo.vertexFaceId);
         }
         else if (_sphereData.faces != null)
         {
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId, 0.80f);
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
             GoldbergSphereGenerator.ApplyFaceColors(_sphereData.mesh, _sphereData.faces, _sphereData.vertexFaceId);
         }
 
         // Apply border tint on LOD high
         if (enableLod && _sphereDataHi.faces != null)
         {
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId, 0.80f);
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
             GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
         }
 

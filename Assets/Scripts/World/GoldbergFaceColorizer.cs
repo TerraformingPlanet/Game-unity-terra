@@ -70,19 +70,23 @@ public static class GoldbergFaceColorizer
     }
 
     /// <summary>
-    /// Tints only the border faces of each corporation territory.
-    /// A tile is a border tile when at least one neighbor is unowned or owned by a different corp.
-    /// Interior tiles (fully surrounded by the same corp) are left in their biome color.
+    /// Applies ownership tint to corporation territory.
+    /// Border tiles (at least one neighbor unowned or belonging to a different corp) receive
+    /// a strong tint (borderBlend). Interior tiles receive a very faint tint (interiorBlend)
+    /// so the underlying biome color and future buildings remain visible.
+    ///
     /// ownershipTints : tileId → corp color (only tiles on the current body).
     /// tileToCorpId   : tileId → corpId, used to compare neighbors.
-    /// blend: 0 = full biome color, 1 = full corp color. 0.80f is recommended for borders.
+    /// borderBlend   : 0→1 lerp toward corp color for border tiles. 0.85f recommended.
+    /// interiorBlend : 0→1 lerp toward corp color for interior tiles. 0.07f keeps biome visible.
     /// </summary>
     public static void ApplyOwnershipTint(
         GoldbergSphereGenerator.GoldbergFace[] faces,
         GoldbergTileState[] serverTiles,
         Dictionary<string, Color> ownershipTints,
         Dictionary<string, string> tileToCorpId,
-        float blend)
+        float borderBlend   = 0.85f,
+        float interiorBlend = 0.07f)
     {
         if (faces == null || serverTiles == null || serverTiles.Length == 0
             || ownershipTints == null || ownershipTints.Count == 0
@@ -116,11 +120,11 @@ public static class GoldbergFaceColorizer
                     { isBorder = true; break; }
                 }
             }
-            if (!isBorder) continue;
 
-            float tLat      = tile.latNorm;
-            float tLon      = tile.lonNorm;
-            Color corpColor = kv.Value;
+            float blendAmount = isBorder ? borderBlend : interiorBlend;
+            float tLat        = tile.latNorm;
+            float tLon        = tile.lonNorm;
+            Color corpColor   = kv.Value;
 
             // Nearest-neighbor face search
             float bestDist2 = float.MaxValue;
@@ -136,7 +140,7 @@ public static class GoldbergFaceColorizer
             }
 
             if (bestFace >= 0)
-                faces[bestFace].color = Color.Lerp(faces[bestFace].color, corpColor, blend);
+                faces[bestFace].color = Color.Lerp(faces[bestFace].color, corpColor, blendAmount);
         }
     }
 }
