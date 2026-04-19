@@ -364,12 +364,16 @@ public class PlanetSphereGoldberg : MonoBehaviour
         // Build tileId → corp color + tileId → corpId maps (filtered to tiles on the current body)
         var tints     = new Dictionary<string, Color>();
         var toCorpId  = new Dictionary<string, string>();
+        Debug.Log($"[PlanetSphereGoldberg] Ownership: {corps.items.Length} corp(s) reçue(s), activeBodyId='{_activeBodyId}'");
         foreach (CorporationData corp in corps.items)
         {
+            int tileLen = corp.claimedTiles?.Length ?? -1;
+            Debug.Log($"[PlanetSphereGoldberg]   corp='{corp.name}' id='{corp.id}' claimedTiles.Length={tileLen}");
             if (corp.claimedTiles == null) continue;
             Color corpColor = GoldbergFaceColorizer.CorpColorFromId(corp.id);
             foreach (ClaimedTile ct in corp.claimedTiles)
             {
+                Debug.Log($"[PlanetSphereGoldberg]     tile bodyId='{ct.bodyId}' tileId='{ct.tileId}' match={ct.bodyId == _activeBodyId}");
                 if (ct.bodyId == _activeBodyId && !string.IsNullOrEmpty(ct.tileId))
                 {
                     tints[ct.tileId]    = corpColor;
@@ -377,6 +381,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
                 }
             }
         }
+        Debug.Log($"[PlanetSphereGoldberg] Ownership: {tints.Count} tuile(s) à teinter sur ce corps.");
 
         if (tints.Count == 0) yield break;
         _ownershipTints  = tints;
