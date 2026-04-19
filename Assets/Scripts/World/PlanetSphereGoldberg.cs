@@ -342,20 +342,22 @@ public class PlanetSphereGoldberg : MonoBehaviour
         if (string.IsNullOrEmpty(_activeBodyId) || _cachedServerTiles == null) yield break;
 
         string baseUrl = simulationServerUrl.TrimEnd('/');
-        using UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/game/corporations");
-        req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-        yield return req.SendWebRequest();
-
-        if (req.result != UnityWebRequest.Result.Success)
+        CorporationDataArray corps = null;
+        using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/game/corporations"))
         {
-            Debug.LogWarning($"[PlanetSphereGoldberg] Ownership fetch échoué ({req.error}) — overlay ignoré.");
-            yield break;
-        }
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
 
-        string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-        CorporationDataArray corps;
-        try   { corps = JsonUtility.FromJson<CorporationDataArray>(wrapped); }
-        catch { Debug.LogWarning("[PlanetSphereGoldberg] Ownership parse invalide."); yield break; }
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                Debug.LogWarning($"[PlanetSphereGoldberg] Ownership fetch échoué ({req.error}) — overlay ignoré.");
+                yield break;
+            }
+
+            string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
+            try   { corps = JsonUtility.FromJson<CorporationDataArray>(wrapped); }
+            catch { Debug.LogWarning("[PlanetSphereGoldberg] Ownership parse invalide."); yield break; }
+        }
         if (corps?.items == null || corps.items.Length == 0) yield break;
 
         // Build tileId → corp color map (filtered to tiles on the current body)
@@ -539,7 +541,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
     // =========================================================
 
     [Serializable]
-    private class BodyListEntryArray   { public BodyListEntry[]   items; }
+    private class BodyListEntryArray   { public SimulationBodyListEntry[] items; }
     [Serializable]
     private class GoldbergTileArray    { public GoldbergTileState[] items; }
     [Serializable]
@@ -590,7 +592,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
             if (list?.items != null)
             {
-                foreach (BodyListEntry entry in list.items)
+                foreach (SimulationBodyListEntry entry in list.items)
                 {
                     if (entry.name == planetName && entry.surfaceType == "goldberg")
                     {
@@ -636,7 +638,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
                     catch { list2 = null; }
                     if (list2?.items != null)
                     {
-                        foreach (BodyListEntry entry in list2.items)
+                        foreach (SimulationBodyListEntry entry in list2.items)
                         {
                             if (entry.name == planetName && entry.surfaceType == "goldberg")
                             {
