@@ -263,6 +263,8 @@ public struct SimulationEvent
 /// Miroir de GoldbergTileState (Python) — utiliser GET /bodies/{id}/tiles.
 /// tileId est un index H3 hexagonal (ex: "820007fffffffff"), pas un entier.
 /// neighborIds liste les H3 voisins directs (jusqu'à 6, ou 5 pour les 12 pentagones).
+/// Champs physiques (sprint D) : altitude, albedo, solarIrradiance, végétation, vie,
+/// et deltas atmosphériques CO₂/O₂ produits ou consommés par tick par ce tile.
 /// </summary>
 [Serializable]
 public struct GoldbergTileState
@@ -280,6 +282,56 @@ public struct GoldbergTileState
     public float temperature;
     public float toxinLevel;
     public bool isHabitable;
+    // Physical simulation fields (Sprint D)
+    public float altitude;             // normalised height relative to sea level [-1, 1]
+    public float albedo;               // surface reflectivity [0, 1]
+    public float solarIrradiance;      // W/m² at tile surface
+    public float vegetationDensity;    // [0, 1]
+    public float wildlifeDensity;      // [0, 1]
+    public float atmosphereDeltaCo2;   // CO₂ volume fraction delta per tick
+    public float atmosphereDeltaO2;    // O₂ volume fraction delta per tick
+}
+
+/// <summary>
+/// One gas species in a planetary atmosphere.
+/// Mirrors Python AtmosphericGas.
+/// greenhouseCoeff is game-balanced: CO₂=1.0, CH₄=28.0, H₂O=0.5, N₂=O₂=0.
+/// </summary>
+[Serializable]
+public struct AtmosphericGas
+{
+    public string name;
+    public float fraction;          // volume fraction [0..1]
+    public float greenhouseCoeff;   // relative greenhouse warming factor
+    public float molarMass;         // g/mol
+}
+
+/// <summary>
+/// Full atmospheric composition for a spherical body.
+/// Mirrors Python AtmosphericComposition.
+/// totalPressureKpa: Earth≈101.3, Mars≈0.6, vacuum=0.
+/// </summary>
+[Serializable]
+public struct AtmosphericComposition
+{
+    public AtmosphericGas[] gases;
+    public float totalPressureKpa;
+
+    /// <summary>Backward-compat density [0,1] ≈ totalPressureKpa / 101.3.</summary>
+    public float atmosphereDensity => Math.Min(1f, totalPressureKpa / 101.3f);
+}
+
+/// <summary>
+/// Simplified planetary wind pattern (MVP).
+/// dominantWindDeg: direction FROM which prevailing wind blows [0, 360).
+/// windIntensity: normalised [0, 1].
+/// Mirrors Python GlobalWindPattern.
+/// </summary>
+[Serializable]
+public struct GlobalWindPattern
+{
+    public float dominantWindDeg;
+    public float windIntensity;
 }
 
 /// <summary>
@@ -292,4 +344,30 @@ public struct BodyListEntry
     public string bodyId;
     public string name;
     public string surfaceType;
+}
+
+// ── Corporation layer (Phase 7.1) ─────────────────────────────────────────
+
+/// <summary>
+/// Mirrors Python ClaimedTile. Represents one hex tile claimed by a corporation.
+/// </summary>
+[Serializable]
+public struct ClaimedTile
+{
+    public string bodyId;
+    public string tileId;
+}
+
+/// <summary>
+/// Mirrors Python CorporationData. Deserialised from GET /game/corporations/{id}.
+/// </summary>
+[Serializable]
+public struct CorporationData
+{
+    public string id;
+    public string name;
+    public float credits;
+    public ClaimedTile[] claimedTiles;
+    public float score;
+    public bool isAI;
 }
