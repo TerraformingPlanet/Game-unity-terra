@@ -833,26 +833,31 @@ public class PlanetSphereGoldberg : MonoBehaviour
         Ray ray = Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());
         if (!Physics.Raycast(ray, out RaycastHit hit)) return;
 
-        // Direction du centre de la sphère vers le point cliqué → coordonnées sphériques
-        Vector3 dir = (hit.point - transform.position).normalized;
+        // Direction brute du raycast (utilisée uniquement pour le fallback)
+        Vector3 rawDir = (hit.point - transform.position).normalized;
+
+        // Utilise le centroïde de la face survolée (hover) si disponible,
+        // sinon fallback sur la face la plus proche du point cliqué.
+        // Garantit la cohérence entre la tuile highlightée et la tuile H3 résolue.
+        int faceId = _hoveredFaceId >= 0
+            ? _hoveredFaceId
+            : GoldbergSphereGenerator.FindNearestFaceId(_sphereData.faces, rawDir);
+
+        if (faceId < 0) return;
+
+        Vector3 dir = _sphereData.faces[faceId].centroid3D; // direction normalisée depuis le centroïde
 
         float latDeg  = Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f)) * Mathf.Rad2Deg;
         float lonDeg  = Mathf.Atan2(dir.z, dir.x) * Mathf.Rad2Deg;
         float latNorm = (latDeg + 90f)  / 180f;
         float lonNorm = (lonDeg + 180f) / 360f;
 
-        HexCell cell        = GetProjectedCell(latNorm, lonNorm);
-        string  terrainName = cell?.terrain != null ? cell.terrain.displayName : "?";
-        // Mémorise le centroïde de la tuile la plus proche pour PlanetTangentView
-        int nearestFace = GoldbergSphereGenerator.FindNearestFaceId(_sphereData.faces, dir);
-        if (nearestFace >= 0)
-        {
-            LastClickedFaceId       = nearestFace;
-            LastClickedFaceCentroid = _sphereData.faces[nearestFace].centroid3D
-                                      * GoldbergSphereGenerator.VisualRadius;
-        }
+        HexCell cell = GetProjectedCell(latNorm, lonNorm);
 
-        Debug.Log($"[PlanetSphereGoldberg] Clic → lat={latNorm:F3} lon={lonNorm:F3} (H3 en cours de résolution...)");
+        LastClickedFaceId       = faceId;
+        LastClickedFaceCentroid = dir * GoldbergSphereGenerator.VisualRadius;
+
+        Debug.Log($"[PlanetSphereGoldberg] Clic → face={faceId} lat={latNorm:F3} lon={lonNorm:F3} (H3 en cours de résolution...)");
 
         // Résout la tuile H3 précise de façon asynchrone (non-bloquant)
         if (!string.IsNullOrEmpty(_activeBodyId))

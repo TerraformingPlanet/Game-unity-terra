@@ -96,15 +96,18 @@ public class GameHUD : MonoBehaviour
 
     private void Start()
     {
-        if (viewManager          == null) viewManager          = FindFirstObjectByType<ViewManager>();
-        if (terraformHUD         == null) terraformHUD         = FindFirstObjectByType<TerraformHUD>();
-        if (planetSphere         == null) planetSphere         = FindFirstObjectByType<PlanetSphereGoldberg>();
-        if (debugHydrologyPanel  == null) debugHydrologyPanel  = FindFirstObjectByType<DebugHydrologyPanel>();
+        if (viewManager          == null) viewManager          = FindFirstObjectByType<ViewManager>(FindObjectsInactive.Include);
+        if (terraformHUD         == null) terraformHUD         = FindFirstObjectByType<TerraformHUD>(FindObjectsInactive.Include);
+        if (planetSphere         == null) planetSphere         = FindFirstObjectByType<PlanetSphereGoldberg>(FindObjectsInactive.Include);
+        if (debugHydrologyPanel  == null) debugHydrologyPanel  = FindFirstObjectByType<DebugHydrologyPanel>(FindObjectsInactive.Include);
 
         ViewManager.OnViewChanged += HandleViewChanged;
 
+        Debug.Log($"[GameHUD] Start — planetSphere={(planetSphere != null ? planetSphere.name : "NULL")} viewManager={(viewManager != null ? viewManager.name : "NULL")}");
         if (planetSphere != null)
             planetSphere.OnH3TileResolved += OnH3TileResolved;
+        else
+            Debug.LogWarning("[GameHUD] planetSphere NULL → OnH3TileResolved non connecté !");
 
         if (terraformHUD != null)
         {
@@ -163,6 +166,7 @@ public class GameHUD : MonoBehaviour
 
     private void OnH3TileResolved(GoldbergTileState tile)
     {
+        Debug.Log($"[GameHUD] OnH3TileResolved — tileId={tile.tileId} | state={viewManager?.CurrentState}");
         // Guard : on accepte l'event depuis n'importe quel sous-vue planétaire,
         // car ViewManager.OpenRegion peut changer CurrentPlanetSubView avant que
         // le coroutine H3 se termine (~1s async).
@@ -267,6 +271,42 @@ public class GameHUD : MonoBehaviour
             _corpDropdown.ClearOptions();
             _corpDropdown.AddOptions(opts);
             _corpDropdown.value = 0;
+
+            // Détecte si la tuile courante est déjà claimée
+            string ownerCorpId   = null;
+            string ownerCorpName = null;
+            if (_currentTile.tileId != null)
+            {
+                foreach (var c in wrapper.items)
+                {
+                    if (c.claimedTiles == null) continue;
+                    foreach (var t in c.claimedTiles)
+                    {
+                        if (t.tileId == _currentTile.tileId)
+                        {
+                            ownerCorpId   = c.id;
+                            ownerCorpName = c.name;
+                            break;
+                        }
+                    }
+                    if (ownerCorpId != null) break;
+                }
+            }
+
+            if (ownerCorpId != null)
+            {
+                _corpOwnerLabel.text = ownerCorpName;
+                Color col = GoldbergFaceColorizer.CorpColorFromId(ownerCorpId);
+                _corpBadge.color     = col;
+                // Sélectionner la corpo propriétaire dans le dropdown
+                int idx = _corpIds.IndexOf(ownerCorpId);
+                if (idx >= 0) _corpDropdown.value = idx;
+            }
+            else
+            {
+                _corpOwnerLabel.text = "Non revendiquée";
+                _corpBadge.color     = new Color(0f, 0f, 0f, 0f);
+            }
         }
     }
 
