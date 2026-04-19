@@ -23,7 +23,7 @@ public class PlanetCloudLayer : MonoBehaviour
 
     [Header("Heuristiques")]
     [Tooltip("Forcer l'affichage des nuages même si la planète n'est pas jugée favorable.")]
-    [SerializeField] private bool forceVisible;
+    [SerializeField] private bool forceVisible = true;
 
     [Tooltip("Seuil minimal d'atmosphère pour afficher des nuages.")]
     [SerializeField] private float minAtmosphereDensity = 0.12f;
@@ -86,7 +86,18 @@ public class PlanetCloudLayer : MonoBehaviour
     {
         if (body == null)
         {
-            gameObject.SetActive(false);
+            if (forceVisible)
+            {
+                // Pas de données corpo : nuages neutres par défaut
+                gameObject.SetActive(true);
+                if (_secondaryTransform != null) _secondaryTransform.gameObject.SetActive(true);
+                ApplyMaterial(_primaryRuntimeMaterial, Color.white, coverage * 0.6f, opacity * 0.5f, softness, fresnelStrength, 2.1f, 5.8f, 0.18f);
+                ApplyMaterial(_secondaryRuntimeMaterial, Color.white, coverage * 0.5f, opacity * 0.25f, softness * 1.2f, fresnelStrength * 0.9f, 3.8f, 9.7f, 0.11f);
+            }
+            else
+            {
+                gameObject.SetActive(false);
+            }
             return;
         }
 
