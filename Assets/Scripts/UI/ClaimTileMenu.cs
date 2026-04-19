@@ -236,7 +236,7 @@ public class ClaimTileMenu : MonoBehaviour
         var lbl = lblGo.AddComponent<TextMeshProUGUI>();
         lbl.fontSize  = 13;
         lbl.color     = Color.white;
-        lbl.alignment = TextAlignmentOptions.MidpointLeft;
+        lbl.alignment = TextAlignmentOptions.MidlineLeft;
         dd.captionText = lbl;
 
         // Arrow (optionnel mais propre)
@@ -310,7 +310,7 @@ public class ClaimTileMenu : MonoBehaviour
         var itemLbl = itemLblGo.AddComponent<TextMeshProUGUI>();
         itemLbl.fontSize  = 13;
         itemLbl.color     = Color.white;
-        itemLbl.alignment = TextAlignmentOptions.MidpointLeft;
+        itemLbl.alignment = TextAlignmentOptions.MidlineLeft;
         itemToggle.targetGraphic = itemGo.GetComponent<Image>();
         itemToggle.graphic       = itemLbl;
 
