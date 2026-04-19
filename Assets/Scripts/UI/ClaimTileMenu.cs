@@ -1,18 +1,15 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
 using TMPro;
 
 /// <summary>
-/// Menu temporaire de debug — apparaît au clic sur une tuile Globe (vue Planet/Globe).
-/// Permet de claim ou unclaim la tuile au nom d'une corporation existante.
-///
-/// Setup :
-///   - Attacher ce script à n'importe quel GameObject de la scène (ex: HUD ou ViewManager).
-///   - Assigner planetSphere et renseigner simulationServerUrl / corpId en Inspector.
-///   - Le Canvas est construit dynamiquement (aucun asset UI requis).
+/// Menu debug — apparaît au clic sur une tuile Globe.
+/// Permet de claim/unclaim une tuile et de créer une corporation.
+/// Canvas construit dynamiquement, aucun asset UI requis.
 /// </summary>
 public class ClaimTileMenu : MonoBehaviour
 {
@@ -25,7 +22,7 @@ public class ClaimTileMenu : MonoBehaviour
     [SerializeField] private ViewManager          viewManager;
 
     [Header("Serveur")]
-    [SerializeField] private string simulationServerUrl        = "http://127.0.0.1:8080";
+    [SerializeField] private string simulationServerUrl            = "http://127.0.0.1:8080";
     [SerializeField] private float  simulationServerTimeoutSeconds = 5f;
 
     // =========================================================
@@ -40,9 +37,10 @@ public class ClaimTileMenu : MonoBehaviour
     private Button          _unclaimBtn;
     private Button          _closeBtn;
     private TMP_Dropdown    _corpDropdown;
+    private TMP_InputField  _corpNameInput;
+    private Button          _createCorpBtn;
 
-    private GoldbergTileState   _currentTile;
-    private bool                _isOpen;
+    private GoldbergTileState _currentTile;
 
     private List<string> _corpIds   = new List<string>();
     private List<string> _corpNames = new List<string>();
@@ -60,20 +58,14 @@ public class ClaimTileMenu : MonoBehaviour
 
     private void Start()
     {
-        // Auto-find si non assigné en Inspector
-        if (viewManager == null)
-            viewManager = FindFirstObjectByType<ViewManager>();
-        if (planetSphere == null)
-            planetSphere = FindFirstObjectByType<PlanetSphereGoldberg>();
-
-        if (planetSphere != null)
-            planetSphere.OnH3TileResolved += OnTileClicked;
+        if (viewManager == null)  viewManager  = FindFirstObjectByType<ViewManager>();
+        if (planetSphere == null) planetSphere = FindFirstObjectByType<PlanetSphereGoldberg>();
+        if (planetSphere != null) planetSphere.OnH3TileResolved += OnTileClicked;
     }
 
     private void OnDestroy()
     {
-        if (planetSphere != null)
-            planetSphere.OnH3TileResolved -= OnTileClicked;
+        if (planetSphere != null) planetSphere.OnH3TileResolved -= OnTileClicked;
     }
 
     // =========================================================
@@ -82,7 +74,6 @@ public class ClaimTileMenu : MonoBehaviour
 
     private void OnTileClicked(GoldbergTileState tile)
     {
-        // Seulement en vue Globe
         if (viewManager != null
             && (viewManager.CurrentState != ViewManager.ViewState.Planet
                 || viewManager.CurrentPlanetSubView != ViewManager.PlanetSubView.Globe))
@@ -91,92 +82,126 @@ public class ClaimTileMenu : MonoBehaviour
         _currentTile = tile;
         _statusLabel.text = "";
         ShowPanel(tile);
-
-        // Fetch active body id + corps list
         StartCoroutine(RefreshCorpList());
     }
 
     // =========================================================
-    // UI: build
+    // UI : construction
     // =========================================================
 
     private void BuildCanvas()
     {
-        // Canvas overlay (Screen Space)
+        // Canvas overlay
         GameObject canvasGo = new GameObject("ClaimTileMenuCanvas");
         canvasGo.transform.SetParent(transform);
         _canvas = canvasGo.AddComponent<Canvas>();
-        _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        _canvas.renderMode  = RenderMode.ScreenSpaceOverlay;
         _canvas.sortingOrder = 200;
-        canvasGo.AddComponent<CanvasScaler>();
+        var scaler = canvasGo.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
         canvasGo.AddComponent<GraphicRaycaster>();
 
-        // Panel principal
+        // Panel principal — 380 × 340
         _panel = new GameObject("ClaimTilePanel");
         _panel.transform.SetParent(_canvas.transform, false);
         var panelRect = _panel.AddComponent<RectTransform>();
-        panelRect.sizeDelta      = new Vector2(340, 220);
-        panelRect.anchorMin      = new Vector2(0.5f, 0.5f);
-        panelRect.anchorMax      = new Vector2(0.5f, 0.5f);
-        panelRect.anchoredPosition = Vector2.zero;
+        panelRect.sizeDelta        = new Vector2(380, 340);
+        panelRect.anchorMin        = new Vector2(0.5f, 0.5f);
+        panelRect.anchorMax        = new Vector2(0.5f, 0.5f);
+        panelRect.anchoredPosition = new Vector2(0, 0);
 
-        var bg = _panel.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.08f, 0.12f, 0.94f);
+        _panel.AddComponent<Image>().color = new Color(0.08f, 0.08f, 0.12f, 0.96f);
 
-        var vLayout = _panel.AddComponent<VerticalLayoutGroup>();
-        vLayout.padding           = new RectOffset(12, 12, 10, 10);
-        vLayout.spacing           = 8;
-        vLayout.childControlWidth = true;
-        vLayout.childControlHeight = false;
-        vLayout.childForceExpandWidth  = true;
-        vLayout.childForceExpandHeight = false;
+        var vl = _panel.AddComponent<VerticalLayoutGroup>();
+        vl.padding              = new RectOffset(14, 14, 12, 12);
+        vl.spacing              = 8;
+        vl.childControlWidth    = true;
+        vl.childControlHeight   = false;
+        vl.childForceExpandWidth  = true;
+        vl.childForceExpandHeight = false;
 
-        // Titre
-        _titleLabel  = MakeLabel(_panel, "— Tuile —", 16, true);
-        _titleLabel.GetComponent<LayoutElement>().preferredHeight = 22;
+        // ── Titre tuile ──
+        _titleLabel = MakeLabel(_panel, "— Tuile —", 15, true, 42);
+
+        // ── Séparateur visuel ──
+        MakeSeparator(_panel);
+
+        // ── Section Claim / Unclaim ──
+        MakeLabel(_panel, "Corporation", 11, false, 16, new Color(0.7f, 0.7f, 0.7f));
 
         // Dropdown corps
         GameObject ddGo = new GameObject("CorpDropdown", typeof(RectTransform));
         ddGo.transform.SetParent(_panel.transform, false);
-        var ddLayout = ddGo.AddComponent<LayoutElement>();
-        ddLayout.preferredHeight = 30;
-        // Placeholder image requis pour TMP_Dropdown — on crée un child Template minimal
+        ddGo.AddComponent<LayoutElement>().preferredHeight = 32;
         _corpDropdown = ddGo.AddComponent<TMP_Dropdown>();
         BuildMinimalDropdown(_corpDropdown);
 
-        // Status
-        _statusLabel = MakeLabel(_panel, "", 12, false);
-        _statusLabel.color = new Color(0.6f, 1f, 0.6f);
-        _statusLabel.GetComponent<LayoutElement>().preferredHeight = 18;
-
-        // Boutons
+        // Boutons Claim / Unclaim / ×
         GameObject btnRow = new GameObject("BtnRow", typeof(RectTransform));
         btnRow.transform.SetParent(_panel.transform, false);
-        btnRow.AddComponent<HorizontalLayoutGroup>().spacing = 8;
-        var rowLayout = btnRow.AddComponent<LayoutElement>();
-        rowLayout.preferredHeight = 32;
+        var hl = btnRow.AddComponent<HorizontalLayoutGroup>();
+        hl.spacing = 8;
+        hl.childControlWidth    = true;
+        hl.childForceExpandWidth = true;
+        btnRow.AddComponent<LayoutElement>().preferredHeight = 34;
 
-        _claimBtn   = MakeButton(btnRow, "Claim",   new Color(0.2f, 0.7f, 0.3f));
-        _unclaimBtn = MakeButton(btnRow, "Unclaim", new Color(0.7f, 0.3f, 0.2f));
-        _closeBtn   = MakeButton(btnRow, "×",       new Color(0.3f, 0.3f, 0.35f));
+        _claimBtn   = MakeButton(btnRow, "Claim",   new Color(0.18f, 0.65f, 0.28f));
+        _unclaimBtn = MakeButton(btnRow, "Unclaim", new Color(0.72f, 0.25f, 0.18f));
+        _closeBtn   = MakeButton(btnRow, "✕",        new Color(0.28f, 0.28f, 0.32f));
 
         _claimBtn.onClick.AddListener(OnClaimClicked);
         _unclaimBtn.onClick.AddListener(OnUnclaimClicked);
         _closeBtn.onClick.AddListener(HidePanel);
+
+        // ── Séparateur ──
+        MakeSeparator(_panel);
+
+        // ── Section Créer corpo ──
+        MakeLabel(_panel, "Nouvelle corporation", 11, false, 16, new Color(0.7f, 0.7f, 0.7f));
+
+        // Input champ nom
+        GameObject inputGo = new GameObject("CorpNameInput", typeof(RectTransform));
+        inputGo.transform.SetParent(_panel.transform, false);
+        inputGo.AddComponent<LayoutElement>().preferredHeight = 32;
+        _corpNameInput = BuildInputField(inputGo);
+
+        // Bouton Créer
+        GameObject createRow = new GameObject("CreateRow", typeof(RectTransform));
+        createRow.transform.SetParent(_panel.transform, false);
+        createRow.AddComponent<HorizontalLayoutGroup>().spacing = 0;
+        createRow.AddComponent<LayoutElement>().preferredHeight = 34;
+        _createCorpBtn = MakeButton(createRow, "Créer la corporation", new Color(0.20f, 0.42f, 0.72f));
+        _createCorpBtn.onClick.AddListener(OnCreateCorpClicked);
+
+        // ── Status ──
+        _statusLabel = MakeLabel(_panel, "", 12, false, 20, new Color(0.5f, 1f, 0.55f));
+        _statusLabel.alignment = TextAlignmentOptions.Center;
     }
 
-    private TextMeshProUGUI MakeLabel(GameObject parent, string text, float size, bool bold)
+    // ─── helpers UI ───────────────────────────────────────────
+
+    private TextMeshProUGUI MakeLabel(GameObject parent, string text, float size, bool bold,
+                                       float height, Color? color = null)
     {
         GameObject go = new GameObject("Label", typeof(RectTransform));
         go.transform.SetParent(parent.transform, false);
-        go.AddComponent<LayoutElement>();
+        go.AddComponent<LayoutElement>().preferredHeight = height;
         var tmp = go.AddComponent<TextMeshProUGUI>();
-        tmp.text     = text;
-        tmp.fontSize = size;
+        tmp.text      = text;
+        tmp.fontSize  = size;
         tmp.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
-        tmp.color    = Color.white;
+        tmp.color     = color ?? Color.white;
         tmp.alignment = TextAlignmentOptions.Center;
         return tmp;
+    }
+
+    private void MakeSeparator(GameObject parent)
+    {
+        GameObject go = new GameObject("Sep", typeof(RectTransform));
+        go.transform.SetParent(parent.transform, false);
+        go.AddComponent<LayoutElement>().preferredHeight = 2;
+        go.AddComponent<Image>().color = new Color(1, 1, 1, 0.12f);
     }
 
     private Button MakeButton(GameObject parent, string label, Color bg)
@@ -189,130 +214,153 @@ public class ClaimTileMenu : MonoBehaviour
         img.color = bg;
 
         var btn = go.AddComponent<Button>();
-        var colors = btn.colors;
-        colors.highlightedColor = bg * 1.3f;
-        colors.pressedColor     = bg * 0.7f;
+        var colors    = btn.colors;
+        colors.highlightedColor = bg * 1.25f;
+        colors.pressedColor     = bg * 0.70f;
         btn.colors = colors;
 
         GameObject txtGo = new GameObject("Text", typeof(RectTransform));
         txtGo.transform.SetParent(go.transform, false);
         var rt = txtGo.GetComponent<RectTransform>();
-        rt.anchorMin  = Vector2.zero;
-        rt.anchorMax  = Vector2.one;
-        rt.offsetMin  = Vector2.zero;
-        rt.offsetMax  = Vector2.zero;
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(4, 0); rt.offsetMax = new Vector2(-4, 0);
 
         var tmp = txtGo.AddComponent<TextMeshProUGUI>();
         tmp.text      = label;
-        tmp.fontSize  = 14;
+        tmp.fontSize  = 13;
         tmp.fontStyle = FontStyles.Bold;
         tmp.color     = Color.white;
         tmp.alignment = TextAlignmentOptions.Center;
+        tmp.overflowMode = TextOverflowModes.Ellipsis;
 
         return btn;
     }
 
-    /// <summary>
-    /// TMP_Dropdown nécessite un Template child pour fonctionner.
-    /// On construit le minimum fonctionnel programmatiquement.
-    /// </summary>
+    private TMP_InputField BuildInputField(GameObject go)
+    {
+        var bgImg = go.AddComponent<Image>();
+        bgImg.color = new Color(0.14f, 0.14f, 0.20f);
+
+        var field = go.AddComponent<TMP_InputField>();
+
+        // Text area
+        GameObject textAreaGo = new GameObject("Text Area", typeof(RectTransform));
+        textAreaGo.transform.SetParent(go.transform, false);
+        var taRect = textAreaGo.GetComponent<RectTransform>();
+        taRect.anchorMin = Vector2.zero; taRect.anchorMax = Vector2.one;
+        taRect.offsetMin = new Vector2(8, 2); taRect.offsetMax = new Vector2(-8, -2);
+        textAreaGo.AddComponent<RectMask2D>();
+
+        // Text
+        GameObject textGo = new GameObject("Text", typeof(RectTransform));
+        textGo.transform.SetParent(textAreaGo.transform, false);
+        var textRect = textGo.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero; textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero; textRect.offsetMax = Vector2.zero;
+        var textTmp = textGo.AddComponent<TextMeshProUGUI>();
+        textTmp.fontSize  = 13;
+        textTmp.color     = Color.white;
+        textTmp.alignment = TextAlignmentOptions.MidlineLeft;
+
+        // Placeholder
+        GameObject phGo = new GameObject("Placeholder", typeof(RectTransform));
+        phGo.transform.SetParent(textAreaGo.transform, false);
+        var phRect = phGo.GetComponent<RectTransform>();
+        phRect.anchorMin = Vector2.zero; phRect.anchorMax = Vector2.one;
+        phRect.offsetMin = Vector2.zero; phRect.offsetMax = Vector2.zero;
+        var phTmp = phGo.AddComponent<TextMeshProUGUI>();
+        phTmp.text      = "Nom de la corporation…";
+        phTmp.fontSize  = 13;
+        phTmp.color     = new Color(0.5f, 0.5f, 0.5f);
+        phTmp.alignment = TextAlignmentOptions.MidlineLeft;
+        phTmp.fontStyle = FontStyles.Italic;
+
+        field.textViewport   = taRect;
+        field.textComponent  = textTmp;
+        field.placeholder    = phTmp;
+        field.characterLimit = 40;
+
+        return field;
+    }
+
     private void BuildMinimalDropdown(TMP_Dropdown dd)
     {
-        // Background du dropdown header
         var ddRect = dd.GetComponent<RectTransform>();
-        ddRect.sizeDelta = new Vector2(0, 30);
+        ddRect.sizeDelta = new Vector2(0, 32);
 
-        var bgImg = dd.gameObject.AddComponent<Image>();
-        bgImg.color = new Color(0.15f, 0.15f, 0.22f);
+        dd.gameObject.AddComponent<Image>().color = new Color(0.15f, 0.15f, 0.22f);
 
-        // Label
+        // Caption label
         GameObject lblGo = new GameObject("Label", typeof(RectTransform));
         lblGo.transform.SetParent(dd.transform, false);
         var lblRect = lblGo.GetComponent<RectTransform>();
-        lblRect.anchorMin = new Vector2(0, 0);
-        lblRect.anchorMax = new Vector2(1, 1);
-        lblRect.offsetMin = new Vector2(8, 0);
-        lblRect.offsetMax = new Vector2(-8, 0);
+        lblRect.anchorMin = new Vector2(0, 0); lblRect.anchorMax = new Vector2(1, 1);
+        lblRect.offsetMin = new Vector2(8, 0); lblRect.offsetMax = new Vector2(-28, 0);
         var lbl = lblGo.AddComponent<TextMeshProUGUI>();
-        lbl.fontSize  = 13;
-        lbl.color     = Color.white;
+        lbl.fontSize  = 13; lbl.color = Color.white;
         lbl.alignment = TextAlignmentOptions.MidlineLeft;
         dd.captionText = lbl;
 
-        // Arrow (optionnel mais propre)
+        // Arrow
         GameObject arrowGo = new GameObject("Arrow", typeof(RectTransform));
         arrowGo.transform.SetParent(dd.transform, false);
-        var arrowRect = arrowGo.GetComponent<RectTransform>();
-        arrowRect.anchorMin        = new Vector2(1, 0.5f);
-        arrowRect.anchorMax        = new Vector2(1, 0.5f);
-        arrowRect.anchoredPosition = new Vector2(-15, 0);
-        arrowRect.sizeDelta        = new Vector2(20, 20);
-        var arrowTxt = arrowGo.AddComponent<TextMeshProUGUI>();
-        arrowTxt.text      = "▼";
-        arrowTxt.fontSize  = 10;
-        arrowTxt.color     = Color.white;
-        arrowTxt.alignment = TextAlignmentOptions.Center;
+        var ar = arrowGo.GetComponent<RectTransform>();
+        ar.anchorMin = new Vector2(1, 0.5f); ar.anchorMax = new Vector2(1, 0.5f);
+        ar.anchoredPosition = new Vector2(-14, 0); ar.sizeDelta = new Vector2(20, 20);
+        var arTxt = arrowGo.AddComponent<TextMeshProUGUI>();
+        arTxt.text = "▼"; arTxt.fontSize = 10; arTxt.color = Color.white;
+        arTxt.alignment = TextAlignmentOptions.Center;
 
-        // Template (requis par TMP_Dropdown mais on le cache)
-        GameObject templateGo = new GameObject("Template", typeof(RectTransform));
-        templateGo.transform.SetParent(dd.transform, false);
-        templateGo.SetActive(false);
-        var tmplRect = templateGo.GetComponent<RectTransform>();
-        tmplRect.anchorMin        = new Vector2(0, 0);
-        tmplRect.anchorMax        = new Vector2(1, 0);
-        tmplRect.pivot            = new Vector2(0.5f, 1);
+        // Template
+        GameObject tmplGo = new GameObject("Template", typeof(RectTransform));
+        tmplGo.transform.SetParent(dd.transform, false);
+        tmplGo.SetActive(false);
+        var tmplRect = tmplGo.GetComponent<RectTransform>();
+        tmplRect.anchorMin = new Vector2(0, 0); tmplRect.anchorMax = new Vector2(1, 0);
+        tmplRect.pivot = new Vector2(0.5f, 1);
         tmplRect.anchoredPosition = new Vector2(0, 2);
-        tmplRect.sizeDelta        = new Vector2(0, 150);
-        templateGo.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.15f);
-        var templateScroll = templateGo.AddComponent<ScrollRect>();
+        tmplRect.sizeDelta = new Vector2(0, 160);
+        tmplGo.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.15f);
+        var scroll = tmplGo.AddComponent<ScrollRect>();
 
-        // Viewport inside template
+        // Viewport
         GameObject vpGo = new GameObject("Viewport", typeof(RectTransform));
-        vpGo.transform.SetParent(templateGo.transform, false);
+        vpGo.transform.SetParent(tmplGo.transform, false);
         var vpRect = vpGo.GetComponent<RectTransform>();
-        vpRect.anchorMin = Vector2.zero;
-        vpRect.anchorMax = Vector2.one;
-        vpRect.offsetMin = Vector2.zero;
-        vpRect.offsetMax = Vector2.zero;
+        vpRect.anchorMin = Vector2.zero; vpRect.anchorMax = Vector2.one;
+        vpRect.offsetMin = Vector2.zero; vpRect.offsetMax = Vector2.zero;
         vpGo.AddComponent<Image>().color = Color.clear;
-        var mask = vpGo.AddComponent<Mask>();
-        mask.showMaskGraphic = false;
-        templateScroll.viewport = vpRect;
+        vpGo.AddComponent<Mask>().showMaskGraphic = false;
+        scroll.viewport = vpRect;
 
         // Content
         GameObject contentGo = new GameObject("Content", typeof(RectTransform));
         contentGo.transform.SetParent(vpGo.transform, false);
         var contentRect = contentGo.GetComponent<RectTransform>();
-        contentRect.anchorMin        = new Vector2(0, 1);
-        contentRect.anchorMax        = new Vector2(1, 1);
-        contentRect.pivot            = new Vector2(0.5f, 1);
-        contentRect.anchoredPosition = Vector2.zero;
-        contentRect.sizeDelta        = new Vector2(0, 28);
-        templateScroll.content       = contentRect;
+        contentRect.anchorMin = new Vector2(0, 1); contentRect.anchorMax = new Vector2(1, 1);
+        contentRect.pivot = new Vector2(0.5f, 1);
+        contentRect.anchoredPosition = Vector2.zero; contentRect.sizeDelta = new Vector2(0, 30);
+        scroll.content = contentRect;
 
-        // Item prototype inside Content
+        // Item
         GameObject itemGo = new GameObject("Item", typeof(RectTransform));
         itemGo.transform.SetParent(contentGo.transform, false);
         var itemRect = itemGo.GetComponent<RectTransform>();
-        itemRect.anchorMin = new Vector2(0, 0.5f);
-        itemRect.anchorMax = new Vector2(1, 0.5f);
-        itemRect.sizeDelta = new Vector2(0, 28);
-        var itemToggle = itemGo.AddComponent<Toggle>();
+        itemRect.anchorMin = new Vector2(0, 0.5f); itemRect.anchorMax = new Vector2(1, 0.5f);
+        itemRect.sizeDelta = new Vector2(0, 30);
+        var toggle = itemGo.AddComponent<Toggle>();
         itemGo.AddComponent<Image>().color = Color.clear;
 
         GameObject itemLblGo = new GameObject("Item Label", typeof(RectTransform));
         itemLblGo.transform.SetParent(itemGo.transform, false);
-        var itemLblRect = itemLblGo.GetComponent<RectTransform>();
-        itemLblRect.anchorMin = new Vector2(0, 0);
-        itemLblRect.anchorMax = new Vector2(1, 1);
-        itemLblRect.offsetMin = new Vector2(8, 0);
-        itemLblRect.offsetMax = new Vector2(0, 0);
+        var ilRect = itemLblGo.GetComponent<RectTransform>();
+        ilRect.anchorMin = Vector2.zero; ilRect.anchorMax = Vector2.one;
+        ilRect.offsetMin = new Vector2(8, 0); ilRect.offsetMax = Vector2.zero;
         var itemLbl = itemLblGo.AddComponent<TextMeshProUGUI>();
-        itemLbl.fontSize  = 13;
-        itemLbl.color     = Color.white;
+        itemLbl.fontSize = 13; itemLbl.color = Color.white;
         itemLbl.alignment = TextAlignmentOptions.MidlineLeft;
-        itemToggle.targetGraphic = itemGo.GetComponent<Image>();
-        itemToggle.graphic       = itemLbl;
+        toggle.targetGraphic = itemGo.GetComponent<Image>();
+        toggle.graphic       = itemLbl;
 
         dd.itemText = itemLbl;
         dd.template = tmplRect;
@@ -324,20 +372,18 @@ public class ClaimTileMenu : MonoBehaviour
 
     private void ShowPanel(GoldbergTileState tile)
     {
-        string tileShort = tile.tileId.Length > 12 ? tile.tileId[..12] + "…" : tile.tileId;
-        _titleLabel.text = $"<b>Tuile</b>  {tileShort}\n<size=11>{tile.terrainType}</size>";
+        string tileShort = tile.tileId.Length > 14 ? tile.tileId[..14] + "…" : tile.tileId;
+        _titleLabel.text = $"<b>Tuile</b>  {tileShort}\n<size=11><color=#aaa>{tile.terrainType}</color></size>";
         _panel.SetActive(true);
-        _isOpen = true;
     }
 
     private void HidePanel()
     {
         _panel.SetActive(false);
-        _isOpen = false;
     }
 
     // =========================================================
-    // Backend calls
+    // Backend — corps
     // =========================================================
 
     private IEnumerator RefreshCorpList()
@@ -349,38 +395,34 @@ public class ClaimTileMenu : MonoBehaviour
             yield return req.SendWebRequest();
             if (req.result != UnityWebRequest.Result.Success)
             {
-                _statusLabel.text = $"Erreur : {req.error}";
+                _statusLabel.text = $"<color=red>Erreur : {req.error}</color>";
                 yield break;
             }
-
             var wrapper = JsonUtility.FromJson<CorpListWrapper>("{\"items\":" + req.downloadHandler.text + "}");
             if (wrapper?.items == null) { _statusLabel.text = "Aucune corporation."; yield break; }
 
-            _corpIds.Clear();
-            _corpNames.Clear();
-            var ddOptions = new List<TMP_Dropdown.OptionData>();
+            _corpIds.Clear(); _corpNames.Clear();
+            var opts = new List<TMP_Dropdown.OptionData>();
             foreach (var c in wrapper.items)
             {
-                _corpIds.Add(c.id);
-                _corpNames.Add(c.name);
-                ddOptions.Add(new TMP_Dropdown.OptionData(c.name));
+                _corpIds.Add(c.id); _corpNames.Add(c.name);
+                opts.Add(new TMP_Dropdown.OptionData(c.name));
             }
             _corpDropdown.ClearOptions();
-            _corpDropdown.AddOptions(ddOptions);
+            _corpDropdown.AddOptions(opts);
             _corpDropdown.value = 0;
         }
 
-        // Récupérer l'activeBodyId depuis PlanetSphereGoldberg
+        // Récupérer _activeBodyId par réflexion
         if (planetSphere != null)
         {
-            // On lit le champ via la propriété publique (déjà exposée comme ActiveBodyId)
-            var field = typeof(PlanetSphereGoldberg)
-                .GetField("_activeBodyId",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (field != null)
-                _activeBodyId = (string)field.GetValue(planetSphere) ?? "";
+            var f = typeof(PlanetSphereGoldberg).GetField("_activeBodyId",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (f != null) _activeBodyId = (string)f.GetValue(planetSphere) ?? "";
         }
     }
+
+    // ─── Claim ────────────────────────────────────────────────
 
     private void OnClaimClicked()
     {
@@ -388,14 +430,6 @@ public class ClaimTileMenu : MonoBehaviour
         int idx = _corpDropdown.value;
         if (idx < 0 || idx >= _corpIds.Count) return;
         StartCoroutine(DoClaim(_corpIds[idx], _currentTile.tileId));
-    }
-
-    private void OnUnclaimClicked()
-    {
-        if (_corpIds.Count == 0) { _statusLabel.text = "Aucune corp chargée."; return; }
-        int idx = _corpDropdown.value;
-        if (idx < 0 || idx >= _corpIds.Count) return;
-        StartCoroutine(DoUnclaim(_corpIds[idx], _currentTile.tileId));
     }
 
     private IEnumerator DoClaim(string corpId, string tileId)
@@ -411,15 +445,25 @@ public class ClaimTileMenu : MonoBehaviour
             yield return req.SendWebRequest();
             if (req.result == UnityWebRequest.Result.Success)
             {
-                _statusLabel.text = $"✓ Tuile claimée pour {_corpNames[_corpDropdown.value]}";
-                if (planetSphere != null) yield return StartCoroutine(RefreshOverlay());
+                _statusLabel.text = $"<color=#8f8>✓ Tuile claimée</color>";
+                planetSphere?.RefreshOwnershipOverlay();
             }
             else
             {
                 string detail = req.downloadHandler?.text ?? req.error;
-                _statusLabel.text = $"Erreur {req.responseCode}: {detail}";
+                _statusLabel.text = $"<color=red>Erreur {req.responseCode}: {detail}</color>";
             }
         }
+    }
+
+    // ─── Unclaim ──────────────────────────────────────────────
+
+    private void OnUnclaimClicked()
+    {
+        if (_corpIds.Count == 0) { _statusLabel.text = "Aucune corp chargée."; return; }
+        int idx = _corpDropdown.value;
+        if (idx < 0 || idx >= _corpIds.Count) return;
+        StartCoroutine(DoUnclaim(_corpIds[idx], _currentTile.tileId));
     }
 
     private IEnumerator DoUnclaim(string corpId, string tileId)
@@ -429,45 +473,72 @@ public class ClaimTileMenu : MonoBehaviour
             + $"/game/corporations/{corpId}/claim-hex"
             + $"?body_id={UnityWebRequest.EscapeURL(_activeBodyId)}"
             + $"&tile_id={UnityWebRequest.EscapeURL(tileId)}";
-        UnityWebRequest req = UnityWebRequest.Delete(url);
-        req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-        yield return req.SendWebRequest();
-        if (req.result == UnityWebRequest.Result.Success)
+        using (UnityWebRequest req = UnityWebRequest.Delete(url))
         {
-            _statusLabel.text = $"✓ Tuile libérée.";
-            if (planetSphere != null) yield return StartCoroutine(RefreshOverlay());
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                _statusLabel.text = "<color=#8f8>✓ Tuile libérée</color>";
+                planetSphere?.RefreshOwnershipOverlay();
+            }
+            else
+            {
+                string detail = req.downloadHandler?.text ?? req.error;
+                _statusLabel.text = $"<color=red>Erreur {req.responseCode}: {detail}</color>";
+            }
         }
-        else
-        {
-            string detail = req.downloadHandler?.text ?? req.error;
-            _statusLabel.text = $"Erreur {req.responseCode}: {detail}";
-        }
-        req.Dispose();
     }
 
-    /// <summary>
-    /// Déclenche un refresh de l'ownership overlay sur la sphère après claim/unclaim.
-    /// </summary>
-    private IEnumerator RefreshOverlay()
+    // ─── Créer corpo ──────────────────────────────────────────
+
+    private void OnCreateCorpClicked()
     {
-        planetSphere.RefreshOwnershipOverlay();
-        yield break;
+        string corpName = _corpNameInput.text.Trim();
+        if (string.IsNullOrEmpty(corpName))
+        {
+            _statusLabel.text = "<color=orange>Entrez un nom de corporation.</color>";
+            return;
+        }
+        StartCoroutine(DoCreateCorp(corpName));
     }
+
+    private IEnumerator DoCreateCorp(string corpName)
+    {
+        _statusLabel.text = "Création en cours…";
+        string url  = simulationServerUrl.TrimEnd('/') + "/game/corporations";
+        string json = $"{{\"name\":\"{EscapeJson(corpName)}\",\"is_ai\":false}}";
+        byte[] body = Encoding.UTF8.GetBytes(json);
+
+        using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
+        {
+            req.uploadHandler   = new UploadHandlerRaw(body);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
+
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                _statusLabel.text = $"<color=#8f8>✓ « {corpName} » créée !</color>";
+                _corpNameInput.text = "";
+                yield return StartCoroutine(RefreshCorpList()); // màj dropdown
+            }
+            else
+            {
+                string detail = req.downloadHandler?.text ?? req.error;
+                _statusLabel.text = $"<color=red>Erreur {req.responseCode}: {detail}</color>";
+            }
+        }
+    }
+
+    private static string EscapeJson(string s)
+        => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     // =========================================================
     // Serialization helpers
     // =========================================================
 
-    [System.Serializable]
-    private class CorpListWrapper
-    {
-        public CorpEntry[] items;
-    }
-
-    [System.Serializable]
-    private class CorpEntry
-    {
-        public string id;
-        public string name;
-    }
+    [System.Serializable] private class CorpListWrapper { public CorpEntry[] items; }
+    [System.Serializable] private class CorpEntry       { public string id; public string name; }
 }
