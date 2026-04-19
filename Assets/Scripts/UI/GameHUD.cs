@@ -756,8 +756,7 @@ public class GameHUD : MonoBehaviour
         vpRect.anchorMax = Vector2.one;
         vpRect.offsetMin = Vector2.zero;
         vpRect.offsetMax = Vector2.zero;
-        vpGo.AddComponent<Image>().color = Color.clear;
-        vpGo.AddComponent<Mask>().showMaskGraphic = false;
+        vpGo.AddComponent<RectMask2D>();
         scrollRect.viewport = vpRect;
 
         // Content — VerticalLayoutGroup + ContentSizeFitter
