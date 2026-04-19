@@ -70,18 +70,23 @@ public static class GoldbergFaceColorizer
     }
 
     /// <summary>
-    /// Tints the face nearest to each claimed tile with the corresponding corporation color.
-    /// ownershipTints: tileId → corp color (only tiles on the current body).
-    /// blend: 0 = full biome color, 1 = full corp color. 0.55f is recommended.
+    /// Tints only the border faces of each corporation territory.
+    /// A tile is a border tile when at least one neighbor is unowned or owned by a different corp.
+    /// Interior tiles (fully surrounded by the same corp) are left in their biome color.
+    /// ownershipTints : tileId → corp color (only tiles on the current body).
+    /// tileToCorpId   : tileId → corpId, used to compare neighbors.
+    /// blend: 0 = full biome color, 1 = full corp color. 0.80f is recommended for borders.
     /// </summary>
     public static void ApplyOwnershipTint(
         GoldbergSphereGenerator.GoldbergFace[] faces,
         GoldbergTileState[] serverTiles,
         Dictionary<string, Color> ownershipTints,
+        Dictionary<string, string> tileToCorpId,
         float blend)
     {
         if (faces == null || serverTiles == null || serverTiles.Length == 0
-            || ownershipTints == null || ownershipTints.Count == 0)
+            || ownershipTints == null || ownershipTints.Count == 0
+            || tileToCorpId == null)
             return;
 
         // Build tileId → server tile index for fast lookup
@@ -95,13 +100,29 @@ public static class GoldbergFaceColorizer
 
         foreach (var kv in ownershipTints)
         {
-            if (!tileLookup.TryGetValue(kv.Key, out int tileIdx)) continue;
+            string tileId = kv.Key;
+            if (!tileLookup.TryGetValue(tileId, out int tileIdx)) continue;
 
-            float tLat      = serverTiles[tileIdx].latNorm;
-            float tLon      = serverTiles[tileIdx].lonNorm;
+            // Border detection: is any neighbor unowned or owned by a different corp?
+            bool isBorder = true;
+            GoldbergTileState tile = serverTiles[tileIdx];
+            tileToCorpId.TryGetValue(tileId, out string corpId);
+            if (tile.neighborIds != null && tile.neighborIds.Length > 0)
+            {
+                isBorder = false;
+                foreach (string nId in tile.neighborIds)
+                {
+                    if (!tileToCorpId.TryGetValue(nId, out string nCorpId) || nCorpId != corpId)
+                    { isBorder = true; break; }
+                }
+            }
+            if (!isBorder) continue;
+
+            float tLat      = tile.latNorm;
+            float tLon      = tile.lonNorm;
             Color corpColor = kv.Value;
 
-            // Nearest-neighbor face search (same logic as ColorizeFromServerTiles)
+            // Nearest-neighbor face search
             float bestDist2 = float.MaxValue;
             int   bestFace  = -1;
             for (int i = 0; i < faces.Length; i++)
