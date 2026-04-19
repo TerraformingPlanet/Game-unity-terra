@@ -1935,7 +1935,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &421772139
 RectTransform:
   m_ObjectHideFlags: 0
@@ -3032,6 +3032,56 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!1 &719780509
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 719780511}
+  - component: {fileID: 719780510}
+  m_Layer: 0
+  m_Name: GameHUD
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &719780510
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 719780509}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b8a1bb6876c9dd44b9345b6408f0fc0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GameHUD
+  viewManager: {fileID: 0}
+  terraformHUD: {fileID: 0}
+  planetSphere: {fileID: 0}
+  debugHydrologyPanel: {fileID: 0}
+  simulationServerUrl: http://127.0.0.1:8080
+  simulationServerTimeoutSeconds: 5
+--- !u!4 &719780511
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 719780509}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &721927640
 GameObject:
   m_ObjectHideFlags: 0
@@ -3423,7 +3473,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &803816908
 RectTransform:
   m_ObjectHideFlags: 0
@@ -3804,8 +3854,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlanetSphereGoldberg
   sphereMaterial: {fileID: 2100000, guid: c79605f887085e14cade0332cc7d3d35, type: 2}
   atmosphere: {fileID: 267416035}
+  cloudLayer: {fileID: 0}
   cacheGeneratedProjections: 1
   enableLod: 1
+  startAtMaxResolution: 1
   lodFarDistance: 26
   lodNearDistance: 20
   lodNearExtraDivisions: 0
@@ -4369,6 +4421,7 @@ GameObject:
   - component: {fileID: 1021400410}
   - component: {fileID: 1021400409}
   - component: {fileID: 1021400413}
+  - component: {fileID: 1021400414}
   m_Layer: 0
   m_Name: Canvas
   m_TagString: Untagged
@@ -4479,12 +4532,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0cdb76009e1520240adb846dd19b4986, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TerraformHUD
-  progressSlider: {fileID: 803816909}
-  progressLabel: {fileID: 1509414088}
-  selectedHexPanel: {fileID: 421772138}
-  hexInfoLabel: {fileID: 201109803}
-  openLocalButton: {fileID: 1148799978}
-  closeLocalButton: {fileID: 1201282365}
+  progressSlider: {fileID: 0}
+  progressLabel: {fileID: 0}
+  selectedHexPanel: {fileID: 0}
+  hexInfoLabel: {fileID: 0}
+  openLocalButton: {fileID: 0}
+  closeLocalButton: {fileID: 0}
   progressTracker: {fileID: 820548242}
   terraformSystem: {fileID: 820548243}
   viewManager: {fileID: 0}
@@ -4492,6 +4545,56 @@ MonoBehaviour:
   preferServerActionDefinitions: 1
   simulationServerUrl: http://127.0.0.1:8080
   simulationServerTimeoutSeconds: 2
+--- !u!114 &1021400414
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021400408}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d2d493d3d567765458fba271dff585a1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ClaimTileMenu
+  planetSphere: {fileID: 905619744}
+  viewManager: {fileID: 820548244}
+  simulationServerUrl: http://127.0.0.1:8080
+  simulationServerTimeoutSeconds: 5
+  _canvas: {fileID: 0}
+  _panel: {fileID: 0}
+  _titleLabel: {fileID: 0}
+  _statusLabel: {fileID: 0}
+  _claimBtn: {fileID: 0}
+  _unclaimBtn: {fileID: 0}
+  _closeBtn: {fileID: 0}
+  _corpDropdown: {fileID: 0}
+  _corpNameInput: {fileID: 0}
+  _createCorpBtn: {fileID: 0}
+  _currentTile:
+    tileId: 
+    neighborIds: []
+    latNorm: 0
+    lonNorm: 0
+    latDeg: 0
+    lonDeg: 0
+    terrainType: 0
+    waterClassification: 0
+    terrainClass: 0
+    waterRatio: 0
+    temperature: 0
+    toxinLevel: 0
+    isHabitable: 0
+    altitude: 0
+    albedo: 0
+    solarIrradiance: 0
+    vegetationDensity: 0
+    wildlifeDensity: 0
+    atmosphereDeltaCo2: 0
+    atmosphereDeltaO2: 0
+  _corpIds: []
+  _corpNames: []
+  _activeBodyId: 
 --- !u!1 &1027069097
 GameObject:
   m_ObjectHideFlags: 0
@@ -5322,6 +5425,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlanetViewToggleButton
   viewManager: {fileID: 0}
   label: {fileID: 0}
+  _button: {fileID: 0}
 --- !u!114 &1182307538
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7789,7 +7893,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1509414086
 RectTransform:
   m_ObjectHideFlags: 0
@@ -11173,3 +11277,4 @@ SceneRoots:
   - {fileID: 699849941}
   - {fileID: 1327836893}
   - {fileID: 2001086951}
+  - {fileID: 719780511}

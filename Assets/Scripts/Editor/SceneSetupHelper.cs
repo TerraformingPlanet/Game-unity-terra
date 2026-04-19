@@ -219,5 +219,105 @@ public static class SceneSetupHelper
         Debug.Log("[SceneSetupHelper] Scène sauvegardée — toutes les références câblées !");
         EditorUtility.DisplayDialog("Setup terminé", "Toutes les références ont été câblées et la scène sauvegardée.", "OK");
     }
+
+    [MenuItem("Tools/Terraformation/Clean Old Canvas UI")]
+    public static void CleanOldCanvasUI()
+    {
+        if (EditorApplication.isPlaying)
+        {
+            EditorUtility.DisplayDialog("Play Mode actif",
+                "Arrête le Play Mode avant de nettoyer la scène.", "OK");
+            return;
+        }
+
+        var scene = SceneManager.GetActiveScene();
+        var allGOs = new List<GameObject>();
+        foreach (var root in scene.GetRootGameObjects())
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                allGOs.Add(t.gameObject);
+
+        GameObject Find(string n) {
+            foreach (var go in allGOs) if (go.name == n) return go;
+            return null;
+        }
+
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        var canvas = Find("Canvas");
+        int disabled = 0;
+
+        // GOs à désactiver (remplacés par GameHUD)
+        string[] toDisable = {
+            "ProgressSlider", "ProgressLabel",
+            "SelectedHexPanel",
+        };
+        foreach (var name in toDisable)
+        {
+            var go = Find(name);
+            if (go != null && go.activeSelf) { go.SetActive(false); disabled++; EditorUtility.SetDirty(go); }
+        }
+
+        // Désactiver les anciens boutons toggle (ClaimTileMenu, PlanetViewToggleButton, DebugTileToggleButton)
+        string[] oldButtonNames = { "ClaimTileMenuButton", "PlanetViewToggleButton", "DebugTileToggleButton" };
+        foreach (var name in oldButtonNames)
+        {
+            var go = Find(name);
+            if (go != null && go.activeSelf) { go.SetActive(false); disabled++; EditorUtility.SetDirty(go); }
+        }
+
+        // Nuller les refs Inspector de TerraformHUD vers les GOs désactivés
+        var hud = canvas?.GetComponent<TerraformHUD>();
+        if (hud != null)
+        {
+            var hudType = typeof(TerraformHUD);
+            hudType.GetField("progressSlider",   flags).SetValue(hud, null);
+            hudType.GetField("progressLabel",    flags).SetValue(hud, null);
+            hudType.GetField("selectedHexPanel", flags).SetValue(hud, null);
+            hudType.GetField("hexInfoLabel",     flags).SetValue(hud, null);
+            hudType.GetField("openLocalButton",  flags).SetValue(hud, null);
+            hudType.GetField("closeLocalButton", flags).SetValue(hud, null);
+            EditorUtility.SetDirty(canvas);
+            Debug.Log("[SceneSetupHelper] TerraformHUD : refs UI legacy nullifiées ✓");
+        }
+
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
+        UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
+
+        string msg = $"{disabled} élément(s) désactivé(s), refs TerraformHUD nullifiées.";
+        Debug.Log("[SceneSetupHelper] Clean Old Canvas : " + msg);
+        EditorUtility.DisplayDialog("Nettoyage terminé", msg + "\n\nLa scène a été sauvegardée.", "OK");
+    }
+
+    [MenuItem("Tools/Terraformation/Add GameHUD to Scene")]
+    public static void AddGameHUD()
+    {
+        if (EditorApplication.isPlaying)
+        {
+            EditorUtility.DisplayDialog("Play Mode actif",
+                "Arrête le Play Mode avant d'ajouter GameHUD à la scène.", "OK");
+            return;
+        }
+
+        var scene = SceneManager.GetActiveScene();
+
+        // Vérifie si déjà présent
+        foreach (var root in scene.GetRootGameObjects())
+            foreach (var existing in root.GetComponentsInChildren<GameHUD>(true))
+            {
+                Debug.LogWarning("[SceneSetupHelper] GameHUD déjà présent dans la scène.");
+                Selection.activeGameObject = existing.gameObject;
+                return;
+            }
+
+        var go = new GameObject("GameHUD");
+        go.AddComponent<GameHUD>();
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
+        UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
+        Selection.activeGameObject = go;
+        Debug.Log("[SceneSetupHelper] GameHUD créé dans la scène !");
+        EditorUtility.DisplayDialog("GameHUD ajouté",
+            "GameObject 'GameHUD' créé avec le composant GameHUD.\n" +
+            "Les références (ViewManager, TerraformHUD, PlanetSphereGoldberg) seront auto-trouvées au Start().",
+            "OK");
+    }
 }
 #endif
