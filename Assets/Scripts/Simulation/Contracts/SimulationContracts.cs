@@ -359,9 +359,9 @@ public struct ClaimedTile
 }
 
 /// <summary>
-/// Mirrors Python BuildingType enum (Phase 7.2).
+/// Mirrors Python BuildingType enum (Phase 7.2). Prefixed Corp* to avoid conflict with Economy/BuildingData.
 /// </summary>
-public enum BuildingType
+public enum CorpBuildingType
 {
     Mine        = 0,
     Farm        = 1,
@@ -370,25 +370,25 @@ public enum BuildingType
 }
 
 /// <summary>
-/// Mirrors Python BuildingData (Phase 7.2). Deserialised from GET /game/corporations/{id}/buildings.
+/// Mirrors Python BuildingData (Phase 7.2). Network contract, distinct from Economy/BuildingData ScriptableObject.
 /// </summary>
 [Serializable]
-public struct BuildingData
+public struct CorpBuilding
 {
-    public string      id;
-    public BuildingType buildingType;
-    public string      tileId;
-    public string      bodyId;
-    public string      corpId;
-    public float       workerRatio;
-    public int         ticksActive;
+    public string         id;
+    public CorpBuildingType buildingType;
+    public string         tileId;
+    public string         bodyId;
+    public string         corpId;
+    public float          workerRatio;
+    public int            ticksActive;
 }
 
 /// <summary>
-/// Wrapper for deserializing JSON arrays of BuildingData.
+/// Wrapper for deserializing JSON arrays of CorpBuilding.
 /// </summary>
 [Serializable]
-public class BuildingDataArray { public BuildingData[] items; }
+public class CorpBuildingArray { public CorpBuilding[] items; }
 
 /// <summary>
 /// Mirrors Python CorporationData. Deserialised from GET /game/corporations/{id}.
@@ -402,5 +402,5 @@ public struct CorporationData
     public ClaimedTile[] claimedTiles;
     public float         score;
     public bool          isAI;
-    public BuildingData[] buildings;
+    public CorpBuilding[] buildings;
 }
