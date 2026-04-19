@@ -697,7 +697,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         return region;
     }
 
-    private void GoBackOneLevel()
+    public void GoBackOneLevel()
     {
         // Overlay globe actif (hexGridRoot visible par-dessus planetRoot) → fermer l'overlay d'abord
         if (_state == ViewState.Planet && hexGridRoot != null && hexGridRoot.activeSelf)

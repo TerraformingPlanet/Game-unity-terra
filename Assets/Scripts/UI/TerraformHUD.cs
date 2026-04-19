@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -65,6 +66,16 @@ public class TerraformHUD : MonoBehaviour
     public bool HasServerActionCatalog => _serverActionCatalogLoaded;
     public bool HasAuthoritativeRegionState => _hasAuthoritativeRegionState;
     public RegionState AuthoritativeRegionState => _authoritativeRegionState;
+
+    // =========================================================
+    // Events — consumed by GameHUD
+    // =========================================================
+
+    /// <summary>Fired from UpdateProgress() with the new 0–1 ratio.</summary>
+    public event Action<float> OnProgressUpdated;
+
+    /// <summary>Fired from SetAuthoritativeRegionState() after each server sync.</summary>
+    public event Action<RegionState> OnRegionStateChanged;
 
     // =========================================================
     // Unity lifecycle
@@ -196,6 +207,8 @@ public class TerraformHUD : MonoBehaviour
 
         if (_selectedCell != null)
             RefreshHexInfo();
+
+        OnRegionStateChanged?.Invoke(regionState);
     }
 
     public void ClearAuthoritativeRegionState()
@@ -332,6 +345,8 @@ public class TerraformHUD : MonoBehaviour
 
         if (progressLabel != null)
             progressLabel.text = $"{ratio * 100f:F1}% Terraform.";
+
+        OnProgressUpdated?.Invoke(ratio);
     }
 
     private void RefreshHexInfo()
