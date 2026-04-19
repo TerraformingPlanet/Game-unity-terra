@@ -13,6 +13,13 @@ public class CoherenceValidationSystem : IHexSystem
 
         MapRegion.CoherenceConstraint coherence = ctx.coherence;
 
+        // Passes progressives Sprint B — biais de relief avant les corrections extrêmes
+        if (coherence.rugosity > 0.4f)
+            ApplyRugosityBias(cells, coherence);
+
+        if (coherence.accumulationIndex > 0.5f)
+            ApplyAccumulationBias(cells, coherence);
+
         if (coherence.isExtremeOcean)
             EnsureOpenWaterRegion(cells, ctx);
 
@@ -21,6 +28,58 @@ public class CoherenceValidationSystem : IHexSystem
 
         if (coherence.isExtremeFrozen)
             EnsureFrozenRegion(cells, ctx);
+    }
+
+    /// <summary>
+    /// Biais de rugosité : rehausse légèrement les cellules rocheuses et limite
+    /// le waterRatio dans les zones montagneuses (drainage actif).
+    /// </summary>
+    private static void ApplyRugosityBias(HexCell[] cells, MapRegion.CoherenceConstraint coherence)
+    {
+        float strength = Mathf.InverseLerp(0.4f, 1f, coherence.rugosity);
+        foreach (HexCell cell in cells)
+        {
+            if (cell.state.waterClassification == WaterClassification.OpenOcean ||
+                cell.state.waterClassification == WaterClassification.InlandWater)
+                continue;
+
+            HexPhysicalState state = cell.state;
+            // Rehausse l'altitude en zones sèches / rocheuses
+            if (state.waterRatio < 0.3f)
+                state.altitude = Mathf.Clamp01(state.altitude + strength * 0.15f);
+
+            // Limite le waterRatio progressivement sur les zones hautes
+            if (state.altitude > 0.55f)
+                state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(state.waterRatio, 0.1f, strength * 0.5f));
+
+            cell.state = state;
+        }
+    }
+
+    /// <summary>
+    /// Biais d'accumulation : favorise les bassins et l'eau intérieure dans les zones basses
+    /// quand l'indice d'accumulation hydrique est fort.
+    /// </summary>
+    private static void ApplyAccumulationBias(HexCell[] cells, MapRegion.CoherenceConstraint coherence)
+    {
+        float strength = Mathf.InverseLerp(0.5f, 1f, coherence.accumulationIndex);
+        foreach (HexCell cell in cells)
+        {
+            if (cell.state.waterClassification == WaterClassification.Dry ||
+                cell.state.waterClassification == WaterClassification.FrozenWater)
+                continue;
+
+            HexPhysicalState state = cell.state;
+            // Dans les zones basses humides, renforcer la classification bassin/inland
+            if (state.altitude < 0.35f && state.waterRatio > 0.25f)
+            {
+                state.waterRatio = Mathf.Clamp01(state.waterRatio + strength * 0.1f);
+                if (state.waterClassification == WaterClassification.Coast)
+                    state.waterClassification = WaterClassification.InlandWater;
+            }
+
+            cell.state = state;
+        }
     }
 
     private static void EnsureOpenWaterRegion(HexCell[] cells, GenerationContext ctx)

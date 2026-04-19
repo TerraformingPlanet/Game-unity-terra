@@ -18,6 +18,12 @@ public class MapRegion : ScriptableObject
         public bool isExtremeOcean;
         public bool isExtremeArid;
         public bool isExtremeFrozen;
+        /// <summary>Signal de rugosité [0..1] — fort = région montagneuse/rocheuse, drainage actif.</summary>
+        public float rugosity;
+        /// <summary>Indice d'accumulation hydrique [0..1] — fort = eau froide abondante, bassins probables.</summary>
+        public float accumulationIndex;
+        /// <summary>Contraste de relief [0..1] — écart entre oceanicity et deserticity.</summary>
+        public float reliefContrast;
     }
 
     [Header("Références")]
@@ -162,6 +168,11 @@ public class MapRegion : ScriptableObject
             ? Mathf.Max(freezeFactor, 0.75f)
             : freezeFactor * (waterRatio > 0.2f ? 0.9f : 0.5f);
 
+        // Signaux de relief progressifs (Sprint B)
+        float rugosity = Mathf.Clamp01(desertFromWater * (1f - frigidity) * (deserticity * 0.8f + 0.2f));
+        float accumulationIndex = Mathf.Clamp01(waterRatio * (1f - heatFactor));
+        float reliefContrast = Mathf.Clamp01(Mathf.Abs(oceanicity - deserticity));
+
         return new CoherenceConstraint
         {
             dominantTerrainType = dominantType,
@@ -171,7 +182,10 @@ public class MapRegion : ScriptableObject
             frigidity = Mathf.Clamp01(frigidity),
             isExtremeOcean = forceOpenWaterRegion || (dominantType == TerrainType.Eau && waterRatio >= 0.95f),
             isExtremeArid = forceAridRegion || (projectedTerrain != null && dominantType != TerrainType.Glace && waterRatio <= 0.05f),
-            isExtremeFrozen = forceFrozenRegion || (dominantType == TerrainType.Glace && regionalTemperature <= -15f)
+            isExtremeFrozen = forceFrozenRegion || (dominantType == TerrainType.Glace && regionalTemperature <= -15f),
+            rugosity = rugosity,
+            accumulationIndex = accumulationIndex,
+            reliefContrast = reliefContrast,
         };
     }
 }
