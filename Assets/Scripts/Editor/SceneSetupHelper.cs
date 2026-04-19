@@ -257,7 +257,7 @@ public static class SceneSetupHelper
         }
 
         // Désactiver les anciens boutons toggle (ClaimTileMenu, PlanetViewToggleButton, DebugTileToggleButton)
-        string[] oldButtonNames = { "ClaimTileMenuButton", "PlanetViewToggleButton", "DebugTileToggleButton" };
+        string[] oldButtonNames = { "ClaimTileMenuButton", "PlanetViewToggleButton", "DebugTileToggleButton", "ButtonPlanetViewToggle" };
         foreach (var name in oldButtonNames)
         {
             var go = Find(name);

@@ -163,9 +163,11 @@ public class GameHUD : MonoBehaviour
 
     private void OnH3TileResolved(GoldbergTileState tile)
     {
+        // Guard : on accepte l'event depuis n'importe quel sous-vue planétaire,
+        // car ViewManager.OpenRegion peut changer CurrentPlanetSubView avant que
+        // le coroutine H3 se termine (~1s async).
         if (viewManager == null
-            || viewManager.CurrentState != ViewManager.ViewState.Planet
-            || viewManager.CurrentPlanetSubView != ViewManager.PlanetSubView.Globe)
+            || viewManager.CurrentState != ViewManager.ViewState.Planet)
             return;
 
         _currentTile     = tile;
