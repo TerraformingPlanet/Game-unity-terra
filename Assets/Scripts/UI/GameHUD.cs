@@ -730,18 +730,48 @@ public class GameHUD : MonoBehaviour
 
     private void BuildRightPanel()
     {
+        // Outer panel — stretches full height below TopBar, fixed width 300
         _rightPanel = new GameObject("RightPanel", typeof(RectTransform));
         _rightPanel.transform.SetParent(_canvas.transform, false);
         var rt = _rightPanel.GetComponent<RectTransform>();
-        rt.anchorMin        = new Vector2(1, 1);
-        rt.anchorMax        = new Vector2(1, 1);
-        rt.pivot            = new Vector2(1, 1);
-        rt.anchoredPosition = new Vector2(0, -44);  // juste sous le TopBar
-        rt.sizeDelta        = new Vector2(300, 0);   // hauteur auto
+        rt.anchorMin = new Vector2(1, 0);
+        rt.anchorMax = new Vector2(1, 1);
+        rt.pivot     = new Vector2(1, 1);
+        rt.offsetMin = new Vector2(-300, 0);
+        rt.offsetMax = new Vector2(0, -44);  // juste sous le TopBar
 
         _rightPanel.AddComponent<Image>().color = new Color(0.07f, 0.07f, 0.10f, 0.95f);
 
-        var vl = _rightPanel.AddComponent<VerticalLayoutGroup>();
+        // ScrollRect — permet de scroller si le contenu dépasse la hauteur d'écran
+        var scrollRect = _rightPanel.AddComponent<ScrollRect>();
+        scrollRect.horizontal        = false;
+        scrollRect.vertical          = true;
+        scrollRect.scrollSensitivity = 30f;
+
+        // Viewport
+        GameObject vpGo = new GameObject("Viewport", typeof(RectTransform));
+        vpGo.transform.SetParent(_rightPanel.transform, false);
+        var vpRect = vpGo.GetComponent<RectTransform>();
+        vpRect.anchorMin = Vector2.zero;
+        vpRect.anchorMax = Vector2.one;
+        vpRect.offsetMin = Vector2.zero;
+        vpRect.offsetMax = Vector2.zero;
+        vpGo.AddComponent<Image>().color = Color.clear;
+        vpGo.AddComponent<Mask>().showMaskGraphic = false;
+        scrollRect.viewport = vpRect;
+
+        // Content — VerticalLayoutGroup + ContentSizeFitter
+        GameObject contentGo = new GameObject("Content", typeof(RectTransform));
+        contentGo.transform.SetParent(vpGo.transform, false);
+        var contentRect = contentGo.GetComponent<RectTransform>();
+        contentRect.anchorMin        = new Vector2(0, 1);
+        contentRect.anchorMax        = new Vector2(1, 1);
+        contentRect.pivot            = new Vector2(0.5f, 1);
+        contentRect.anchoredPosition = Vector2.zero;
+        contentRect.sizeDelta        = Vector2.zero;
+        scrollRect.content = contentRect;
+
+        var vl = contentGo.AddComponent<VerticalLayoutGroup>();
         vl.padding            = new RectOffset(14, 14, 12, 12);
         vl.spacing            = 8;
         vl.childControlWidth  = true;
@@ -749,13 +779,15 @@ public class GameHUD : MonoBehaviour
         vl.childForceExpandWidth  = true;
         vl.childForceExpandHeight = false;
 
-        // Récupérer la hauteur auto
-        var fitter = _rightPanel.AddComponent<ContentSizeFitter>();
+        var fitter = contentGo.AddComponent<ContentSizeFitter>();
         fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        // Alias local : tous les enfants vont dans contentGo
+        GameObject rp = contentGo;
 
         // Header tuile + bouton fermer
         GameObject headerRow = new GameObject("HeaderRow", typeof(RectTransform));
-        headerRow.transform.SetParent(_rightPanel.transform, false);
+        headerRow.transform.SetParent(rp.transform, false);
         var hrl = headerRow.AddComponent<HorizontalLayoutGroup>();
         hrl.spacing              = 6;
         hrl.childControlHeight   = true;
@@ -775,12 +807,12 @@ public class GameHUD : MonoBehaviour
         Button closeBtn = MakeSmallButton(headerRow, "✕", new Color(0.40f, 0.18f, 0.18f), 28);
         closeBtn.onClick.AddListener(() => _rightPanel.SetActive(false));
 
-        MakeSeparator(_rightPanel);
+        MakeSeparator(rp);
 
         // Corp owner badge + label
-        MakeLabel(_rightPanel, "Propriétaire", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
+        MakeLabel(rp, "Propriétaire", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
         GameObject ownerRow = new GameObject("OwnerRow", typeof(RectTransform));
-        ownerRow.transform.SetParent(_rightPanel.transform, false);
+        ownerRow.transform.SetParent(rp.transform, false);
         var orl = ownerRow.AddComponent<HorizontalLayoutGroup>();
         orl.spacing              = 8;
         orl.childControlHeight   = true;
@@ -803,19 +835,19 @@ public class GameHUD : MonoBehaviour
         _corpOwnerLabel.color     = Color.white;
         _corpOwnerLabel.alignment = TextAlignmentOptions.MidlineLeft;
 
-        MakeSeparator(_rightPanel);
+        MakeSeparator(rp);
 
         // Corp dropdown
-        MakeLabel(_rightPanel, "Corporation", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
+        MakeLabel(rp, "Corporation", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
         GameObject ddGo = new GameObject("CorpDropdown", typeof(RectTransform));
-        ddGo.transform.SetParent(_rightPanel.transform, false);
+        ddGo.transform.SetParent(rp.transform, false);
         ddGo.AddComponent<LayoutElement>().preferredHeight = 32;
         _corpDropdown = ddGo.AddComponent<TMP_Dropdown>();
         BuildMinimalDropdown(_corpDropdown, ddGo);
 
         // Claim / Unclaim buttons
         GameObject claimRow = new GameObject("ClaimRow", typeof(RectTransform));
-        claimRow.transform.SetParent(_rightPanel.transform, false);
+        claimRow.transform.SetParent(rp.transform, false);
         var clrl = claimRow.AddComponent<HorizontalLayoutGroup>();
         clrl.spacing              = 8;
         clrl.childControlWidth    = true;
@@ -827,33 +859,33 @@ public class GameHUD : MonoBehaviour
         _unclaimBtn = MakeButton(claimRow, "Unclaim", new Color(0.70f, 0.22f, 0.16f));
         _unclaimBtn.onClick.AddListener(OnUnclaimClicked);
 
-        MakeSeparator(_rightPanel);
+        MakeSeparator(rp);
 
         // Create corp
-        MakeLabel(_rightPanel, "Nouvelle corporation", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
+        MakeLabel(rp, "Nouvelle corporation", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
         GameObject inputGo = new GameObject("CorpNameInput", typeof(RectTransform));
-        inputGo.transform.SetParent(_rightPanel.transform, false);
+        inputGo.transform.SetParent(rp.transform, false);
         inputGo.AddComponent<LayoutElement>().preferredHeight = 32;
         _corpNameInput = BuildInputField(inputGo, "Nom de la corporation…");
 
         GameObject createRow = new GameObject("CreateRow", typeof(RectTransform));
-        createRow.transform.SetParent(_rightPanel.transform, false);
+        createRow.transform.SetParent(rp.transform, false);
         createRow.AddComponent<HorizontalLayoutGroup>();
         createRow.AddComponent<LayoutElement>().preferredHeight = 34;
         _createCorpBtn = MakeButton(createRow, "Créer la corporation", new Color(0.18f, 0.40f, 0.70f));
         _createCorpBtn.onClick.AddListener(OnCreateCorpClicked);
 
-        MakeSeparator(_rightPanel);
+        MakeSeparator(rp);
 
         // ── Section Bâtiments (Phase 7.2) ─────────────────────────
-        MakeLabel(_rightPanel, "Construire un bâtiment", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
+        MakeLabel(rp, "Construire un bâtiment", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
 
         // Dropdown type de bâtiment
         GameObject buildTypeGo = new GameObject("BuildTypeDropdown", typeof(RectTransform));
-        buildTypeGo.transform.SetParent(_rightPanel.transform, false);
+        buildTypeGo.transform.SetParent(rp.transform, false);
         buildTypeGo.AddComponent<LayoutElement>().preferredHeight = 32;
         _buildTypeDropdown = buildTypeGo.AddComponent<TMP_Dropdown>();
-        BuildDropdownStyle(_buildTypeDropdown);
+        BuildMinimalDropdown(_buildTypeDropdown, buildTypeGo);
         _buildTypeDropdown.ClearOptions();
         _buildTypeDropdown.AddOptions(new List<TMP_Dropdown.OptionData>
         {
@@ -865,19 +897,19 @@ public class GameHUD : MonoBehaviour
 
         // Bouton Construire
         GameObject buildRow = new GameObject("BuildRow", typeof(RectTransform));
-        buildRow.transform.SetParent(_rightPanel.transform, false);
+        buildRow.transform.SetParent(rp.transform, false);
         buildRow.AddComponent<HorizontalLayoutGroup>();
         buildRow.AddComponent<LayoutElement>().preferredHeight = 34;
         _buildBtn = MakeButton(buildRow, "Construire", new Color(0.25f, 0.45f, 0.70f));
         _buildBtn.onClick.AddListener(OnBuildClicked);
 
         // Liste des bâtiments sur cette tuile (lecture seule)
-        MakeLabel(_rightPanel, "Bâtiments sur cette tuile", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
-        _buildingListLabel = MakeLabel(_rightPanel, "", 11, false, 0, Color.white);
+        MakeLabel(rp, "Bâtiments sur cette tuile", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
+        _buildingListLabel = MakeLabel(rp, "", 11, false, 0, Color.white);
         _buildingListLabel.GetComponent<LayoutElement>().preferredHeight = 60;
 
         // Status label
-        _tileStatus = MakeLabel(_rightPanel, "", 12, false, 20, new Color(0.5f, 1f, 0.55f));
+        _tileStatus = MakeLabel(rp, "", 12, false, 20, new Color(0.5f, 1f, 0.55f));
         _tileStatus.alignment = TextAlignmentOptions.Center;
 
         _rightPanel.SetActive(false);
