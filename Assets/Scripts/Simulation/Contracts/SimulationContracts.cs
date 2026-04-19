@@ -298,7 +298,7 @@ public struct GoldbergTileState
 /// greenhouseCoeff is game-balanced: CO₂=1.0, CH₄=28.0, H₂O=0.5, N₂=O₂=0.
 /// </summary>
 [Serializable]
-public struct AtmosphericGas
+public struct SimulationAtmosphericGas
 {
     public string name;
     public float fraction;          // volume fraction [0..1]
@@ -312,9 +312,9 @@ public struct AtmosphericGas
 /// totalPressureKpa: Earth≈101.3, Mars≈0.6, vacuum=0.
 /// </summary>
 [Serializable]
-public struct AtmosphericComposition
+public struct SimulationAtmosphericComposition
 {
-    public AtmosphericGas[] gases;
+    public SimulationAtmosphericGas[] gases;
     public float totalPressureKpa;
 
     /// <summary>Backward-compat density [0,1] ≈ totalPressureKpa / 101.3.</summary>
@@ -328,7 +328,7 @@ public struct AtmosphericComposition
 /// Mirrors Python GlobalWindPattern.
 /// </summary>
 [Serializable]
-public struct GlobalWindPattern
+public struct SimulationGlobalWindPattern
 {
     public float dominantWindDeg;
     public float windIntensity;
@@ -339,7 +339,7 @@ public struct GlobalWindPattern
 /// Utilisée pour résoudre le bodyId avant de paginer les tuiles.
 /// </summary>
 [Serializable]
-public struct BodyListEntry
+public struct SimulationBodyListEntry
 {
     public string bodyId;
     public string name;
@@ -359,15 +359,48 @@ public struct ClaimedTile
 }
 
 /// <summary>
+/// Mirrors Python BuildingType enum (Phase 7.2).
+/// </summary>
+public enum BuildingType
+{
+    Mine        = 0,
+    Farm        = 1,
+    EnergyPlant = 2,
+    Research    = 3,
+}
+
+/// <summary>
+/// Mirrors Python BuildingData (Phase 7.2). Deserialised from GET /game/corporations/{id}/buildings.
+/// </summary>
+[Serializable]
+public struct BuildingData
+{
+    public string      id;
+    public BuildingType buildingType;
+    public string      tileId;
+    public string      bodyId;
+    public string      corpId;
+    public float       workerRatio;
+    public int         ticksActive;
+}
+
+/// <summary>
+/// Wrapper for deserializing JSON arrays of BuildingData.
+/// </summary>
+[Serializable]
+public class BuildingDataArray { public BuildingData[] items; }
+
+/// <summary>
 /// Mirrors Python CorporationData. Deserialised from GET /game/corporations/{id}.
 /// </summary>
 [Serializable]
 public struct CorporationData
 {
-    public string id;
-    public string name;
-    public float credits;
+    public string        id;
+    public string        name;
+    public float         credits;
     public ClaimedTile[] claimedTiles;
-    public float score;
-    public bool isAI;
+    public float         score;
+    public bool          isAI;
+    public BuildingData[] buildings;
 }

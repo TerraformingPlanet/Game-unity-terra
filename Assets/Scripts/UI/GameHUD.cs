@@ -69,6 +69,11 @@ public class GameHUD : MonoBehaviour
     private Button          _createCorpBtn;
     private TextMeshProUGUI _tileStatus;
 
+    // Building section (Phase 7.2)
+    private TMP_Dropdown    _buildTypeDropdown;
+    private Button          _buildBtn;
+    private TextMeshProUGUI _buildingListLabel;
+
     // DebugDrawer
     private GameObject      _debugDrawer;
     private GameObject      _corpListContent;
@@ -301,11 +306,14 @@ public class GameHUD : MonoBehaviour
                 // Sélectionner la corpo propriétaire dans le dropdown
                 int idx = _corpIds.IndexOf(ownerCorpId);
                 if (idx >= 0) _corpDropdown.value = idx;
+                // Afficher les bâtiments de la tuile (Phase 7.2)
+                yield return RefreshBuildingsForTile(ownerCorpId, _currentTile.tileId);
             }
             else
             {
                 _corpOwnerLabel.text = "Non revendiquée";
                 _corpBadge.color     = new Color(0f, 0f, 0f, 0f);
+                _buildingListLabel.text = "";
             }
         }
     }
@@ -480,6 +488,76 @@ public class GameHUD : MonoBehaviour
             return;
         }
         StartCoroutine(DoCreateCorp(corpName));
+    }
+
+    private void OnBuildClicked()
+    {
+        if (_currentTile.tileId == null) return;
+        if (_corpIds.Count == 0)
+        {
+            _tileStatus.text = "<color=orange>Sélectionnez une corporation.</color>";
+            return;
+        }
+        int corpIdx    = Mathf.Clamp(_corpDropdown.value, 0, _corpIds.Count - 1);
+        string corpId  = _corpIds[corpIdx];
+        int buildType  = _buildTypeDropdown.value; // 0=Mine, 1=Farm, 2=EnergyPlant, 3=Research
+        StartCoroutine(DoConstructBuilding(corpId, _activeBodyId, _currentTile.tileId, buildType));
+    }
+
+    private IEnumerator DoConstructBuilding(string corpId, string bodyId, string tileId, int buildingType)
+    {
+        _tileStatus.text = "Construction en cours…";
+        string url = $"{simulationServerUrl.TrimEnd('/')}/game/corporations/{corpId}/buildings"
+                   + $"?body_id={UnityWebRequest.EscapeURL(bodyId)}"
+                   + $"&tile_id={UnityWebRequest.EscapeURL(tileId)}"
+                   + $"&building_type={buildingType}";
+        using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
+        {
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                _tileStatus.text = "<color=#8f8>✓ Bâtiment construit</color>";
+                yield return RefreshBuildingsForTile(corpId, tileId);
+            }
+            else
+            {
+                _tileStatus.text = $"<color=red>{req.downloadHandler?.text ?? req.error}</color>";
+            }
+        }
+    }
+
+    private IEnumerator RefreshBuildingsForTile(string corpId, string tileId)
+    {
+        string url = $"{simulationServerUrl.TrimEnd('/')}/game/corporations/{corpId}/buildings";
+        using (UnityWebRequest req = UnityWebRequest.Get(url))
+        {
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
+            if (req.result != UnityWebRequest.Result.Success) yield break;
+
+            var wrapper = JsonUtility.FromJson<BuildingDataArrayWrapper>(
+                "{\"items\":" + req.downloadHandler.text + "}");
+            if (wrapper?.items == null) { _buildingListLabel.text = ""; yield break; }
+
+            var sb = new StringBuilder();
+            foreach (var b in wrapper.items)
+            {
+                if (b.tileId != tileId) continue;
+                string typeName = b.buildingType switch
+                {
+                    0 => "Mine",
+                    1 => "Farm",
+                    2 => "Centrale",
+                    3 => "Recherche",
+                    _ => b.buildingType.ToString(),
+                };
+                sb.AppendLine($"• {typeName}  (tick {b.ticksActive})");
+            }
+            _buildingListLabel.text = sb.Length > 0 ? sb.ToString().TrimEnd() : "Aucun bâtiment";
+        }
     }
 
     private IEnumerator DoCreateCorp(string corpName)
@@ -764,6 +842,39 @@ public class GameHUD : MonoBehaviour
         createRow.AddComponent<LayoutElement>().preferredHeight = 34;
         _createCorpBtn = MakeButton(createRow, "Créer la corporation", new Color(0.18f, 0.40f, 0.70f));
         _createCorpBtn.onClick.AddListener(OnCreateCorpClicked);
+
+        MakeSeparator(_rightPanel);
+
+        // ── Section Bâtiments (Phase 7.2) ─────────────────────────
+        MakeLabel(_rightPanel, "Construire un bâtiment", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
+
+        // Dropdown type de bâtiment
+        GameObject buildTypeGo = new GameObject("BuildTypeDropdown", typeof(RectTransform));
+        buildTypeGo.transform.SetParent(_rightPanel.transform, false);
+        buildTypeGo.AddComponent<LayoutElement>().preferredHeight = 32;
+        _buildTypeDropdown = buildTypeGo.AddComponent<TMP_Dropdown>();
+        BuildDropdownStyle(_buildTypeDropdown);
+        _buildTypeDropdown.ClearOptions();
+        _buildTypeDropdown.AddOptions(new List<TMP_Dropdown.OptionData>
+        {
+            new TMP_Dropdown.OptionData("Mine"),
+            new TMP_Dropdown.OptionData("Farm"),
+            new TMP_Dropdown.OptionData("Centrale énergétique"),
+            new TMP_Dropdown.OptionData("Recherche"),
+        });
+
+        // Bouton Construire
+        GameObject buildRow = new GameObject("BuildRow", typeof(RectTransform));
+        buildRow.transform.SetParent(_rightPanel.transform, false);
+        buildRow.AddComponent<HorizontalLayoutGroup>();
+        buildRow.AddComponent<LayoutElement>().preferredHeight = 34;
+        _buildBtn = MakeButton(buildRow, "Construire", new Color(0.25f, 0.45f, 0.70f));
+        _buildBtn.onClick.AddListener(OnBuildClicked);
+
+        // Liste des bâtiments sur cette tuile (lecture seule)
+        MakeLabel(_rightPanel, "Bâtiments sur cette tuile", 10, false, 14, new Color(0.55f, 0.55f, 0.55f));
+        _buildingListLabel = MakeLabel(_rightPanel, "", 11, false, 0, Color.white);
+        _buildingListLabel.GetComponent<LayoutElement>().preferredHeight = 60;
 
         // Status label
         _tileStatus = MakeLabel(_rightPanel, "", 12, false, 20, new Color(0.5f, 1f, 0.55f));
@@ -1082,4 +1193,15 @@ public class GameHUD : MonoBehaviour
     // =========================================================
 
     [Serializable] private class CorpListWrapper { public CorporationData[] items; }
+    [Serializable] private class BuildingDataArrayWrapper { public BuildingDataItem[] items; }
+    [Serializable] private class BuildingDataItem
+    {
+        public string id;
+        public int    buildingType;
+        public string tileId;
+        public string bodyId;
+        public string corpId;
+        public float  workerRatio;
+        public int    ticksActive;
+    }
 }
