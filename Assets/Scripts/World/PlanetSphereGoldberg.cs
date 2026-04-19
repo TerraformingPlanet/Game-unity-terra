@@ -174,6 +174,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
     private GoldbergSphereGenerator.GoldbergMeshData _sphereDataHi; // cache LOD haut
     private GoldbergTileState[]           _cachedServerTiles;  // tuiles du serveur (pour re-coloriser)
     private Dictionary<TerrainType, Color> _cachedColorByType; // couleurs (pour re-coloriser)
+    private Dictionary<string, Color>      _ownershipTints;    // tileId → corp color (Phase 7.1)
     private bool          _lodHiColored   = false;     // tuiles res=3 déjà appliquées au LOD haut
     private bool          _lodHiFetching  = false;     // fetch en cours
 
@@ -309,6 +310,9 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         // Applique les tuiles res=3 sur le mesh haut (indépendamment du LOD actif)
         GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataHi.faces, allTiles.ToArray(), _cachedColorByType);
+        // Ownership tint on top of res=3 biome colors (Phase 7.1)
+        if (_ownershipTints != null && _ownershipTints.Count > 0 && _cachedServerTiles != null)
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, 0.55f);
         GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
 
         // Si le LOD haut est affiché, resync snapshot hover pour refléter les nouvelles couleurs
@@ -322,6 +326,76 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         _lodHiColored  = true;
         _lodHiFetching = false;
+    }
+
+    // =========================================================
+    // Ownership overlay (Phase 7.1)
+    // =========================================================
+
+    /// <summary>
+    /// Fetches GET /game/corporations and tints each claimed tile on the current body
+    /// with the owning corporation's derived color. Called after biome colorization.
+    /// No-op if no tiles are claimed on this body or if the server is unreachable.
+    /// </summary>
+    private IEnumerator FetchOwnershipOverlay()
+    {
+        if (string.IsNullOrEmpty(_activeBodyId) || _cachedServerTiles == null) yield break;
+
+        string baseUrl = simulationServerUrl.TrimEnd('/');
+        using UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/game/corporations");
+        req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+        yield return req.SendWebRequest();
+
+        if (req.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogWarning($"[PlanetSphereGoldberg] Ownership fetch échoué ({req.error}) — overlay ignoré.");
+            yield break;
+        }
+
+        string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
+        CorporationDataArray corps;
+        try   { corps = JsonUtility.FromJson<CorporationDataArray>(wrapped); }
+        catch { Debug.LogWarning("[PlanetSphereGoldberg] Ownership parse invalide."); yield break; }
+        if (corps?.items == null || corps.items.Length == 0) yield break;
+
+        // Build tileId → corp color map (filtered to tiles on the current body)
+        var tints = new Dictionary<string, Color>();
+        foreach (CorporationData corp in corps.items)
+        {
+            if (corp.claimedTiles == null) continue;
+            Color corpColor = GoldbergFaceColorizer.CorpColorFromId(corp.id);
+            foreach (ClaimedTile ct in corp.claimedTiles)
+                if (ct.bodyId == _activeBodyId && !string.IsNullOrEmpty(ct.tileId))
+                    tints[ct.tileId] = corpColor;
+        }
+
+        if (tints.Count == 0) yield break;
+        _ownershipTints = tints;
+
+        // Apply tint on LOD low
+        if (enableLod && _sphereDataLo.faces != null)
+        {
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataLo.faces, _cachedServerTiles, _ownershipTints, 0.55f);
+            GoldbergSphereGenerator.ApplyFaceColors(_sphereDataLo.mesh, _sphereDataLo.faces, _sphereDataLo.vertexFaceId);
+        }
+        else if (_sphereData.faces != null)
+        {
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereData.faces, _cachedServerTiles, _ownershipTints, 0.55f);
+            GoldbergSphereGenerator.ApplyFaceColors(_sphereData.mesh, _sphereData.faces, _sphereData.vertexFaceId);
+        }
+
+        // Apply tint on LOD high
+        if (enableLod && _sphereDataHi.faces != null)
+        {
+            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, 0.55f);
+            GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
+        }
+
+        // Resync hover baseline with tinted colors
+        if (_sphereData.mesh != null)
+            _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
+
+        Debug.Log($"[PlanetSphereGoldberg] Ownership overlay : {tints.Count} tuile(s) teintée(s) ({corps.items.Length} corpo(s)).");
     }
 
     // =========================================================
@@ -465,9 +539,11 @@ public class PlanetSphereGoldberg : MonoBehaviour
     // =========================================================
 
     [Serializable]
-    private class BodyListEntryArray { public BodyListEntry[] items; }
+    private class BodyListEntryArray   { public BodyListEntry[]   items; }
     [Serializable]
-    private class GoldbergTileArray  { public GoldbergTileState[] items; }
+    private class GoldbergTileArray    { public GoldbergTileState[] items; }
+    [Serializable]
+    private class CorporationDataArray { public CorporationData[] items; }
 
     private IEnumerator FetchAndColorizeFromServer(string planetName,
         DebugCoherenceOverride coherenceOverride = DebugCoherenceOverride.None,
@@ -651,6 +727,10 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         Debug.Log($"[PlanetSphereGoldberg] Tuiles serveur appliquées : {tilesArray.Length} tuiles → {_sphereData.faces.Length} faces.");
 
+        // Ownership overlay (Phase 7.1) — tint des hexes claimés sur ce corps
+        _ownershipTints = null;
+        yield return StartCoroutine(FetchOwnershipOverlay());
+
         // Si on était déjà en LOD haut avant la fin du fetch, swap maintenant que _cachedServerTiles est prêt
         if (_currentLodLevel == 1) ApplyLodLevel(1);
 
@@ -783,6 +863,9 @@ public class PlanetSphereGoldberg : MonoBehaviour
         if (level == 1 && !_lodHiColored && _cachedServerTiles != null && _cachedColorByType != null)
         {
             GoldbergFaceColorizer.ColorizeFromServerTiles(nextData.faces, _cachedServerTiles, _cachedColorByType);
+            // Ownership tint on top of biome colors (Phase 7.1)
+            if (_ownershipTints != null && _ownershipTints.Count > 0)
+                GoldbergFaceColorizer.ApplyOwnershipTint(nextData.faces, _cachedServerTiles, _ownershipTints, 0.55f);
             GoldbergSphereGenerator.ApplyFaceColors(nextData.mesh, nextData.faces, nextData.vertexFaceId);
         }
 
