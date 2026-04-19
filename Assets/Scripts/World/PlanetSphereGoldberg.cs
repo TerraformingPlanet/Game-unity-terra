@@ -176,6 +176,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
     private Dictionary<TerrainType, Color> _cachedColorByType; // couleurs (pour re-coloriser)
     private Dictionary<string, Color>      _ownershipTints;    // tileId → corp color (Phase 7.1)
     private Dictionary<string, string>     _tileToCorpId;      // tileId → corpId, for border detection (Phase 7.1)
+    private OwnershipBorderRenderer        _borderRenderer;    // dessine les frontières en LineRenderer
     private bool          _lodHiColored   = false;     // tuiles res=3 déjà appliquées au LOD haut
     private bool          _lodHiFetching  = false;     // fetch en cours
 
@@ -240,6 +241,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
         if (cloudLayer == null)
             cloudLayer = EnsureCloudLayer();
 
+        _borderRenderer = gameObject.AddComponent<OwnershipBorderRenderer>();
     }
 
     private void OnDestroy() { }
@@ -311,9 +313,6 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         // Applique les tuiles res=3 sur le mesh haut (indépendamment du LOD actif)
         GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataHi.faces, allTiles.ToArray(), _cachedColorByType);
-        // Ownership tint on top of res=3 biome colors (Phase 7.1)
-        if (_ownershipTints != null && _ownershipTints.Count > 0 && _cachedServerTiles != null && _tileToCorpId != null)
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
         GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
 
         // Si le LOD haut est affiché, resync snapshot hover pour refléter les nouvelles couleurs
@@ -341,6 +340,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
     {
         _ownershipTints = null;
         _tileToCorpId   = null;
+        _borderRenderer?.ClearBorders();
         StartCoroutine(FetchOwnershipOverlay());
     }
 
@@ -394,34 +394,18 @@ public class PlanetSphereGoldberg : MonoBehaviour
         }
         Debug.Log($"[PlanetSphereGoldberg] Ownership: {tints.Count} tuile(s) à teinter sur ce corps.");
 
-        if (tints.Count == 0) yield break;
+        if (tints.Count == 0) { _borderRenderer?.ClearBorders(); yield break; }
         _ownershipTints  = tints;
         _tileToCorpId    = toCorpId;
 
-        // Apply border tint on LOD low
-        if (enableLod && _sphereDataLo.faces != null)
-        {
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataLo.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereDataLo.mesh, _sphereDataLo.faces, _sphereDataLo.vertexFaceId);
-        }
-        else if (_sphereData.faces != null)
-        {
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereData.mesh, _sphereData.faces, _sphereData.vertexFaceId);
-        }
+        // Dessiner les frontières en LineRenderer (pas de modification des vertex colors)
+        var activeFaces = (_sphereDataHi.faces != null && _sphereDataHi.faces.Length > 0)
+            ? _sphereDataHi.faces : _sphereData.faces;
+        var loops = GoldbergFaceColorizer.GetBoundaryLoops(
+            activeFaces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
+        _borderRenderer?.UpdateBorders(loops);
 
-        // Apply border tint on LOD high
-        if (enableLod && _sphereDataHi.faces != null)
-        {
-            GoldbergFaceColorizer.ApplyOwnershipTint(_sphereDataHi.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
-        }
-
-        // Resync hover baseline with tinted colors
-        if (_sphereData.mesh != null)
-            _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
-
-        Debug.Log($"[PlanetSphereGoldberg] Ownership overlay : {tints.Count} tuile(s) teintée(s) ({corps.items.Length} corpo(s)).");
+        Debug.Log($"[PlanetSphereGoldberg] Ownership overlay : {tints.Count} tuile(s), {loops.Count} boucle(s) de frontière ({corps.items.Length} corpo(s)).");
     }
 
     // =========================================================

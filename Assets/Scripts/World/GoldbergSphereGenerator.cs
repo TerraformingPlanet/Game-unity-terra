@@ -41,6 +41,8 @@ public static class GoldbergSphereGenerator
         public float lonNorm;
         /// <summary>Couleur de la tuile (vertex color). Modifiable par GoldbergFaceColorizer.</summary>
         public Color color;
+        /// <summary>Sommets ordonnés du polygone de la tuile (espace local, ~VisualRadius). Utilisé pour dessiner les frontières d'ownership.</summary>
+        public Vector3[] boundaryVertices;
     }
 
     public struct GoldbergMeshData
@@ -107,6 +109,12 @@ public static class GoldbergSphereGenerator
                 lonNorm    = lonNorm,
                 color      = Color.gray
             };
+
+            // Sommets du polygone pour le rendu de frontières
+            var bv = new Vector3[tile.Points.Count];
+            for (int k = 0; k < tile.Points.Count; k++)
+                bv[k] = tile.Points[k].Position;
+            faces[i].boundaryVertices = bv;
 
             // ---- Triangles depuis les faces déjà tessélées de la lib ----
             // Chaque tileFace.Points a 3 sommets correctement orientés.
