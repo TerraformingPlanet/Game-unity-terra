@@ -334,6 +334,17 @@ public class PlanetSphereGoldberg : MonoBehaviour
     // =========================================================
 
     /// <summary>
+    /// Re-fetches the ownership overlay from the server and reapplies it.
+    /// Called externally (e.g. after claim/unclaim) to refresh the visualization.
+    /// </summary>
+    public void RefreshOwnershipOverlay()
+    {
+        _ownershipTints = null;
+        _tileToCorpId   = null;
+        StartCoroutine(FetchOwnershipOverlay());
+    }
+
+    /// <summary>
     /// Fetches GET /game/corporations and tints each claimed tile on the current body
     /// with the owning corporation's derived color. Called after biome colorization.
     /// No-op if no tiles are claimed on this body or if the server is unreachable.
