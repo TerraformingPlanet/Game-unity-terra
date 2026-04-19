@@ -53,11 +53,14 @@ public static class GoldbergFaceColorizer
     /// <summary>
     /// Calcule les boucles de frontière à dessiner pour chaque territoire de corporation.
     ///
-    /// Une arête est une arête frontière si elle sépare une tuile claimée d'une tuile non-claimée
-    /// (ou appartenant à une corpo différente). Les arêtes frontières sont ensuite chaînées
-    /// en boucles continues (un ou plusieurs anneaux par corporation).
+    /// Algorithme — travaille entièrement en espace Goldberg (jamais en espace H3) :
+    ///   A. Edge map : pour chaque face Goldberg, indexe ses arêtes → (faceId1, faceId2).
+    ///      Sur une sphère fermée, chaque arête est partagée par exactement 2 faces.
+    ///   B. Mappe chaque tuile H3 claimée vers la face Goldberg la plus proche (lat/lon).
+    ///   C. Arête frontière = ses 2 faces n'appartiennent pas au même corp (null = non claimé).
+    ///   D. Chaîne les arêtes frontières en boucles continues par corporation.
     ///
-    /// Retourne une liste de (vertices_du_polygone, couleur) prête pour OwnershipBorderRenderer.
+    /// Retourne une liste de (vertices, couleur) prête pour OwnershipBorderRenderer.
     /// </summary>
     public static List<(Vector3[] pts, Color col)> GetBoundaryLoops(
         GoldbergSphereGenerator.GoldbergFace[] faces,
@@ -70,22 +73,46 @@ public static class GoldbergFaceColorizer
             || faces.Length == 0 || serverTiles.Length == 0 || ownershipTints.Count == 0)
             return result;
 
-        // ── 1. tileId → index dans serverTiles ────────────────────────────────
-        var tileIdxByTileId = new Dictionary<string, int>(serverTiles.Length);
-        for (int j = 0; j < serverTiles.Length; j++)
+        // ── A. Edge map : arête canonique → (faceId1, faceId2, va, vb) ────────
+        var edgeMap = new Dictionary<string, (int f1, int f2, Vector3 va, Vector3 vb)>(faces.Length * 7);
+        for (int fi = 0; fi < faces.Length; fi++)
         {
-            string tid = serverTiles[j].tileId;
-            if (!string.IsNullOrEmpty(tid) && !tileIdxByTileId.ContainsKey(tid))
-                tileIdxByTileId[tid] = j;
+            Vector3[] bv = faces[fi].boundaryVertices;
+            if (bv == null || bv.Length < 3) continue;
+            int n = bv.Length;
+            for (int k = 0; k < n; k++)
+            {
+                Vector3 va = bv[k];
+                Vector3 vb = bv[(k + 1) % n];
+                string key = MakeEdgeKey(va, vb);
+                if (edgeMap.TryGetValue(key, out var entry))
+                    edgeMap[key] = (entry.f1, fi, entry.va, entry.vb);
+                else
+                    edgeMap[key] = (fi, -1, va, vb);
+            }
         }
 
-        // ── 2. tileId → face GP la plus proche (lat/lon nearest-neighbor, O(S × F)) ──
-        var faceIdxByTileId = new Dictionary<string, int>(serverTiles.Length);
+        // ── B. tileId → lat/lon (lookup rapide) ───────────────────────────────
+        var latLonByTile = new Dictionary<string, (float lat, float lon)>(serverTiles.Length);
         for (int j = 0; j < serverTiles.Length; j++)
         {
             string tid = serverTiles[j].tileId;
-            if (string.IsNullOrEmpty(tid)) continue;
-            float tLat = serverTiles[j].latNorm, tLon = serverTiles[j].lonNorm;
+            if (!string.IsNullOrEmpty(tid) && !latLonByTile.ContainsKey(tid))
+                latLonByTile[tid] = (serverTiles[j].latNorm, serverTiles[j].lonNorm);
+        }
+
+        // ── C. Marquer les faces Goldberg comme owned ──────────────────────────
+        // Uniquement pour les tuiles H3 claimées (ownershipTints).  Nearest-neighbor lat/lon.
+        var faceOwner = new Dictionary<int, string>();
+        var faceColor = new Dictionary<int, Color>();
+
+        foreach (var kv in ownershipTints)
+        {
+            string tileId = kv.Key;
+            if (!tileToCorpId.TryGetValue(tileId, out string corpId)) continue;
+            if (!latLonByTile.TryGetValue(tileId, out var ll)) continue;
+
+            float tLat = ll.lat, tLon = ll.lon;
             float best = float.MaxValue; int bestF = 0;
             for (int i = 0; i < faces.Length; i++)
             {
@@ -96,78 +123,59 @@ public static class GoldbergFaceColorizer
                 float d = dLat * dLat + dLon * dLon;
                 if (d < best) { best = d; bestF = i; }
             }
-            faceIdxByTileId[tid] = bestF;
+            // Plusieurs tuiles H3 peuvent mapper vers la même face Goldberg — première gagne
+            if (!faceOwner.ContainsKey(bestF))
+            {
+                faceOwner[bestF] = corpId;
+                faceColor[bestF] = kv.Value;
+            }
         }
 
-        // ── 3. Collecte les arêtes frontières groupées par corpId ─────────────
-        var edgesByCorp  = new Dictionary<string, List<(Vector3, Vector3)>>();
-        var colorByCorp  = new Dictionary<string, Color>();
+        // ── D. Arêtes frontières ───────────────────────────────────────────────
+        var edgesByCorp = new Dictionary<string, List<(Vector3, Vector3)>>();
+        var colorByCorp = new Dictionary<string, Color>();
 
-        foreach (var kv in ownershipTints)
+        foreach (var edge in edgeMap.Values)
         {
-            string tileId = kv.Key;
-            if (!tileIdxByTileId.TryGetValue(tileId, out int si)) continue;
-            if (!faceIdxByTileId.TryGetValue(tileId, out int fi)) continue;
-            if (!tileToCorpId.TryGetValue(tileId, out string corpId)) continue;
+            if (edge.f2 < 0) continue; // bord libre (impossible sur sphère fermée)
 
-            GoldbergTileState tile = serverTiles[si];
-            var faceA = faces[fi];
-            if (faceA.boundaryVertices == null || faceA.boundaryVertices.Length < 3) continue;
+            faceOwner.TryGetValue(edge.f1, out string corp1);
+            faceOwner.TryGetValue(edge.f2, out string corp2);
 
-            if (!edgesByCorp.ContainsKey(corpId))
+            if (corp1 == corp2) continue; // même corp ou les deux unowned
+
+            if (corp1 != null)
             {
-                edgesByCorp[corpId] = new List<(Vector3, Vector3)>();
-                colorByCorp[corpId] = kv.Value;
+                if (!edgesByCorp.ContainsKey(corp1)) { edgesByCorp[corp1] = new List<(Vector3, Vector3)>(); colorByCorp[corp1] = faceColor[edge.f1]; }
+                edgesByCorp[corp1].Add((edge.va, edge.vb));
             }
-            var edgeList = edgesByCorp[corpId];
-
-            if (tile.neighborIds == null) continue;
-
-            foreach (string nId in tile.neighborIds)
+            if (corp2 != null)
             {
-                // Frontière : le voisin n'est pas dans la même corpo
-                bool isBoundary = !tileToCorpId.TryGetValue(nId, out string nCorpId)
-                               || nCorpId != corpId;
-                if (!isBoundary) continue;
-
-                // Trouver la face GP du voisin
-                if (!faceIdxByTileId.TryGetValue(nId, out int fB)) continue;
-                var faceB = faces[fB];
-                if (faceB.boundaryVertices == null || faceB.boundaryVertices.Length < 3) continue;
-
-                // Les 2 sommets partagés entre faceA et faceB = l'arête frontière
-                Vector3 s1 = default, s2 = default;
-                int found = 0;
-                foreach (Vector3 va in faceA.boundaryVertices)
-                {
-                    foreach (Vector3 vb in faceB.boundaryVertices)
-                    {
-                        if ((va - vb).sqrMagnitude < 1e-6f)
-                        {
-                            if (found == 0) s1 = va;
-                            else            s2 = va;
-                            found++;
-                            break;
-                        }
-                    }
-                    if (found == 2) break;
-                }
-                if (found == 2)
-                    edgeList.Add((s1, s2));
+                if (!edgesByCorp.ContainsKey(corp2)) { edgesByCorp[corp2] = new List<(Vector3, Vector3)>(); colorByCorp[corp2] = faceColor[edge.f2]; }
+                edgesByCorp[corp2].Add((edge.va, edge.vb));
             }
         }
 
-        // ── 4. Chaîner les arêtes en boucles continues par corpo ─────────────
+        // ── E. Chaîner en boucles continues ───────────────────────────────────
         foreach (var kvCorp in edgesByCorp)
         {
-            string corpId = kvCorp.Key;
-            Color  color  = colorByCorp[corpId];
-            var    loops  = ChainEdgesIntoLoops(kvCorp.Value);
-            foreach (Vector3[] loop in loops)
+            Color color = colorByCorp[kvCorp.Key];
+            foreach (Vector3[] loop in ChainEdgesIntoLoops(kvCorp.Value))
                 result.Add((loop, color));
         }
 
         return result;
+    }
+
+    // Clé canonique d'arête (indépendante de la direction de parcours).
+    // Positions arrondies à 3 décimales — rayon ≈ 10u → précision 0.001u suffisante.
+    private static string MakeEdgeKey(Vector3 va, Vector3 vb)
+    {
+        int ax = Mathf.RoundToInt(va.x * 1000), ay = Mathf.RoundToInt(va.y * 1000), az = Mathf.RoundToInt(va.z * 1000);
+        int bx = Mathf.RoundToInt(vb.x * 1000), by = Mathf.RoundToInt(vb.y * 1000), bz = Mathf.RoundToInt(vb.z * 1000);
+        if (ax > bx || (ax == bx && ay > by) || (ax == bx && ay == by && az > bz))
+        { int t; t=ax;ax=bx;bx=t; t=ay;ay=by;by=t; t=az;az=bz;bz=t; }
+        return $"{ax},{ay},{az}|{bx},{by},{bz}";
     }
 
     /// <summary>

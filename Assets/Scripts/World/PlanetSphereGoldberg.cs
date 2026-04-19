@@ -874,9 +874,6 @@ public class PlanetSphereGoldberg : MonoBehaviour
         if (level == 1 && !_lodHiColored && _cachedServerTiles != null && _cachedColorByType != null)
         {
             GoldbergFaceColorizer.ColorizeFromServerTiles(nextData.faces, _cachedServerTiles, _cachedColorByType);
-            // Ownership tint on top of biome colors (Phase 7.1)
-            if (_ownershipTints != null && _ownershipTints.Count > 0 && _tileToCorpId != null)
-                GoldbergFaceColorizer.ApplyOwnershipTint(nextData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId, 0.80f);
             GoldbergSphereGenerator.ApplyFaceColors(nextData.mesh, nextData.faces, nextData.vertexFaceId);
         }
 
