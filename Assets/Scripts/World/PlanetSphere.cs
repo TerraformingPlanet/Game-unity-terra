@@ -154,7 +154,9 @@ public class PlanetSphere : MonoBehaviour
         ReleaseCurrentTexture();
 
         int waterLevelKey = Mathf.RoundToInt(Mathf.Clamp(waterLevelOffset, -0.45f, 0.45f) * 1000f);
+#pragma warning disable CS0618
         ProjectionCacheKey cacheKey = new ProjectionCacheKey(body.GetInstanceID(), coherenceOverride, waterLevelKey);
+#pragma warning restore CS0618
         if (cacheGeneratedProjections && ProjectionCache.TryGetValue(cacheKey, out CachedProjection cachedProjection))
         {
             _planetGrid = cachedProjection.Grid;

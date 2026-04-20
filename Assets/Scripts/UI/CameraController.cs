@@ -36,10 +36,14 @@ public class CameraController : MonoBehaviour
     [SerializeField] private CameraMode mode = CameraMode.OrthoTopDown;
 
     [Header("Pan (OrthoTopDown)")]
+#pragma warning disable CS0414
     [SerializeField] private float panSpeed = 0.5f;
+#pragma warning restore CS0414
 
     [Header("Zoom (OrthoTopDown)")]
+#pragma warning disable CS0414
     [SerializeField] private float zoomSpeed = 8f;
+#pragma warning restore CS0414
     [SerializeField] private float zoomScaleFactor = 0.15f;
 
     [Header("Orbit (OrbitPerspective)")]

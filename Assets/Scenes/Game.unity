@@ -409,8 +409,8 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1521432695}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
+  m_AnchorMin: {x: 0.5, y: 0}
+  m_AnchorMax: {x: 0.5, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 20, y: 26}
   m_Pivot: {x: 0.5, y: 0.5}
@@ -607,7 +607,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &96208770
 RectTransform:
   m_ObjectHideFlags: 0
@@ -4228,8 +4228,8 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 721927641}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
+  m_AnchorMin: {x: 0.5, y: 0}
+  m_AnchorMax: {x: 0.5, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 20, y: 26}
   m_Pivot: {x: 0.5, y: 0.5}
@@ -4557,44 +4557,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d2d493d3d567765458fba271dff585a1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ClaimTileMenu
-  planetSphere: {fileID: 905619744}
-  viewManager: {fileID: 820548244}
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 5
-  _canvas: {fileID: 0}
-  _panel: {fileID: 0}
-  _titleLabel: {fileID: 0}
-  _statusLabel: {fileID: 0}
-  _claimBtn: {fileID: 0}
-  _unclaimBtn: {fileID: 0}
-  _closeBtn: {fileID: 0}
-  _corpDropdown: {fileID: 0}
-  _corpNameInput: {fileID: 0}
-  _createCorpBtn: {fileID: 0}
-  _currentTile:
-    tileId: 
-    neighborIds: []
-    latNorm: 0
-    lonNorm: 0
-    latDeg: 0
-    lonDeg: 0
-    terrainType: 0
-    waterClassification: 0
-    terrainClass: 0
-    waterRatio: 0
-    temperature: 0
-    toxinLevel: 0
-    isHabitable: 0
-    altitude: 0
-    albedo: 0
-    solarIrradiance: 0
-    vegetationDensity: 0
-    wildlifeDensity: 0
-    atmosphereDeltaCo2: 0
-    atmosphereDeltaO2: 0
-  _corpIds: []
-  _corpNames: []
-  _activeBodyId: 
 --- !u!1 &1027069097
 GameObject:
   m_ObjectHideFlags: 0
@@ -5423,9 +5385,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 728b94a1004b4bf43b4e7a371717dba0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlanetViewToggleButton
-  viewManager: {fileID: 0}
-  label: {fileID: 0}
-  _button: {fileID: 0}
 --- !u!114 &1182307538
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7550,7 +7509,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1435564477
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9885,7 +9844,7 @@ RectTransform:
   m_Father: {fileID: 1222719033}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
+  m_AnchorMax: {x: 0.5, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
@@ -10539,7 +10498,7 @@ RectTransform:
   m_Father: {fileID: 1622563271}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
+  m_AnchorMax: {x: 0.5, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}

@@ -366,8 +366,8 @@ public class TerraformHUD : MonoBehaviour
                     : (_regionContext.body != null ? _regionContext.body.bodyName : "?");
 
                 AtmosphericState atm = _authoritativeRegionState.atmosphericState;
-                string atmLine = atm.habitabilityScore > 0f
-                    ? $"Atmosphère : O₂ {atm.o2Ratio * 100f:F1}% | CO₂ {atm.co2Ratio * 100f:F2}% | {atm.atmosphericPressure:F1} kPa | T {atm.averageTemperature:F1}°C\n" +
+                                string atmLine = atm.habitabilityScore > 0f
+                                        ? $"Atmosphere : O2 {atm.o2Ratio * 100f:F1}% | CO2 {atm.co2Ratio * 100f:F2}% | {atm.atmosphericPressure:F1} kPa | T {atm.averageTemperature:F1}°C\n" +
                       $"Habitabilité : {atm.habitabilityScore * 100f:F1}% | Toxines {atm.toxinRatio * 100f:F0}%\n"
                     : string.Empty;
                 regionInfo =

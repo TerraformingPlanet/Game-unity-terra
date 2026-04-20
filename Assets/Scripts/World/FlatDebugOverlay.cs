@@ -31,7 +31,9 @@ public class FlatDebugOverlay : MonoBehaviour
     [SerializeField] private TMP_FontAsset debugFont;
 
     [Tooltip("Taille des labels en unités monde.")]
+#pragma warning disable CS0414
     [SerializeField] private float labelWorldSize = 0.35f;
+#pragma warning restore CS0414
 
     [Tooltip("Couleur du texte de debug.")]
     [SerializeField] private Color labelColor = new Color(1f, 1f, 1f, 0.85f);
@@ -40,7 +42,9 @@ public class FlatDebugOverlay : MonoBehaviour
     [SerializeField] private Color bgColor = new Color(0f, 0f, 0f, 0.5f);
 
     [Tooltip("Nombre de labels créés par frame (évite les freezes sur grandes grilles).")]
+#pragma warning disable CS0414
     [SerializeField] private int labelsPerFrame = 50;
+#pragma warning restore CS0414
 
     // =========================================================
     // Runtime
@@ -48,7 +52,9 @@ public class FlatDebugOverlay : MonoBehaviour
 
     private readonly List<GameObject> _labelObjects = new List<GameObject>();
     private bool   _isVisible;
+#pragma warning disable CS0414
     private bool   _isBuilding;
+#pragma warning restore CS0414
 
     private PlanetFlatView _flatView;
     private GameObject     _meshObject;    // parent des labels (FlatMeshRenderer)

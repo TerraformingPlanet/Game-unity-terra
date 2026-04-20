@@ -45,7 +45,7 @@ public class PlanetTangentInput : MonoBehaviour
         _cam  = Camera.main;
 
         if (terraformHUD == null)
-            terraformHUD = FindFirstObjectByType<TerraformHUD>();
+            terraformHUD = FindAnyObjectByType<TerraformHUD>();
     }
 
     private void Update()

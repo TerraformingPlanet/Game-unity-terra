@@ -51,11 +51,15 @@ public class PlanetCloudLayer : MonoBehaviour
     private void Awake()
     {
         _primaryRenderer = GetComponent<MeshRenderer>();
+        _primaryRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        _primaryRenderer.receiveShadows = false;
         _primaryRuntimeMaterial = CreateRuntimeMaterial();
         if (_primaryRuntimeMaterial != null)
             _primaryRenderer.sharedMaterial = _primaryRuntimeMaterial;
 
-        transform.localScale = Vector3.one * relativeScale;
+        // Sphère primitive Unity a rayon 0.5 à scale=1 ; VisualRadius=10 → facteur 20
+        float baseScale = GoldbergSphereGenerator.VisualRadius * 2f;
+        transform.localScale = Vector3.one * (baseScale * relativeScale);
         transform.localPosition = Vector3.zero;
         transform.localRotation = Quaternion.identity;
 
@@ -118,9 +122,14 @@ public class PlanetCloudLayer : MonoBehaviour
         ApplyMaterial(_primaryRuntimeMaterial, cloudColor, bodyCoverage, bodyOpacity, bodySoftness, bodyFresnel, 2.1f, 5.8f, 0.18f);
         ApplyMaterial(_secondaryRuntimeMaterial, cloudColor, Mathf.Clamp01(bodyCoverage + 0.08f), bodyOpacity * secondaryLayerBlend, bodySoftness * 1.2f, bodyFresnel * 0.9f, 3.8f, 9.7f, 0.11f);
 
-        transform.localScale = Vector3.one * relativeScale;
+        float baseScale = GoldbergSphereGenerator.VisualRadius * 2f;
+        transform.localScale = Vector3.one * (baseScale * relativeScale);
         if (_secondaryTransform != null)
-            _secondaryTransform.localScale = Vector3.one * (relativeScale + secondaryScaleOffset);
+        {
+            // localScale relatif au parent (qui a déjà baseScale*relativeScale)
+            float secondaryRelative = (relativeScale + secondaryScaleOffset) / relativeScale;
+            _secondaryTransform.localScale = Vector3.one * secondaryRelative;
+        }
     }
 
     private void EnsureSecondaryLayer()
@@ -140,11 +149,15 @@ public class PlanetCloudLayer : MonoBehaviour
         _secondaryTransform = existing;
         _secondaryTransform.localPosition = Vector3.zero;
         _secondaryTransform.localRotation = Quaternion.identity;
-        _secondaryTransform.localScale = Vector3.one * (relativeScale + secondaryScaleOffset);
+        // localScale relatif au parent (CloudLayer déjà à baseScale*relativeScale)
+        float secondaryRelative = (relativeScale + secondaryScaleOffset) / relativeScale;
+        _secondaryTransform.localScale = Vector3.one * secondaryRelative;
 
         _secondaryRenderer = _secondaryTransform.GetComponent<MeshRenderer>();
         if (_secondaryRenderer == null)
             _secondaryRenderer = _secondaryTransform.gameObject.AddComponent<MeshRenderer>();
+        _secondaryRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        _secondaryRenderer.receiveShadows = false;
 
         if (_secondaryTransform.GetComponent<MeshFilter>() == null)
             _secondaryTransform.gameObject.AddComponent<MeshFilter>();

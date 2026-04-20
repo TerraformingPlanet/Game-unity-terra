@@ -553,7 +553,7 @@ public class DebugHydrologyPanel : MonoBehaviour
         rect.pivot = new Vector2(0f, 1f);
         rect.anchoredPosition = anchoredPosition;
         rect.sizeDelta = sizeDelta;
-        label.enableWordWrapping = false;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
         label.overflowMode = TextOverflowModes.Ellipsis;
         label.alignment = TextAlignmentOptions.Left;
     }

@@ -222,8 +222,10 @@ public class SolarSystemData : ScriptableObject
         if (!seenBodies.Add(slot.body))
             issues.Add(new ValidationIssue("warning", $"Corps dupliqué dans la hiérarchie: {slot.body.bodyName}."));
 
+#pragma warning disable CS0184
         if (slot.body is StarBody)
             issues.Add(new ValidationIssue("error", $"Une étoile a été injectée dans les OrbitalSlots: {slot.body.bodyName}."));
+#pragma warning restore CS0184
 
         if (slot.orbit.semiMajorAxis <= 0f)
             issues.Add(new ValidationIssue("warning", $"Orbite invalide pour {slot.body.bodyName}: semiMajorAxis <= 0."));

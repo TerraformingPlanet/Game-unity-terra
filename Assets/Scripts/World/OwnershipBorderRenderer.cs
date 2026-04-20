@@ -13,7 +13,10 @@ public class OwnershipBorderRenderer : MonoBehaviour
     [SerializeField] private float lineWidth = 0.06f;
 
     [Tooltip("Décalage radial pour éviter le Z-fighting avec la sphère (fraction du rayon).")]
-    [SerializeField] private float radialOffset = 0.004f;
+    [SerializeField] private float radialOffset = 0.006f;
+
+    [Tooltip("Nombre de sous-segments par arête pour suivre la courbure de la sphère (évite l'effet de corde).")]
+    [SerializeField] private int subdivisionSteps = 5;
 
     private readonly List<LineRenderer> _pool = new();
     private Material _mat;
@@ -56,11 +59,15 @@ public class OwnershipBorderRenderer : MonoBehaviour
             (Vector3[] pts, Color col) = loops[i];
             if (pts == null || pts.Length < 2) continue;
 
+            // Si le premier et dernier points sont quasi-identiques (boucle fermée explicitement),
+            // retirer le point redondant — lr.loop = true se charge de la fermeture.
+            if (pts.Length > 2 && (pts[0] - pts[pts.Length - 1]).sqrMagnitude < 1e-5f)
+                System.Array.Resize(ref pts, pts.Length - 1);
+
             LineRenderer lr = GetOrCreate(i);
             lr.enabled           = true;
             lr.loop              = true;
             lr.useWorldSpace     = false;
-            lr.positionCount     = pts.Length;
             lr.widthMultiplier   = lineWidth;
             lr.startColor        = col;
             lr.endColor          = col;
@@ -68,9 +75,26 @@ public class OwnershipBorderRenderer : MonoBehaviour
             lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             lr.receiveShadows    = false;
 
-            float scale = 1f + radialOffset;
+            // Rayon cible = rayon de la sphère × (1 + décalage radial).
+            // pts[0].magnitude ≈ rayon de la sphère (tous les vertices sont sur la surface).
+            float targetRadius = pts[0].magnitude * (1f + radialOffset);
+
+            // Subdiviser chaque arête pour projeter la ligne sur la sphère (évite les cordes).
+            // Vector3.Slerp entre deux directions unitaires interpole sur le grand cercle.
+            int totalPts = pts.Length * subdivisionSteps;
+            lr.positionCount = totalPts;
+
             for (int j = 0; j < pts.Length; j++)
-                lr.SetPosition(j, pts[j] * scale);
+            {
+                Vector3 dirA = pts[j].normalized;
+                Vector3 dirB = pts[(j + 1) % pts.Length].normalized;
+                for (int s = 0; s < subdivisionSteps; s++)
+                {
+                    float t = s / (float)subdivisionSteps;
+                    lr.SetPosition(j * subdivisionSteps + s,
+                                   Vector3.Slerp(dirA, dirB, t) * targetRadius);
+                }
+            }
         }
 
         // Désactiver les LineRenderers en excès

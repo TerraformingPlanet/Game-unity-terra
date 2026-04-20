@@ -40,7 +40,7 @@ public class TestLaunchMenu : MonoBehaviour
         UIEventSystemUtility.EnsureEventSystem();
 
         if (viewManager == null)
-            viewManager = FindFirstObjectByType<ViewManager>();
+            viewManager = FindAnyObjectByType<ViewManager>();
 
         if (menuRoot == null)
             menuRoot = gameObject;

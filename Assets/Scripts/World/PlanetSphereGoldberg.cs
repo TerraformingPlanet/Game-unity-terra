@@ -221,7 +221,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         // CameraController auto-détection
         if (cameraController == null)
-            cameraController = FindFirstObjectByType<CameraController>();
+            cameraController = FindAnyObjectByType<CameraController>();
 
         // Matériau vertex color
         if (sphereMaterial != null)
@@ -425,7 +425,9 @@ public class PlanetSphereGoldberg : MonoBehaviour
             return;
         }
 
+#pragma warning disable CS0618
         CacheKey cacheKey = new CacheKey(body.GetInstanceID(), coherenceOverride, 0);
+#pragma warning restore CS0618
 
         if (cacheGeneratedProjections && SphereCache.TryGetValue(cacheKey, out CachedSphere cached))
         {
