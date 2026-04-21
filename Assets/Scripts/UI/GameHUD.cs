@@ -97,7 +97,6 @@ public class GameHUD : MonoBehaviour
     private GameObject      _nationalizationPanel;
     private TextMeshProUGUI _nationalizationLabel;
     private Button          _corruptBtn;
-    private string          _activeNationalizationId = "";
 
     // Scoreboard (Phase 7.5 — bottom HUD strip, always visible in local/planet view)
     private GameObject      _scoreboardPanel;
@@ -118,6 +117,17 @@ public class GameHUD : MonoBehaviour
     private readonly List<string> _corpIds   = new List<string>();
     private readonly List<string> _corpNames = new List<string>();
     private TMP_FontAsset _buildingIconFontAsset;
+    private bool            _hasCurrentTile = false;
+
+    // Trade routes section (Phase 9.1)
+    private GameObject      _tradeRoutePanel;
+    private TextMeshProUGUI _tradeRouteListLabel;
+
+    // Expeditions section (Phase 9.2)
+    private GameObject      _expeditionPanel;
+    private TextMeshProUGUI _expeditionListLabel;
+    private Button          _launchExpeditionBtn;
+    private TMP_InputField  _expeditionDestInput;
 
     // Event toast (Phase 8)
     private GameObject      _eventToastPanel;
@@ -136,10 +146,10 @@ public class GameHUD : MonoBehaviour
 
     private void Start()
     {
-        if (viewManager          == null) viewManager          = FindFirstObjectByType<ViewManager>(FindObjectsInactive.Include);
-        if (terraformHUD         == null) terraformHUD         = FindFirstObjectByType<TerraformHUD>(FindObjectsInactive.Include);
-        if (planetSphere         == null) planetSphere         = FindFirstObjectByType<PlanetSphereGoldberg>(FindObjectsInactive.Include);
-        if (debugHydrologyPanel  == null) debugHydrologyPanel  = FindFirstObjectByType<DebugHydrologyPanel>(FindObjectsInactive.Include);
+        if (viewManager          == null) viewManager          = FindAnyObjectByType<ViewManager>(FindObjectsInactive.Include);
+        if (terraformHUD         == null) terraformHUD         = FindAnyObjectByType<TerraformHUD>(FindObjectsInactive.Include);
+        if (planetSphere         == null) planetSphere         = FindAnyObjectByType<PlanetSphereGoldberg>(FindObjectsInactive.Include);
+        if (debugHydrologyPanel  == null) debugHydrologyPanel  = FindAnyObjectByType<DebugHydrologyPanel>(FindObjectsInactive.Include);
 
         ViewManager.OnViewChanged += HandleViewChanged;
 
@@ -219,6 +229,7 @@ public class GameHUD : MonoBehaviour
             return;
 
         _currentTile     = tile;
+        _hasCurrentTile = true;
         _tileStatus.text = "";
         RefreshBodyId();
         RefreshTileHeader(tile);
@@ -320,7 +331,7 @@ public class GameHUD : MonoBehaviour
             // Détecte si la tuile courante est déjà claimée
             string ownerCorpId   = null;
             string ownerCorpName = null;
-            if (_currentTile.tileId != null)
+            if (_hasCurrentTile && _currentTile.tileId != null)
             {
                 foreach (var c in wrapper.items)
                 {
@@ -468,7 +479,7 @@ public class GameHUD : MonoBehaviour
 
     private void OnClaimClicked()
     {
-        if (_currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
+        if (!_hasCurrentTile || _currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
         if (_corpIds.Count == 0)         { _tileStatus.text = "Aucune corporation.";         return; }
         int idx = _corpDropdown.value;
         if (idx < 0 || idx >= _corpIds.Count) return;
@@ -501,7 +512,7 @@ public class GameHUD : MonoBehaviour
 
     private void OnUnclaimClicked()
     {
-        if (_currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
+        if (!_hasCurrentTile || _currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
         if (_corpIds.Count == 0)         { _tileStatus.text = "Aucune corporation.";         return; }
         int idx = _corpDropdown.value;
         if (idx < 0 || idx >= _corpIds.Count) return;
@@ -545,7 +556,7 @@ public class GameHUD : MonoBehaviour
 
     private void OnBuildClicked()
     {
-        if (_currentTile.tileId == null) return;
+        if (!_hasCurrentTile || _currentTile.tileId == null) return;
         if (_corpIds.Count == 0)
         {
             _tileStatus.text = "<color=orange>Sélectionnez une corporation.</color>";
@@ -1045,7 +1056,7 @@ public class GameHUD : MonoBehaviour
 
     private IEnumerator DoLaunchExpedition()
     {
-        if (_currentTile == null || string.IsNullOrEmpty(_currentTile.tileId)) yield break;
+        if (!_hasCurrentTile || string.IsNullOrEmpty(_currentTile.tileId)) yield break;
         int corpIdx = _corpIds.Count > 0 ? _corpDropdown.value : -1;
         if (corpIdx < 0 || corpIdx >= _corpIds.Count) yield break;
         string corpId  = _corpIds[corpIdx];
@@ -1077,6 +1088,31 @@ public class GameHUD : MonoBehaviour
             {
                 string msg = req.downloadHandler?.text ?? req.error;
                 _tileStatus.text = $"<color=red>{msg}</color>";
+            }
+        }
+    }
+
+    private IEnumerator DoCorruptNationalization()
+    {
+        if (!_hasCurrentTile || string.IsNullOrEmpty(_currentTile.tileId)) yield break;
+        _tileStatus.text = "Corruption en cours...";
+        string url = simulationServerUrl.TrimEnd('/')
+            + $"/game/corporations/corrupt-nationalization"
+            + $"?body_id={UnityWebRequest.EscapeURL(_activeBodyId)}"
+            + $"&tile_id={UnityWebRequest.EscapeURL(_currentTile.tileId)}";
+        using (UnityWebRequest req = UnityWebRequest.PostWwwForm(url, ""))
+        {
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                _tileStatus.text = "<color=#8f8>Corruption réussie</color>";
+                planetSphere?.RefreshOwnershipOverlay();
+                if (_debugOpen) StartCoroutine(RefreshCorpsForDebug());
+            }
+            else
+            {
+                _tileStatus.text = $"<color=red>{req.downloadHandler?.text ?? req.error}</color>";
             }
         }
     }
@@ -1576,6 +1612,33 @@ public class GameHUD : MonoBehaviour
         _tileStatus.alignment = TextAlignmentOptions.Center;
 
         _rightPanel.SetActive(false);
+    }
+
+    // ── Scoreboard ───────────────────────────────────────────────────────────
+
+    private void BuildScoreboardPanel()
+    {
+        _scoreboardPanel = new GameObject("ScoreboardPanel", typeof(RectTransform));
+        _scoreboardPanel.transform.SetParent(_canvas.transform, false);
+        var rt = _scoreboardPanel.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0, 0);
+        rt.anchorMax = new Vector2(1, 0);
+        rt.pivot     = new Vector2(0.5f, 0);
+        rt.offsetMin = new Vector2(0, 0);
+        rt.offsetMax = new Vector2(0, 40);  // 40px high, bottom strip
+
+        _scoreboardPanel.AddComponent<Image>().color = new Color(0.05f, 0.05f, 0.07f, 0.85f);
+
+        var hl = _scoreboardPanel.AddComponent<HorizontalLayoutGroup>();
+        hl.padding            = new RectOffset(12, 12, 8, 8);
+        hl.spacing            = 10;
+        hl.childControlWidth  = false;
+        hl.childControlHeight = true;
+        hl.childForceExpandWidth  = false;
+        hl.childForceExpandHeight = true;
+
+        _scoreboardLabel = MakeLabel(_scoreboardPanel, "Scoreboard: Loading...", 10, false, 14, Color.white);
+        _scoreboardLabel.GetComponent<LayoutElement>().flexibleWidth = 1;
     }
 
     // ── EventToast ───────────────────────────────────────────────────────────
