@@ -1,0 +1,8 @@
+/* Terraformation HUD — Panel Theme Style Sheet
+   This file is the root stylesheet assigned to HUDPanelSettings.
+   It imports the Unity default runtime theme (for font/control defaults),
+   then our design tokens and shared base styles. */
+
+@import url("unity-theme://default");
+@import url("Styles/variables.uss");
+@import url("Styles/base.uss");

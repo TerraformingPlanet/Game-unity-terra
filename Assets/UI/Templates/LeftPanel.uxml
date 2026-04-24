@@ -1,0 +1,26 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <Style src="../Styles/variables.uss" />
+    <Style src="../Styles/base.uss" />
+    <Style src="../Styles/LeftPanel.uss" />
+
+    <ui:VisualElement name="left-panel" class="left-panel">
+
+        <ui:Label name="left-panel-title" text="TERRAFORMATION" class="left-panel__title" />
+
+        <!-- Terraformation progress bar -->
+        <ui:VisualElement name="progress-container" class="left-panel__progress-container">
+            <ui:VisualElement name="progress-fill" class="left-panel__progress-fill" />
+        </ui:VisualElement>
+
+        <ui:Label name="progress-label" text="0% Terraform." class="hud-label hud-label--secondary" />
+
+        <ui:VisualElement class="hud-separator" />
+
+        <!-- Atmospheric stats: O2, CO2, T°, pressure, habitability -->
+        <ui:Label name="atmo-label" text="" class="left-panel__atmo" />
+
+        <!-- Scoreboard strip — top 3 corps, auto-polls every 30s -->
+        <ui:Label name="scoreboard-label" text="" class="left-panel__scoreboard" />
+
+    </ui:VisualElement>
+</ui:UXML>

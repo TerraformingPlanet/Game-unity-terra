@@ -1,0 +1,32 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements">
+
+    <!-- TopBar.uxml
+         Rendered at the top of the screen (full width, 44px tall).
+         Mirrors BuildTopBar() in GameHUD.cs.
+         Bound by TopBarController region in GameHUDController.cs. -->
+
+    <Style src="../Styles/variables.uss" />
+    <Style src="../Styles/base.uss" />
+    <Style src="../Styles/TopBar.uss" />
+
+    <ui:VisualElement name="top-bar" class="top-bar">
+
+        <!-- ← Retour -->
+        <ui:Button name="btn-back" text="← Retour" class="hud-btn top-bar__btn" />
+
+        <!-- Planet name — flex-grow fills available space -->
+        <ui:Label name="label-planet" text="Planète" class="hud-label hud-label--title top-bar__planet" />
+
+        <!-- Tick + crédits -->
+        <ui:Label name="label-tick-credits" text="Tick —" class="hud-label hud-label--secondary top-bar__tick" />
+
+        <!-- Globe / Carte toggle -->
+        <ui:Button name="btn-toggle-view" text="Vue Carte" class="hud-btn hud-btn--build top-bar__btn" />
+
+        <!-- Debug drawer -->
+        <ui:Button name="btn-debug" text="Debug" class="hud-btn top-bar__btn" />
+
+    </ui:VisualElement>
+
+</ui:UXML>

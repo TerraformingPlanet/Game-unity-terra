@@ -1,0 +1,24 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!-- BuildingCard — one instance per building on the selected tile.
+         Instantiated dynamically by GameHUDController.cs.
+         Icon text (M/F/E/R) and all labels are set at runtime. -->
+    <ui:VisualElement name="building-card" class="building-card">
+
+        <!-- Fallback glyph: M=Mine, F=Farm, E=Energy, R=Research -->
+        <ui:Label name="building-icon" text="M" class="building-card__icon" />
+
+        <!-- Name + workers -->
+        <ui:VisualElement class="building-card__info">
+            <ui:Label name="building-name"    text="Bâtiment" class="building-card__name" />
+            <ui:Label name="building-workers" text="Workers: -" class="building-card__workers" />
+        </ui:VisualElement>
+
+        <!-- Level controls: [−] N [+] -->
+        <ui:VisualElement class="building-card__level-row">
+            <ui:Button name="btn-downgrade" text="-" class="building-card__level-btn" />
+            <ui:Label  name="level-badge"   text="1" class="building-card__level-badge" />
+            <ui:Button name="btn-upgrade"   text="+" class="building-card__level-btn" />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>

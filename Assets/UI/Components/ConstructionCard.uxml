@@ -1,0 +1,19 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!-- ConstructionCard — one instance per item in the construction queue.
+         Instantiated dynamically by GameHUDController.cs. -->
+    <ui:VisualElement name="construction-card" class="construction-card">
+
+        <ui:Label name="constr-icon"   text="M"        class="building-card__icon" />
+
+        <ui:VisualElement class="building-card__info">
+            <ui:Label name="constr-name"   text="Construction" class="building-card__name" />
+            <ui:Label name="constr-status" text="En cours..."  class="building-card__workers" />
+        </ui:VisualElement>
+
+        <!-- Orange progress bar -->
+        <ui:VisualElement class="constr-progress-container">
+            <ui:VisualElement name="constr-progress-fill" class="constr-progress-fill" />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>

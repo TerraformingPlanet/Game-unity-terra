@@ -1,0 +1,47 @@
+/* TopBar.uss — styles specific to the top navigation bar.
+   Variables and base resets come from variables.uss / base.uss via HUDTheme.tss */
+
+/* ── Container ──────────────────────────────────────────────────── */
+.top-bar {
+    position: Absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--topbar-height);
+    background-color: var(--topbar-bg);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--panel-border);
+    flex-direction: row;
+    align-items: center;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+/* ── Buttons (override hud-btn spacing) ─────────────────────────── */
+.top-bar__btn {
+    min-width: 80px;
+    height: 28px;
+    margin-left: 4px;
+    margin-right: 4px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+/* ── Planet label — fills remaining space, centered ─────────────── */
+.top-bar__planet {
+    flex-grow: 1;
+    -unity-text-align: middle-center;
+    font-size: var(--font-size-title);
+    -unity-font-style: bold;
+    color: var(--text-primary);
+}
+
+/* ── Tick/Credits label ──────────────────────────────────────────── */
+.top-bar__tick {
+    min-width: 160px;
+    -unity-text-align: middle-center;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    margin-left: 8px;
+    margin-right: 8px;
+}

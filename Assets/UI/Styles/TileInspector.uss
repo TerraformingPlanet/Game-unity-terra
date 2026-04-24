@@ -1,0 +1,281 @@
+/* TileInspector.uss — Left-panel tile inspector + BuildingCard + ConstructionCard.
+   Variables come from variables.uss / base.uss. */
+
+/* ── Main panel container ─────────────────────────────────────────── */
+.tile-inspector {
+    position: Absolute;
+    left: 0;
+    top: var(--topbar-height);
+    width: 260px;
+    bottom: 0;
+    background-color: var(--panel-bg);
+    border-right-width: 1px;
+    border-right-color: var(--panel-border);
+    flex-direction: column;
+}
+
+/* ── Fixed header ─────────────────────────────────────────────────── */
+.tile-inspector__header {
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 12px 10px 12px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--panel-border);
+    flex-shrink: 0;
+}
+
+.tile-inspector__header-title {
+    flex-grow: 1;
+    font-size: 13px;
+    -unity-font-style: bold;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tile-inspector__close-btn {
+    width: 24px;
+    height: 24px;
+    background-color: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    border-width: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding: 0;
+    margin-left: 8px;
+}
+
+.tile-inspector__close-btn:hover {
+    background-color: var(--btn-unclaim);
+    color: var(--text-primary);
+}
+
+/* ── Scrollable body ──────────────────────────────────────────────── */
+.tile-inspector__scroll {
+    flex-grow: 1;
+    padding: 0;
+}
+
+/* ── Sections ─────────────────────────────────────────────────────── */
+.tile-inspector__section {
+    padding: 10px 12px 6px 12px;
+    flex-direction: column;
+}
+
+.tile-inspector__section-title {
+    font-size: 10px;
+    color: var(--text-secondary);
+    -unity-font-style: bold;
+    letter-spacing: 1.2px;
+    margin-bottom: 6px;
+}
+
+/* ── Owner row ────────────────────────────────────────────────────── */
+.tile-inspector__owner-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.tile-inspector__corp-badge {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0);
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.tile-inspector__owner-name {
+    font-size: 13px;
+    color: var(--text-primary);
+    flex-grow: 1;
+}
+
+/* ── Dropdown ─────────────────────────────────────────────────────── */
+.tile-inspector__dropdown {
+    margin-bottom: 6px;
+}
+
+/* ── Button row ───────────────────────────────────────────────────── */
+.tile-inspector__btn-row {
+    flex-direction: row;
+    margin-top: 4px;
+}
+
+.tile-inspector__btn-row .hud-btn {
+    flex-grow: 1;
+    margin-right: 4px;
+}
+/* :last-child not supported in USS — margin reset handled via padding of parent */
+
+/* ── Text input ───────────────────────────────────────────────────── */
+.tile-inspector__input {
+    margin-bottom: 6px;
+    background-color: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    border-color: var(--panel-border);
+    border-width: 1px;
+    color: var(--text-primary);
+    padding: 6px 8px;
+}
+
+/* ── Card list ────────────────────────────────────────────────────── */
+.tile-inspector__card-list {
+    flex-direction: column;
+}
+
+/* ── Collapsible sections ─────────────────────────────────────────── */
+.tile-inspector__collapsible {
+    padding: 0 12px 0 12px;
+    flex-direction: column;
+}
+
+.tile-inspector__collapsible-header {
+    font-size: 10px;
+    color: var(--text-secondary);
+    -unity-font-style: bold;
+    letter-spacing: 1.2px;
+    padding-top: 8px;
+    padding-bottom: 6px;
+}
+
+.tile-inspector__collapsible-header:hover {
+    color: var(--text-accent);
+}
+
+.tile-inspector__collapsible-body {
+    flex-direction: column;
+    padding-bottom: 8px;
+}
+
+.tile-inspector__body-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: normal;
+    margin-bottom: 4px;
+}
+
+.tile-inspector__body-text--warning {
+    color: var(--text-warning);
+}
+
+/* ── Status feedback label ────────────────────────────────────────── */
+.tile-inspector__status-label {
+    font-size: 12px;
+    color: var(--eco-green);
+    -unity-text-align: middle-center;
+    padding: 8px 12px 12px 12px;
+    white-space: normal;
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* BuildingCard                                                        */
+/* ══════════════════════════════════════════════════════════════════ */
+.building-card {
+    flex-direction: row;
+    align-items: center;
+    background-color: var(--panel-bg-light);
+    border-radius: 5px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+}
+
+/* ── Icon glyph (fallback text: M / F / E / R) ───────────────────── */
+.building-card__icon {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-right: 10px;
+}
+
+/* ── Name + workers (fills remaining space) ──────────────────────── */
+.building-card__info {
+    flex-grow: 1;
+    flex-direction: column;
+}
+
+.building-card__name {
+    font-size: 13px;
+    color: var(--text-primary);
+    -unity-font-style: bold;
+}
+
+.building-card__workers {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+/* ── Level controls: [−] badge [+] ───────────────────────────────── */
+.building-card__level-row {
+    flex-direction: row;
+    align-items: center;
+    margin-left: 8px;
+}
+
+.building-card__level-btn {
+    width: 22px;
+    height: 22px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    border-width: 0;
+    color: var(--text-primary);
+    font-size: 14px;
+    -unity-font-style: bold;
+    padding: 0;
+}
+
+.building-card__level-btn:hover {
+    background-color: var(--btn-build);
+}
+
+.building-card__level-badge {
+    min-width: 20px;
+    font-size: 13px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    color: var(--text-accent);
+    margin-left: 4px;
+    margin-right: 4px;
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* ConstructionCard                                                    */
+/* ══════════════════════════════════════════════════════════════════ */
+.construction-card {
+    flex-direction: column;
+    background-color: rgba(255, 140, 0, 0.08);
+    border-radius: 5px;
+    border-left-width: 2px;
+    border-left-color: var(--construction-orange);
+    padding: 8px 10px;
+    margin-bottom: 4px;
+}
+
+/* Reuses building-card__icon, building-card__info, building-card__name,
+   building-card__workers from above — no duplication needed. */
+
+.constr-progress-container {
+    height: 4px;
+    background-color: rgba(255, 255, 255, 0.10);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 6px;
+}
+
+.constr-progress-fill {
+    height: 100%;
+    background-color: var(--construction-orange);
+    border-radius: 2px;
+    width: 0%;
+    transition-property: width;
+    transition-duration: 0.4s;
+    transition-timing-function: ease-out;
+}

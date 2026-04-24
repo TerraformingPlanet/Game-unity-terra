@@ -1,0 +1,63 @@
+/* LeftPanel.uss — Left sidebar: terraformation progress, atmosphere stats, scoreboard strip.
+   Variables come from variables.uss / base.uss via HUDTheme.tss. */
+
+/* ── Container ──────────────────────────────────────────────────── */
+.left-panel {
+    position: Absolute;
+    left: 0;
+    top: var(--topbar-height);
+    width: 220px;
+    bottom: 0;
+    background-color: var(--panel-bg);
+    border-right-width: 1px;
+    border-right-color: var(--panel-border);
+    padding: 14px 12px 14px 12px;
+    flex-direction: column;
+}
+
+/* ── Section title ───────────────────────────────────────────────── */
+.left-panel__title {
+    font-size: 11px;
+    color: var(--text-secondary);
+    -unity-font-style: bold;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+}
+
+/* ── Progress bar ────────────────────────────────────────────────── */
+.left-panel__progress-container {
+    height: 12px;
+    background-color: rgba(255, 255, 255, 0.10);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.left-panel__progress-fill {
+    height: 100%;
+    background-color: var(--btn-claim);
+    border-radius: 3px;
+    width: 0%;
+    transition-property: width;
+    transition-duration: 0.4s;
+    transition-timing-function: ease-out;
+}
+
+/* ── Atmospheric stats ───────────────────────────────────────────── */
+.left-panel__atmo {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: normal;
+    margin-top: 4px;
+    flex-grow: 1;
+}
+
+/* ── Scoreboard strip (pinned to bottom) ─────────────────────────── */
+.left-panel__scoreboard {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: normal;
+    padding-top: 6px;
+    border-top-width: 1px;
+    border-top-color: var(--separator);
+}

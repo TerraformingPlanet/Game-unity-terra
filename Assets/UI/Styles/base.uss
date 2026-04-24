@@ -1,0 +1,250 @@
+/* Terraformation HUD — Base resets & shared component styles
+   Import after variables.uss in every UXML or USS file:
+       @import url("../Styles/variables.uss");
+       @import url("../Styles/base.uss");  */
+
+/* ── Root defaults ──────────────────────────────────────────────── */
+.unity-base-field__label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    min-width: 0;
+}
+
+/* ── Panel card ─────────────────────────────────────────────────── */
+.hud-panel {
+    background-color: var(--panel-bg);
+    border-color: var(--panel-border);
+    border-width: 1px;
+    border-radius: var(--panel-radius);
+    padding: var(--panel-padding);
+}
+
+.hud-panel--light {
+    background-color: var(--panel-bg-light);
+}
+
+/* ── Separator ──────────────────────────────────────────────────── */
+.hud-separator {
+    height: 1px;
+    background-color: var(--separator);
+    margin-top: var(--gap-sm);
+    margin-bottom: var(--gap-sm);
+    flex-shrink: 0;
+}
+
+/* ── Typography helpers ─────────────────────────────────────────── */
+.hud-label {
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hud-label--title {
+    font-size: var(--font-size-title);
+    -unity-font-style: bold;
+}
+
+.hud-label--secondary {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+}
+
+.hud-label--accent {
+    color: var(--text-accent);
+}
+
+.hud-label--warning {
+    color: var(--text-warning);
+}
+
+.hud-label--danger {
+    color: var(--text-danger);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.hud-btn {
+    background-color: var(--btn-neutral);
+    border-color: var(--panel-border);
+    border-width: 1px;
+    border-radius: var(--card-radius);
+    padding-left: var(--gap-sm);
+    padding-right: var(--gap-sm);
+    padding-top: 4px;
+    padding-bottom: 4px;
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+    transition-duration: 0.12s;
+    transition-property: background-color;
+}
+
+.hud-btn:hover {
+    background-color: var(--btn-neutral-hover);
+}
+
+.hud-btn:active {
+    scale: 0.97;
+}
+
+.hud-btn--claim {
+    background-color: var(--btn-claim);
+    border-color: transparent;
+}
+
+.hud-btn--claim:hover {
+    background-color: var(--btn-claim-hover);
+}
+
+.hud-btn--unclaim {
+    background-color: var(--btn-unclaim);
+    border-color: transparent;
+}
+
+.hud-btn--unclaim:hover {
+    background-color: var(--btn-unclaim-hover);
+}
+
+.hud-btn--build {
+    background-color: var(--btn-build);
+    border-color: transparent;
+}
+
+.hud-btn--build:hover {
+    background-color: var(--btn-build-hover);
+}
+
+/* ── Toggle ─────────────────────────────────────────────────────── */
+.hud-toggle .unity-toggle__checkmark {
+    background-color: var(--btn-neutral);
+    border-color: var(--panel-border);
+    border-width: 1px;
+    border-radius: var(--card-radius);
+}
+
+.hud-toggle:checked .unity-toggle__checkmark {
+    background-color: var(--btn-build);
+}
+
+/* ── ScrollView reset ───────────────────────────────────────────── */
+.unity-scroll-view__vertical-scroller {
+    width: 6px;
+}
+
+.unity-scroller__slider {
+    width: 6px;
+}
+
+.unity-base-slider--vertical .unity-base-slider__dragger {
+    width: 4px;
+    border-radius: 2px;
+    background-color: var(--panel-border-acc);
+    left: 1px;
+}
+
+.unity-scroll-view__content-container {
+    flex-direction: column;
+}
+
+/* ── ProgressBar ────────────────────────────────────────────────── */
+.hud-progress {
+    height: 6px;
+    border-radius: 3px;
+    background-color: var(--panel-border);
+    overflow: hidden;
+}
+
+.hud-progress__fill {
+    border-radius: 3px;
+    background-color: var(--text-accent);
+    height: 100%;
+    /* width set dynamically in C# */
+}
+
+.hud-progress__fill--orange {
+    background-color: var(--construction-orange);
+}
+
+.hud-progress__fill--green {
+    background-color: var(--eco-green);
+}
+
+/* ── Tooltip ────────────────────────────────────────────────────── */
+.hud-tooltip {
+    position: absolute;
+    background-color: rgba(8, 8, 14, 0.88);
+    border-color: var(--panel-border-acc);
+    border-width: 1px;
+    border-radius: var(--card-radius);
+    padding-left: var(--gap-sm);
+    padding-right: var(--gap-sm);
+    padding-top: 4px;
+    padding-bottom: 4px;
+    max-width: 240px;
+}
+
+.hud-tooltip__label {
+    color: var(--text-primary);
+    font-size: var(--font-size-caption);
+    white-space: normal;
+}
+
+/* ── EventFeed / Journal ────────────────────────────────────────── */
+.event-feed {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    width: 280px;
+    background-color: var(--panel-bg);
+    border-color: var(--panel-border);
+    border-width: 1px;
+    border-radius: var(--panel-radius);
+    padding: var(--gap-sm);
+}
+
+.event-feed__tabs {
+    flex-direction: row;
+    border-bottom-color: var(--panel-border);
+    border-bottom-width: 1px;
+    padding-bottom: var(--gap-xs);
+    margin-bottom: var(--gap-xs);
+}
+
+.event-feed__tab {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+    padding-left: var(--gap-sm);
+    padding-right: var(--gap-sm);
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-radius: var(--card-radius);
+    cursor: link;
+}
+
+.event-feed__tab--active {
+    color: var(--text-accent);
+    background-color: rgba(100, 180, 255, 0.12);
+}
+
+.event-feed__pane {
+    flex-direction: column;
+}
+
+.event-feed__list {
+    flex-direction: column;
+}
+
+.event-feed__entry {
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    margin-bottom: 2px;
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.event-feed__entry--local {
+    color: var(--text-primary);
+}
