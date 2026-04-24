@@ -78,8 +78,16 @@ public class TickManager : MonoBehaviour, ITickSource
 
     private void Start()
     {
-        if (autoStart)
+        // Si le client WebSocket est présent, c'est lui qui pilote les ticks (Phase 10)
+        if (SimulationWebSocketClient.Instance != null)
+        {
+            SimulationWebSocketClient.OnServerTickAdvanced += SyncFromServerTick;
+            Debug.Log("[TickManager] Mode serveur — ticks pilotés par WebSocket.");
+        }
+        else if (autoStart)
+        {
             Resume();
+        }
     }
 
     private void OnDestroy()
@@ -118,6 +126,16 @@ public class TickManager : MonoBehaviour, ITickSource
     public void SetInterval(float seconds)
     {
         tickInterval = Mathf.Max(0.1f, seconds);
+    }
+
+    /// <summary>
+    /// Synchronise le tick local depuis le serveur (Phase 10).
+    /// Appelé par SimulationWebSocketClient.OnServerTickAdvanced.
+    /// </summary>
+    public void SyncFromServerTick(int serverTick)
+    {
+        _tickCount = serverTick;
+        OnTick?.Invoke(_tickCount);
     }
 
     // =========================================================

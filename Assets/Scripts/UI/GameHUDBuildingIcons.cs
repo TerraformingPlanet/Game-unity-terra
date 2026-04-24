@@ -9,18 +9,21 @@ public readonly struct GameHUDBuildingIconDefinition
         string displayName,
         string fontAwesomeUnicode,
         string fallbackGlyph,
-        Color tint)
+        Color tint,
+        string tooltipText = "")
     {
         DisplayName = displayName;
         FontAwesomeUnicode = fontAwesomeUnicode;
         FallbackGlyph = fallbackGlyph;
         Tint = tint;
+        TooltipText = tooltipText;
     }
 
     public string DisplayName { get; }
     public string FontAwesomeUnicode { get; }
     public string FallbackGlyph { get; }
     public Color Tint { get; }
+    public string TooltipText { get; }
 
     public string GetFontAwesomeGlyph()
     {
@@ -42,7 +45,8 @@ public static class GameHUDBuildingIcons
                     "Mine",
                     "f275",
                     "M",
-                    new Color(0.83f, 0.64f, 0.34f))
+                    new Color(0.83f, 0.64f, 0.34f),
+                    "Extrait des Minerais (+2/tick) et génère des Déchets (+0.5/tick).\nCoût: 50 pts. Ouvriers: 50 Poor + 10 Middle.")
             },
             {
                 CorpBuildingType.Farm,
@@ -50,7 +54,8 @@ public static class GameHUDBuildingIcons
                     "Ferme",
                     "e2cd",
                     "F",
-                    new Color(0.42f, 0.78f, 0.40f))
+                    new Color(0.42f, 0.78f, 0.40f),
+                    "Produit de la Nourriture (+3/tick).\nCoût: 40 pts. Ouvriers: 30 Poor + 5 Middle.")
             },
             {
                 CorpBuildingType.EnergyPlant,
@@ -58,7 +63,8 @@ public static class GameHUDBuildingIcons
                     "Centrale énergétique",
                     "f0e7",
                     "E",
-                    new Color(0.95f, 0.81f, 0.26f))
+                    new Color(0.95f, 0.81f, 0.26f),
+                    "Génère de l'Énergie (+5/tick) et des Déchets (+1/tick).\nCoût: 90 pts. Ouvriers: 20 Middle + 5 Rich.")
             },
             {
                 CorpBuildingType.Research,
@@ -66,31 +72,8 @@ public static class GameHUDBuildingIcons
                     "Recherche",
                     "e4f3",
                     "R",
-                    new Color(0.45f, 0.74f, 0.95f))
-            },
-            {
-                CorpBuildingType.Road,
-                new GameHUDBuildingIconDefinition(
-                    "Route",
-                    "f018",
-                    "Rt",
-                    new Color(0.70f, 0.70f, 0.70f))
-            },
-            {
-                CorpBuildingType.SeaPort,
-                new GameHUDBuildingIconDefinition(
-                    "Port maritime",
-                    "f21a",
-                    "Po",
-                    new Color(0.30f, 0.60f, 0.90f))
-            },
-            {
-                CorpBuildingType.Spaceport,
-                new GameHUDBuildingIconDefinition(
-                    "Spatioport",
-                    "f135",
-                    "Sp",
-                    new Color(0.78f, 0.56f, 0.95f))
+                    new Color(0.45f, 0.74f, 0.95f),
+                    "Consomme de l'Énergie (\u22121/tick), produit des Points de Recherche (+1/tick).\nCoût: 90 pts. Ouvriers: 10 Middle + 15 Rich.")
             },
         };
 

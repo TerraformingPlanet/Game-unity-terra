@@ -13,14 +13,6 @@ using System.Threading;
 /// </summary>
 public class RuntimeDebugHttpServer : MonoBehaviour
 {
-    [Serializable]
-    private struct ActionResult
-    {
-        public bool success;
-        public string message;
-        public ViewStateSnapshot state;
-    }
-
     private static RuntimeDebugHttpServer _instance;
 
     [Header("Server")]
@@ -252,6 +244,11 @@ public class RuntimeDebugHttpServer : MonoBehaviour
 
                 case "/debug/open-region":
                     HandleOpenRegion(context, facade, query);
+                    break;
+
+                case "/debug/navigate":
+                    string navTarget = TryGetString(query, "target", string.Empty);
+                    WriteJson(context, JsonUtility.ToJson(facade.NavigateView(navTarget), true));
                     break;
 
                 default:

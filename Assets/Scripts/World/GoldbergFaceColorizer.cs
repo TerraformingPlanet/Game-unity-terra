@@ -48,6 +48,47 @@ public static class GoldbergFaceColorizer
         }
     }
 
+    /// <summary>
+    /// Construit un dictionnaire faceId → GoldbergTileState (nearest-neighbor lat/lon).
+    /// Utilisé pour résoudre la tuile serveur d'une face au survol (tooltip).
+    /// Même algorithme que ColorizeFromServerTiles.
+    /// </summary>
+    public static Dictionary<int, GoldbergTileState> BuildFaceToTileMap(
+        GoldbergSphereGenerator.GoldbergFace[] faces,
+        GoldbergTileState[] serverTiles)
+    {
+        var map = new Dictionary<int, GoldbergTileState>(faces?.Length ?? 0);
+        if (faces == null || serverTiles == null || serverTiles.Length == 0)
+            return map;
+
+        for (int i = 0; i < faces.Length; i++)
+        {
+            float fLat = faces[i].latNorm;
+            float fLon = faces[i].lonNorm;
+
+            float bestDist2 = float.MaxValue;
+            int   bestIdx   = 0;
+
+            for (int j = 0; j < serverTiles.Length; j++)
+            {
+                float dLat = fLat - serverTiles[j].latNorm;
+                float dLon = fLon - serverTiles[j].lonNorm;
+                if (dLon >  0.5f) dLon -= 1f;
+                if (dLon < -0.5f) dLon += 1f;
+                float dist2 = dLat * dLat + dLon * dLon;
+                if (dist2 < bestDist2)
+                {
+                    bestDist2 = dist2;
+                    bestIdx   = j;
+                }
+            }
+
+            map[i] = serverTiles[bestIdx];
+        }
+
+        return map;
+    }
+
     // ── Ownership overlay (Phase 7.1) ────────────────────────────────────────────
 
     /// <summary>

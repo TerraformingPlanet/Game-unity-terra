@@ -290,6 +290,25 @@ public struct GoldbergTileState
     public float wildlifeDensity;      // [0, 1]
     public float atmosphereDeltaCo2;   // CO₂ volume fraction delta per tick
     public float atmosphereDeltaO2;    // O₂ volume fraction delta per tick
+    // Ecology fields (Phase 11.5)
+    public SpeciesData[] species;      // active species populations on this tile
+}
+
+/// <summary>
+/// One species population on a surface tile.
+/// Mirrors Python SpeciesData (Phase 11.5).
+/// </summary>
+[Serializable]
+public struct SpeciesData
+{
+    public string speciesId;       // e.g. "cyanobacteria", "grass"
+    public float  density;         // [0, 1]
+    public float  minTemp;
+    public float  maxTemp;
+    public float  minO2;
+    public float  maxO2;
+    public float  growthRate;
+    public float  minVegetation;   // required vegetation density for animal species
 }
 
 /// <summary>
@@ -383,24 +402,55 @@ public enum CorpBuildingType
     Farm        = 1,
     EnergyPlant = 2,
     Research    = 3,
-    Road        = 4,   // Phase 9.1
-    SeaPort     = 5,   // Phase 9.1
-    Spaceport   = 6,   // Phase 9.1
 }
 
 /// <summary>
-/// Mirrors Python BuildingData (Phase 7.2). Network contract, distinct from Economy/BuildingData ScriptableObject.
+/// Mirrors Python ConstructionStatus enum (Phase 10.5).
+/// </summary>
+public enum CorpConstructionStatus : int
+{
+    Pending    = 0,
+    InProgress = 1,
+    Done       = 2,
+}
+
+/// <summary>
+/// Mirrors Python ConstructionItem (Phase 10.5). Returned by POST /game/corporations/{id}/buildings.
+/// </summary>
+[Serializable]
+public struct CorpConstructionItem
+{
+    public string                 id;
+    public CorpBuildingType       buildingType;
+    public string                 tileId;
+    public string                 bodyId;
+    public string                 corpId;
+    public CorpConstructionStatus status;
+    public int                    ticksRemaining;
+    public int                    totalCostPts;
+    public int                    pointsAccumulated;
+}
+
+/// <summary>
+/// Wrapper for deserializing JSON arrays of CorpConstructionItem.
+/// </summary>
+[Serializable]
+public class CorpConstructionItemArray { public CorpConstructionItem[] items; }
+
+/// <summary>
+/// Mirrors Python BuildingData (Phase 7.2 / 12). Network contract, distinct from Economy/BuildingData ScriptableObject.
 /// </summary>
 [Serializable]
 public struct CorpBuilding
 {
-    public string         id;
+    public string           id;
     public CorpBuildingType buildingType;
-    public string         tileId;
-    public string         bodyId;
-    public string         corpId;
-    public float          workerRatio;
-    public int            ticksActive;
+    public string           tileId;
+    public string           bodyId;
+    public string           corpId;
+    public float            workerRatio;
+    public int              ticksActive;
+    public int              level;   // Phase 12 — building level [1–5]; production × level, workers × level
 }
 
 /// <summary>
@@ -427,9 +477,8 @@ public struct CorporationData
 
 /// <summary>
 /// Mirrors Python ResourceType (tradable subset). Prefixed Corp* to avoid collision (Phase 7.3).
-/// Phase 9.5 extended with Iron, Oxygen, Water, Tech.
 /// </summary>
-public enum CorpResourceType : int { Minerals = 0, Food = 1, Energy = 2, ResearchPoints = 3, Waste = 4, Iron = 5, Oxygen = 6, Water = 7, Tech = 8 }
+public enum CorpResourceType : int { Minerals = 0, Food = 1, Energy = 2, ResearchPoints = 3, Waste = 4 }
 
 /// <summary>
 /// Mirrors Python ResourceListing (Phase 7.3).
@@ -441,8 +490,6 @@ public struct ResourceListing
     public float            price;
     public float            supply;
     public float            demand;
-    public float            priceVelocity;              // Phase 9.4 — fractional change per tick
-    public float[]          priceHistory;              // Phase 9.4 — last 10 prices
 }
 
 /// <summary>
@@ -455,26 +502,6 @@ public struct LocalMarketState
     public ResourceListing[] listings;
     public float             taxRate;
     public int               tickComputed;
-}
-
-/// <summary>
-/// Mirrors Python GlobalMarketState (Phase 9.5). Aggregated market across a system.
-/// Deserialised from GET /game/market/global/{system_id}.
-/// </summary>
-[Serializable]
-public struct GlobalMarketState
-{
-    public string            systemId;
-    public ResourceListing[] listings;
-    public int               tick;
-    public int               marketCount;
-}
-
-/// <summary>Wrapper for JSON deserialization of GlobalMarketState.</summary>
-[Serializable]
-public class GlobalMarketStateWrapper
-{
-    public GlobalMarketState item;
 }
 
 // ── Contract layer (Phase 7.4) ───────────────────────────────────────────────
@@ -578,91 +605,25 @@ public struct ScoreboardEntry
     public float  score;
 }
 
-// ── Phase 9.1 — Routes commerciales & Expéditions ──────────────────────────────
+// ── Phase 8 — Events ─────────────────────────────────────────────────────────
 
-/// <summary>Mirrors Python TradeRouteType.</summary>
-public enum CorpTradeRouteType
+/// <summary>Mirrors Python EventType enum (Phase 8).</summary>
+public enum EventType
 {
-    Land     = 0,
-    Maritime = 1,
-    Orbital  = 2,
-}
-
-/// <summary>Mirrors Python TradeRouteActivityStatus.</summary>
-public enum CorpTradeRouteStatus
-{
-    Active    = 0,
-    Suspended = 1,
-}
-
-/// <summary>Mirrors Python ExpeditionStatus.</summary>
-public enum CorpExpeditionStatus
-{
-    InTransit = 0,
-    Success   = 1,
-    Failed    = 2,
-}
-
-/// <summary>Mirrors Python TradeRoute (Phase 9.1).</summary>
-[Serializable]
-public struct CorpTradeRoute
-{
-    public string              id;
-    public CorpTradeRouteType  routeType;
-    public string              fromTileId;
-    public string              toTileId;
-    public string              bodyId;
-    public string              ownerCorpId;
-    public CorpTradeRouteStatus status;
-    public float               baseEfficiency;
-    public float               currentEfficiency;
-    public float               portMalusFrom;
-    public float               portMalusTo;
-    public int                 tickCreated;
-    public int                 knowledgeTransferTicks;
-}
-
-/// <summary>Wrapper for deserializing JSON arrays of CorpTradeRoute.</summary>
-[Serializable]
-public class CorpTradeRouteList { public CorpTradeRoute[] items; }
-
-/// <summary>Mirrors Python ExpeditionUnit (Phase 9.1).</summary>
-[Serializable]
-public struct CorpExpeditionUnit
-{
-    public string              id;
-    public string              ownerCorpId;
-    public string              fromPortTileId;
-    public string              toPortTileId;
-    public string              bodyId;
-    public CorpTradeRouteType  routeType;
-    public int                 ticksRemaining;
-    public int                 totalTicks;
-    public CorpExpeditionStatus status;
-    public bool                isPhantom;
-}
-
-/// <summary>Wrapper for deserializing JSON arrays of CorpExpeditionUnit.</summary>
-[Serializable]
-public class CorpExpeditionList { public CorpExpeditionUnit[] items; }
-
-// ── Phase 8 — Gameplay Events ─────────────────────────────────────────────────
-
-/// <summary>Mirrors Python EventType (Phase 8). Narrative gameplay events.</summary>
-public enum GameEventType
-{
-    RencontreAlienne    = 0,
-    TempeteSolaire      = 1,
-    DecouverteMiniere   = 2,
-    CriseEconomique     = 3,
-    SabotageCorpo       = 4,
-    Rebellion           = 5,
-    MigrationPopulation = 6,
+    RencontreAlienne        = 0,
+    TempeteSolaire          = 1,
+    DecouverteMiniere       = 2,
+    CriseEconomique         = 3,
+    SabotageCorpo           = 4,
+    Rebellion               = 5,
+    MigrationPopulation     = 6,
+    DecouverteMegastructure = 7,
+    EmpireGalactique        = 8,
 }
 
 /// <summary>Mirrors Python EventEffect (Phase 8).</summary>
 [Serializable]
-public struct GameEventEffect
+public struct EventEffect
 {
     public string resourceType;
     public float  resourceDelta;
@@ -673,50 +634,15 @@ public struct GameEventEffect
 
 /// <summary>Mirrors Python EventData (Phase 8).</summary>
 [Serializable]
-public struct GameEventData
+public struct EventData
 {
-    public string         id;
-    public GameEventType  eventType;
-    public string         name;
-    public string         description;
-    public int            tick;
-    public string         affectedEntityId;
-    public string         affectedEntityType;
-    public GameEventEffect effect;
-    public bool           isResolved;
-}
-
-/// <summary>Wrapper for deserializing JSON arrays of GameEventData.</summary>
-[Serializable]
-public class GameEventList { public GameEventData[] items; }
-
-// ── Agent LLM (Phase 8.5) ────────────────────────────────────────────────────
-
-/// <summary>Mirrors Python AgentActionType (Phase 8.5).</summary>
-public enum AgentActionType
-{
-    NoOp                   = 0,
-    ProposeContract        = 1,
-    SetTolerance           = 2,
-    TriggerNationalization = 3,
-}
-
-/// <summary>Mirrors Python AgentAction (Phase 8.5) — single LLM decision.</summary>
-[Serializable]
-public struct AgentAction
-{
-    public string          entityId;
-    public AgentActionType actionType;
-    public string          paramsJson;   // serialized params dict (JSON string)
-    public string          reasoning;
-}
-
-/// <summary>Mirrors Python AgentMemory (Phase 8.5) — per-entity rolling memory.</summary>
-[Serializable]
-public struct AgentMemory
-{
-    public string   entityId;
-    public string   entityType;
-    public string[] recentDecisions;
-    public int      lastTickActed;
+    public string      id;
+    public EventType   eventType;
+    public string      name;
+    public string      description;
+    public int         tick;
+    public string      affectedEntityId;
+    public string      affectedEntityType;
+    public EventEffect effect;
+    public bool        isResolved;
 }

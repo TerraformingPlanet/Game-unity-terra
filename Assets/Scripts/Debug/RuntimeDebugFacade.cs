@@ -139,6 +139,41 @@ public class RuntimeDebugFacade : MonoBehaviour
                viewManager.TryOpenRegionNormalized(Mathf.Clamp01(request.latitude), Mathf.Clamp01(request.longitude));
     }
 
+    public ActionResult NavigateView(string target)
+    {
+        ResolveReferences();
+
+        if (viewManager == null)
+            return new ActionResult { success = false, message = "ViewManager unavailable." };
+
+        switch (target?.ToLowerInvariant())
+        {
+            case "galaxy":
+                viewManager.EnterGalaxy();
+                break;
+            case "solar_system":
+                viewManager.EnterSolarSystem();
+                break;
+            case "toggle_planet_subview":
+                viewManager.TogglePlanetView();
+                break;
+            default:
+                return new ActionResult
+                {
+                    success = false,
+                    message = $"Unknown target '{target}'. Valid values: galaxy, solar_system, toggle_planet_subview.",
+                    state = GetCurrentViewState()
+                };
+        }
+
+        return new ActionResult
+        {
+            success = true,
+            message = $"Navigated to '{target}'.",
+            state = GetCurrentViewState()
+        };
+    }
+
     public ProjectionSummary GetProjectionSummary()
     {
         ResolveReferences();

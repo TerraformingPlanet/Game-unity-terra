@@ -98,6 +98,17 @@ public class PlanetSphereGoldberg : MonoBehaviour
     public event Action<GoldbergTileState> OnH3TileResolved;
 
     /// <summary>
+    /// Déclenché quand la souris s'immobilise &gt;= hoverTooltipDelay secondes sur une face (LOD 1 uniquement).
+    /// Fournit un texte résumé + la position écran pour positionner le tooltip.
+    /// </summary>
+    public event Action<string, Vector2> OnTileHoverReady;
+
+    /// <summary>
+    /// Déclenché quand le tooltip doit être masqué (MouseExit, changement de face, changement LOD).
+    /// </summary>
+    public event Action OnTileHoverCancelled;
+
+    /// <summary>
     /// Déclenché quand les tuiles H3 sont toutes chargées et appliquées à la sphère.
     /// Fournit le tableau complet + la table de couleurs pour alimenter FlatView et TangentView.
     /// </summary>
@@ -149,6 +160,8 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
     [Header("Hover")]
     [SerializeField] private Color hoverTintColor = new Color(1f, 1f, 1f, 0.35f);
+    [Tooltip("Délai en secondes avant l'apparition du tooltip au survol (LOD 1 seulement).")]
+    [SerializeField] private float hoverTooltipDelay = 0.6f;
 
     private MeshFilter    _meshFilter;
     private MeshRenderer  _meshRenderer;
@@ -159,6 +172,12 @@ public class PlanetSphereGoldberg : MonoBehaviour
     // Hover state
     private int     _hoveredFaceId   = -1;
     private Color[] _cachedMeshColors;  // couleurs sans highlight, resync à chaque LoadPlanet
+
+    // Tooltip hover state
+    private Dictionary<int, GoldbergTileState> _faceToTile;
+    private int   _hoverFaceCandidate = -1;
+    private float _hoverStartTime     = -1f;
+    private bool  _hoverTooltipFired  = false;
 
     // H3 state
     private string      _activeBodyId = "";  // bodyId H3 du corps chargé — résolu par FetchAndColorizeFromServer
@@ -262,10 +281,18 @@ public class PlanetSphereGoldberg : MonoBehaviour
         else
             targetLod = dist > lodFarDistance  ? 0 : 1;
 
-        if (targetLod == _currentLodLevel) return;
+        if (targetLod != _currentLodLevel)
+        {
+            _currentLodLevel = targetLod;
+            ApplyLodLevel(_currentLodLevel);
+        }
 
-        _currentLodLevel = targetLod;
-        ApplyLodLevel(_currentLodLevel);
+        // Tooltip timer (LOD 1 seulement)
+        if (!_hoverTooltipFired && _hoverFaceCandidate >= 0 && _currentLodLevel == 1
+            && Time.time - _hoverStartTime >= hoverTooltipDelay)
+        {
+            FireTileTooltip(_hoverFaceCandidate);
+        }
     }
 
     private void TryStartHiLodFetch()
@@ -344,6 +371,48 @@ public class PlanetSphereGoldberg : MonoBehaviour
         StartCoroutine(FetchOwnershipOverlay());
     }
 
+    // =========================================================
+    // Construction overlay (Phase 10.5)
+    // =========================================================
+
+    // Orange pulsing tint applied to tiles that have in-progress construction items.
+    private HashSet<string> _constructionTileIds = new HashSet<string>();
+
+    /// <summary>
+    /// Recompute and re-apply border loops using the current active LOD mesh (_sphereData).
+    /// No-op if ownership data is not yet available.
+    /// </summary>
+    private void RebuildBorderLoops()
+    {
+        if (_ownershipTints == null || _ownershipTints.Count == 0
+            || _cachedServerTiles == null || _tileToCorpId == null
+            || _sphereData.faces == null)
+        {
+            return;
+        }
+        var loops = GoldbergFaceColorizer.GetBoundaryLoops(
+            _sphereData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
+        _borderRenderer?.UpdateBorders(loops);
+    }
+
+    /// <summary>
+    /// Updates the set of tiles under construction and applies an orange tint overlay.
+    /// Call from GameHUD's PollConstructionQueue whenever the queue changes.
+    /// Pass an empty set (or null) to clear the overlay.
+    /// </summary>
+    public void SetConstructionTiles(HashSet<string> tileIds)
+    {
+        _constructionTileIds = tileIds ?? new HashSet<string>();
+
+        if (_ownershipTints == null) _ownershipTints = new Dictionary<string, Color>();
+
+        Color constructionColor = new Color(1f, 0.55f, 0f, 1f); // orange
+        foreach (string tileId in _constructionTileIds)
+            _ownershipTints[tileId] = constructionColor;
+
+        RebuildBorderLoops();
+    }
+
     /// <summary>
     /// Fetches GET /game/corporations and tints each claimed tile on the current body
     /// with the owning corporation's derived color. Called after biome colorization.
@@ -398,14 +467,12 @@ public class PlanetSphereGoldberg : MonoBehaviour
         _ownershipTints  = tints;
         _tileToCorpId    = toCorpId;
 
-        // Dessiner les frontières en LineRenderer (pas de modification des vertex colors)
-        var activeFaces = (_sphereDataHi.faces != null && _sphereDataHi.faces.Length > 0)
-            ? _sphereDataHi.faces : _sphereData.faces;
-        var loops = GoldbergFaceColorizer.GetBoundaryLoops(
-            activeFaces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
-        _borderRenderer?.UpdateBorders(loops);
+        // Dessiner les frontières depuis le mesh actif (LOD courant) — pas _sphereDataHi
+        // pour éviter le mismatch « bordures trop petites au dezoom ».
+        RebuildBorderLoops();
 
-        Debug.Log($"[PlanetSphereGoldberg] Ownership overlay : {tints.Count} tuile(s), {loops.Count} boucle(s) de frontière ({corps.items.Length} corpo(s)).");
+        string rendererStatus = _borderRenderer != null ? "OK" : "no renderer";
+        Debug.Log($"[PlanetSphereGoldberg] Ownership overlay : {tints.Count} tuile(s), {rendererStatus} ({corps.items.Length} corpo(s)).");
     }
 
     // =========================================================
@@ -777,6 +844,12 @@ public class PlanetSphereGoldberg : MonoBehaviour
         if (Camera.main == null || Mouse.current == null) return;
         if (UIEventSystemUtility.IsPointerOverUI()) return;
 
+        // Tooltip uniquement au LOD haut (LOD 1)
+        if (_currentLodLevel != 1)
+        {
+            CancelTooltip();
+        }
+
         Ray ray = Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());
         if (!Physics.Raycast(ray, out RaycastHit hit)) return;
 
@@ -791,15 +864,68 @@ public class PlanetSphereGoldberg : MonoBehaviour
         TintFace(meshColors, newFace);
         _sphereData.mesh.colors = meshColors;
         _hoveredFaceId          = newFace;
+
+        // Reset tooltip timer à chaque changement de face
+        CancelTooltip();
+        if (_currentLodLevel == 1)
+        {
+            _hoverFaceCandidate = newFace;
+            _hoverStartTime     = Time.time;
+        }
     }
 
     private void OnMouseExit()
     {
+        CancelTooltip();
         if (_hoveredFaceId < 0 || _cachedMeshColors == null) return;
         Color[] meshColors = _sphereData.mesh.colors;
         RestoreFace(meshColors, _hoveredFaceId);
         _sphereData.mesh.colors = meshColors;
         _hoveredFaceId          = -1;
+    }
+
+    private void CancelTooltip()
+    {
+        _hoverFaceCandidate = -1;
+        _hoverStartTime     = -1f;
+        if (_hoverTooltipFired)
+        {
+            _hoverTooltipFired = false;
+            OnTileHoverCancelled?.Invoke();
+        }
+    }
+
+    private void FireTileTooltip(int faceId)
+    {
+        if (_cachedServerTiles == null || _cachedServerTiles.Length == 0) return;
+        if (_sphereData.faces == null || faceId < 0 || faceId >= _sphereData.faces.Length) return;
+
+        // Lazy-build la map faceId → GoldbergTileState
+        if (_faceToTile == null)
+            _faceToTile = GoldbergFaceColorizer.BuildFaceToTileMap(_sphereData.faces, _cachedServerTiles);
+
+        if (!_faceToTile.TryGetValue(faceId, out GoldbergTileState tile)) return;
+
+        // Assembler le texte du tooltip : terrain + tileId court
+        string shortId = !string.IsNullOrEmpty(tile.tileId) && tile.tileId.Length > 8
+            ? tile.tileId[..8] + "..."
+            : tile.tileId ?? "?";
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"<b>{tile.terrainType}</b>  <size=9>[{shortId}]</size>");
+
+        // Ajouter le nom de la corp si la tuile est revendiquée
+        if (_tileToCorpId != null && _tileToCorpId.TryGetValue(tile.tileId, out string corpId))
+            sb.Append($"\nCorp: {corpId[..Mathf.Min(8, corpId.Length)]}");
+
+        // Ajouter icône construction si en cours
+        if (_constructionTileIds != null && _constructionTileIds.Contains(tile.tileId))
+            sb.Append("  \u2699");
+
+        _hoverTooltipFired = true;
+        Vector2 mousePos = Mouse.current != null
+            ? Mouse.current.position.ReadValue()
+            : Vector2.zero;
+        OnTileHoverReady?.Invoke(sb.ToString(), mousePos);
     }
 
     private void TintFace(Color[] meshColors, int faceId)
@@ -875,6 +1001,16 @@ public class PlanetSphereGoldberg : MonoBehaviour
     /// </summary>
     private void ApplyLodLevel(int level)
     {
+        // Invalider l'état tooltip au changement LOD
+        _faceToTile         = null;
+        _hoverFaceCandidate = -1;
+        _hoverStartTime     = -1f;
+        if (_hoverTooltipFired)
+        {
+            _hoverTooltipFired = false;
+            OnTileHoverCancelled?.Invoke();
+        }
+
         var nextData = level == 1 ? _sphereDataHi : _sphereDataLo;
 
         // LOD haut : colorise avec res=2 si res=3 pas encore prêt
@@ -894,6 +1030,9 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         string label = level == 1 ? "HAUT" : "BAS";
         Debug.Log($"[PlanetSphereGoldberg] LOD → {label} ({nextData.faces.Length} faces) dist={cameraController?.OrbitDistance:F1}");
+
+        // Recalculer les frontières avec le nouveau mesh actif pour éviter le mismatch LOD.
+        RebuildBorderLoops();
 
         // Lance le fetch res=3 en arrière-plan (no-op si déjà fait ou en cours)
         if (level == 1) TryStartHiLodFetch();

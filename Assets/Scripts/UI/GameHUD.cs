@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.Networking;
 using UnityEngine.UI;
@@ -97,16 +98,48 @@ public class GameHUD : MonoBehaviour
     private GameObject      _nationalizationPanel;
     private TextMeshProUGUI _nationalizationLabel;
     private Button          _corruptBtn;
+    private string          _activeNationalizationId = "";
 
     // Scoreboard (Phase 7.5 — bottom HUD strip, always visible in local/planet view)
     private GameObject      _scoreboardPanel;
     private TextMeshProUGUI _scoreboardLabel;
+
+    // Trade routes + Expeditions (Phase 9.3 — panels différés, stubs actifs)
+    private GameObject      _tradeRoutePanel;
+    private GameObject      _expeditionPanel;
+
+    // Construction queue (Phase 10.5 — bâtiments en file d'attente)
+    private readonly List<ConstructionQueueItem> _pendingConstructions = new List<ConstructionQueueItem>();
+    private TextMeshProUGUI _constructionQueueLabel;  // label inline dans building section
+    private HashSet<string> _constructionTileIds = new HashSet<string>();  // pour overlay
 
     // DebugDrawer
     private GameObject      _debugDrawer;
     private GameObject      _corpListContent;
     private TextMeshProUGUI _debugStatus;
     private bool            _debugOpen;
+
+    // Ecology section (Phase 11.5)
+    private GameObject      _ecologyPanel;
+    private TextMeshProUGUI _ecologyLabel;
+
+    // Tooltip flottant (Phase 12 Polish)
+    private GameObject      _tooltipPanel;
+    private TextMeshProUGUI _tooltipLabel;
+
+    // Event feed panel (Phase 8 — flux permanent bas-gauche)
+    private GameObject      _eventFeedPanel;
+    private TextMeshProUGUI _eventFeedLabel;
+
+    // Event popup panel (Phase 8 — notification transitoire top-center)
+    private GameObject      _eventPopupPanel;
+    private TextMeshProUGUI _eventPopupLabel;
+    private int             _lastSeenEventTick = -1;
+
+    // Tick counter + credits TopBar (Polish)
+    private TextMeshProUGUI _tickCreditsLabel;
+    private int             _lastKnownTick       = -1;
+    private float           _selectedCorpCredits = float.NaN;
 
     // =========================================================
     // State
@@ -117,22 +150,6 @@ public class GameHUD : MonoBehaviour
     private readonly List<string> _corpIds   = new List<string>();
     private readonly List<string> _corpNames = new List<string>();
     private TMP_FontAsset _buildingIconFontAsset;
-    private bool            _hasCurrentTile = false;
-
-    // Trade routes section (Phase 9.1)
-    private GameObject      _tradeRoutePanel;
-    private TextMeshProUGUI _tradeRouteListLabel;
-
-    // Expeditions section (Phase 9.2)
-    private GameObject      _expeditionPanel;
-    private TextMeshProUGUI _expeditionListLabel;
-    private Button          _launchExpeditionBtn;
-    private TMP_InputField  _expeditionDestInput;
-
-    // Event toast (Phase 8)
-    private GameObject      _eventToastPanel;
-    private TextMeshProUGUI _eventToastLabel;
-    private string          _lastKnownEventId = "";
 
     // =========================================================
     // Lifecycle
@@ -155,7 +172,11 @@ public class GameHUD : MonoBehaviour
 
         Debug.Log($"[GameHUD] Start — planetSphere={(planetSphere != null ? planetSphere.name : "NULL")} viewManager={(viewManager != null ? viewManager.name : "NULL")}");
         if (planetSphere != null)
-            planetSphere.OnH3TileResolved += OnH3TileResolved;
+        {
+            planetSphere.OnH3TileResolved   += OnH3TileResolved;
+            planetSphere.OnTileHoverReady   += ShowTooltip;
+            planetSphere.OnTileHoverCancelled += HideTooltip;
+        }
         else
             Debug.LogWarning("[GameHUD] planetSphere NULL → OnH3TileResolved non connecté !");
 
@@ -167,7 +188,13 @@ public class GameHUD : MonoBehaviour
 
         EnsureBuildingIconFontAsset();
 
-        StartCoroutine(PollEventToastLoop());
+        if (!string.IsNullOrEmpty(simulationServerUrl))
+        {
+            StartCoroutine(PollEventFeed());
+            StartCoroutine(PollTickStatus());
+            StartCoroutine(PollScoreboard());
+            StartCoroutine(PollConstructionQueue());
+        }
 
         HandleViewChanged(viewManager != null ? viewManager.CurrentState : ViewManager.ViewState.Galaxy);
     }
@@ -177,7 +204,11 @@ public class GameHUD : MonoBehaviour
         ViewManager.OnViewChanged -= HandleViewChanged;
 
         if (planetSphere != null)
-            planetSphere.OnH3TileResolved -= OnH3TileResolved;
+        {
+            planetSphere.OnH3TileResolved   -= OnH3TileResolved;
+            planetSphere.OnTileHoverReady   -= ShowTooltip;
+            planetSphere.OnTileHoverCancelled -= HideTooltip;
+        }
 
         if (terraformHUD != null)
         {
@@ -208,6 +239,9 @@ public class GameHUD : MonoBehaviour
         _toggleViewBtn.gameObject.SetActive(inPlanet);
         _leftPanel.SetActive(inPlanet);
 
+        if (_scoreboardPanel != null)
+            _scoreboardPanel.SetActive(inPlanet);
+
         if (inPlanet && _toggleViewBtnLabel != null)
         {
             bool isGlobe = viewManager?.CurrentPlanetSubView == ViewManager.PlanetSubView.Globe;
@@ -229,10 +263,10 @@ public class GameHUD : MonoBehaviour
             return;
 
         _currentTile     = tile;
-        _hasCurrentTile = true;
         _tileStatus.text = "";
         RefreshBodyId();
         RefreshTileHeader(tile);
+        RefreshEcologyPanel();
         _rightPanel.SetActive(true);
         StartCoroutine(RefreshCorpListForTile());
         UpdateBuildTypeIconPreview(_buildTypeDropdown != null ? _buildTypeDropdown.value : 0);
@@ -331,7 +365,7 @@ public class GameHUD : MonoBehaviour
             // Détecte si la tuile courante est déjà claimée
             string ownerCorpId   = null;
             string ownerCorpName = null;
-            if (_hasCurrentTile && _currentTile.tileId != null)
+            if (_currentTile.tileId != null)
             {
                 foreach (var c in wrapper.items)
                 {
@@ -354,6 +388,13 @@ public class GameHUD : MonoBehaviour
                 _corpOwnerLabel.text = ownerCorpName;
                 Color col = GoldbergFaceColorizer.CorpColorFromId(ownerCorpId);
                 _corpBadge.color     = col;
+                // Mettre à jour le solde crédits dans le TopBar
+                int ownerIdx = _corpIds.IndexOf(ownerCorpId);
+                if (ownerIdx >= 0 && ownerIdx < wrapper.items.Length)
+                {
+                    _selectedCorpCredits = wrapper.items[ownerIdx].credits;
+                    UpdateTickCreditsLabel();
+                }
                 // Sélectionner la corpo propriétaire dans le dropdown
                 int idx = _corpIds.IndexOf(ownerCorpId);
                 if (idx >= 0) _corpDropdown.value = idx;
@@ -373,11 +414,14 @@ public class GameHUD : MonoBehaviour
             {
                 _corpOwnerLabel.text = "Non revendiquée";
                 _corpBadge.color     = new Color(0f, 0f, 0f, 0f);
-                RebuildBuildingListUI(null);
+                _selectedCorpCredits = float.NaN;
+                UpdateTickCreditsLabel();
+                RebuildBuildingListUI(null, null);
                 if (_marketPanel      != null) _marketPanel.SetActive(false);
                 if (_contractPanel    != null) _contractPanel.SetActive(false);
                 if (_tradeRoutePanel  != null) _tradeRoutePanel.SetActive(false);
                 if (_expeditionPanel  != null) _expeditionPanel.SetActive(false);
+                RefreshEcologyPanel();
             }
         }
     }
@@ -385,6 +429,33 @@ public class GameHUD : MonoBehaviour
     // =========================================================
     // Corp HTTP — DebugDrawer list
     // =========================================================
+
+    private static readonly Dictionary<string, string> _speciesNames = new()
+    {
+        {"cyanobacteria", "Cyanobactéries"}, {"algae", "Algues"}, {"grass", "Herbe"},
+        {"forest", "Forêt"}, {"herbivore", "Herbivores"}, {"insect", "Insectes"},
+    };
+
+    private void RefreshEcologyPanel()
+    {
+        if (_ecologyPanel == null) return;
+        if (_currentTile.species == null || _currentTile.species.Length == 0)
+        {
+            if (_ecologyLabel != null) _ecologyLabel.text = "Aucune espèce.";
+            _ecologyPanel.SetActive(true);
+            return;
+        }
+        var sb = new System.Text.StringBuilder();
+        foreach (var sp in _currentTile.species)
+        {
+            if (sp.density <= 0f) continue;
+            string name = _speciesNames.TryGetValue(sp.speciesId, out var n) ? n : sp.speciesId;
+            sb.AppendLine($"{name}: {sp.density * 100f:F0}%");
+        }
+        if (_ecologyLabel != null)
+            _ecologyLabel.text = sb.Length > 0 ? sb.ToString().TrimEnd() : "Aucune espèce active.";
+        _ecologyPanel.SetActive(true);
+    }
 
     private IEnumerator RefreshCorpsForDebug()
     {
@@ -479,7 +550,7 @@ public class GameHUD : MonoBehaviour
 
     private void OnClaimClicked()
     {
-        if (!_hasCurrentTile || _currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
+        if (_currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
         if (_corpIds.Count == 0)         { _tileStatus.text = "Aucune corporation.";         return; }
         int idx = _corpDropdown.value;
         if (idx < 0 || idx >= _corpIds.Count) return;
@@ -512,7 +583,7 @@ public class GameHUD : MonoBehaviour
 
     private void OnUnclaimClicked()
     {
-        if (!_hasCurrentTile || _currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
+        if (_currentTile.tileId == null) { _tileStatus.text = "Aucune tuile sélectionnée."; return; }
         if (_corpIds.Count == 0)         { _tileStatus.text = "Aucune corporation.";         return; }
         int idx = _corpDropdown.value;
         if (idx < 0 || idx >= _corpIds.Count) return;
@@ -556,7 +627,7 @@ public class GameHUD : MonoBehaviour
 
     private void OnBuildClicked()
     {
-        if (!_hasCurrentTile || _currentTile.tileId == null) return;
+        if (_currentTile.tileId == null) return;
         if (_corpIds.Count == 0)
         {
             _tileStatus.text = "<color=orange>Sélectionnez une corporation.</color>";
@@ -570,7 +641,7 @@ public class GameHUD : MonoBehaviour
 
     private IEnumerator DoConstructBuilding(string corpId, string bodyId, string tileId, int buildingType)
     {
-        _tileStatus.text = "Construction en cours...";
+        _tileStatus.text = "Construction en file d'attente...";
         string url = $"{simulationServerUrl.TrimEnd('/')}/game/corporations/{corpId}/buildings"
                    + $"?body_id={UnityWebRequest.EscapeURL(bodyId)}"
                    + $"&tile_id={UnityWebRequest.EscapeURL(tileId)}"
@@ -583,7 +654,12 @@ public class GameHUD : MonoBehaviour
             yield return req.SendWebRequest();
             if (req.result == UnityWebRequest.Result.Success)
             {
-                _tileStatus.text = "<color=#8f8>OK Batiment construit</color>";
+                ConstructionQueueItem item;
+                try { item = JsonUtility.FromJson<ConstructionQueueItem>(req.downloadHandler.text); }
+                catch { item = null; }
+
+                int ticks = item != null ? item.ticksRemaining : 0;
+                _tileStatus.text = $"<color=#ffdd88>\u2699 En construction ({ticks} ticks)</color>";
                 yield return RefreshBuildingsForTile(corpId, tileId);
             }
             else
@@ -602,7 +678,7 @@ public class GameHUD : MonoBehaviour
             yield return req.SendWebRequest();
             if (req.result != UnityWebRequest.Result.Success)
             {
-                RebuildBuildingListUI(null);
+                RebuildBuildingListUI(null, null);
                 yield break;
             }
 
@@ -610,7 +686,7 @@ public class GameHUD : MonoBehaviour
                 "{\"items\":" + req.downloadHandler.text + "}");
             if (wrapper?.items == null)
             {
-                RebuildBuildingListUI(null);
+                RebuildBuildingListUI(null, null);
                 yield break;
             }
 
@@ -621,7 +697,24 @@ public class GameHUD : MonoBehaviour
                     tileBuildings.Add(b);
             }
 
-            RebuildBuildingListUI(tileBuildings);
+            // Also fetch the construction queue for this tile
+            string queueUrl = $"{simulationServerUrl.TrimEnd('/')}/game/corporations/{corpId}/construction-queue";
+            List<ConstructionQueueItem> tileQueue = new List<ConstructionQueueItem>();
+            using (var qreq = UnityWebRequest.Get(queueUrl))
+            {
+                qreq.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+                yield return qreq.SendWebRequest();
+                if (qreq.result == UnityWebRequest.Result.Success)
+                {
+                    var qw = JsonUtility.FromJson<ConstructionQueueArrayWrapper>(
+                        "{\"items\":" + qreq.downloadHandler.text + "}");
+                    if (qw?.items != null)
+                        foreach (var item in qw.items)
+                            if (item.tileId == tileId) tileQueue.Add(item);
+                }
+            }
+
+            RebuildBuildingListUI(tileBuildings, tileQueue);
         }
     }
 
@@ -659,22 +752,12 @@ public class GameHUD : MonoBehaviour
                         CorpResourceType.Food           => "Nourriture",
                         CorpResourceType.Energy         => "Énergie",
                         CorpResourceType.ResearchPoints => "Recherche",
-                        CorpResourceType.Iron           => "Fer",
-                        CorpResourceType.Oxygen         => "Oxygène",
-                        CorpResourceType.Water          => "Eau",
-                        CorpResourceType.Tech           => "Tech",
                         _                               => l.resourceType.ToString(),
                     };
                     string trend = l.demand > l.supply + 0.01f ? "<color=#f88>+</color>"
                                  : l.supply > l.demand + 0.01f ? "<color=#8f8>-</color>"
                                  : "=";
-                    // Phase 9.4 — price velocity + sparkline
-                    string spark  = MakeSparkline(l.priceHistory);
-                    string velStr = l.priceVelocity >= 0f
-                        ? $"<color=#f88>▲{l.priceVelocity*100f:F1}%</color>"
-                        : $"<color=#8f8>▼{Mathf.Abs(l.priceVelocity)*100f:F1}%</color>";
-                    string trendSpark = spark.Length > 0 ? $" {spark}" : "";
-                    prices.AppendLine($"• {name}: {l.price:F2}  {trend}  {velStr}{trendSpark}  (O:{l.supply:F1} D:{l.demand:F1})");
+                    prices.AppendLine($"• {name}: {l.price:F2}  {trend}  (O:{l.supply:F1} D:{l.demand:F1})");
                 }
             }
             _marketPricesLabel.text = prices.Length > 0 ? prices.ToString().TrimEnd() : "–";
@@ -691,27 +774,29 @@ public class GameHUD : MonoBehaviour
             if (popReq.result == UnityWebRequest.Result.Success)
             {
                 CorporationData corp;
-                try   { corp = JsonUtility.FromJson<CorporationData>(popReq.downloadHandler.text); }
-                catch { goto showPop; }
-                if (corp.claimedTiles != null)
+                try
                 {
-                    foreach (var t in corp.claimedTiles)
+                    corp = JsonUtility.FromJson<CorporationData>(popReq.downloadHandler.text);
+                    if (corp.claimedTiles != null)
                     {
-                        if (t.tileId != tile.tileId || t.population == null) continue;
-                        foreach (var p in t.population)
+                        foreach (var t in corp.claimedTiles)
                         {
-                            switch (p.socialClass)
+                            if (t.tileId != tile.tileId || t.population == null) continue;
+                            foreach (var p in t.population)
                             {
-                                case SocialClass.Poor:   poor   += p.count; break;
-                                case SocialClass.Middle: middle += p.count; break;
-                                case SocialClass.Rich:   rich   += p.count; break;
+                                switch (p.socialClass)
+                                {
+                                    case SocialClass.Poor:   poor   += p.count; break;
+                                    case SocialClass.Middle: middle += p.count; break;
+                                    case SocialClass.Rich:   rich   += p.count; break;
+                                }
                             }
+                            break;
                         }
-                        break;
                     }
                 }
+                catch { /* population stays 0 */ }
             }
-            showPop:
             _marketPopLabel.text = $"Pauvres: {poor}  Classe moy.: {middle}  Riches: {rich}";
             _marketPanel.SetActive(true);
         }
@@ -764,10 +849,6 @@ public class GameHUD : MonoBehaviour
                     CorpResourceType.Food           => "Nourriture",
                     CorpResourceType.Energy         => "Énergie",
                     CorpResourceType.ResearchPoints => "Recherche",
-                    CorpResourceType.Iron           => "Fer",
-                    CorpResourceType.Oxygen         => "Oxygène",
-                    CorpResourceType.Water          => "Eau",
-                    CorpResourceType.Tech           => "Tech",
                     _                               => c.resourceType.ToString(),
                 };
                 sb.AppendLine($"• [{statusLabel}] {resName} {c.deliveredAmount:F0}/{c.resourceAmount:F0}  ↑{c.rewardCredits:F0}cr");
@@ -816,10 +897,6 @@ public class GameHUD : MonoBehaviour
                     CorpResourceType.Food           => "Nourriture",
                     CorpResourceType.Energy         => "Énergie",
                     CorpResourceType.ResearchPoints => "Recherche",
-                    CorpResourceType.Iron           => "Fer",
-                    CorpResourceType.Oxygen         => "Oxygène",
-                    CorpResourceType.Water          => "Eau",
-                    CorpResourceType.Tech           => "Tech",
                     _                               => c.resourceType.ToString(),
                 };
                 sb.AppendLine($"• [PUBLIC] {resName} {c.resourceAmount:F0}  ↑{c.rewardCredits:F0}cr");
@@ -904,278 +981,21 @@ public class GameHUD : MonoBehaviour
         }
     }
 
-    // ── Sparkline helper (Phase 9.4) ───────────────────────────────────────────────
-
-    private static string MakeSparkline(float[] history)
-    {
-        if (history == null || history.Length < 2) return "";
-        
-        const string blocks = "▁▂▃▄▅▆▇█";
-        float min = float.MaxValue, max = float.MinValue;
-        foreach (float v in history)
-        {
-            if (v < min) min = v;
-            if (v > max) max = v;
-        }
-        
-        if (max - min < 1e-3f) return new string('▄', history.Length);
-        
-        var sb = new StringBuilder();
-        foreach (float v in history)
-        {
-            int idx = Mathf.Clamp((int)((v - min) / (max - min) * 7.99f), 0, 7);
-            sb.Append(blocks[idx]);
-        }
-        return sb.ToString();
-    }
-
     private static string EscapeJson(string s) =>
         s?.Replace("\\", "\\\\").Replace("\"", "\\\"") ?? "";
 
-    // ── Trade Routes (Phase 9.3) ─────────────────────────────────────────────
-
-    [Serializable] private class CorpTradeRouteWrapper { public CorpTradeRoute[] items; }
+    // ── Trade Routes & Expeditions stubs (Phase 9.3) ─────────────────────────
 
     private IEnumerator RefreshTradeRoutesForTile(string tileId)
     {
-        if (_tradeRoutePanel == null) yield break;
-
-        string url = $"{simulationServerUrl.TrimEnd('/')}/game/trade-routes/by-tile/{UnityWebRequest.EscapeURL(tileId)}";
-        using (UnityWebRequest req = UnityWebRequest.Get(url))
-        {
-            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-            yield return req.SendWebRequest();
-
-            if (req.result != UnityWebRequest.Result.Success)
-            {
-                _tradeRoutePanel.SetActive(false);
-                yield break;
-            }
-
-            CorpTradeRoute[] routes;
-            try
-            {
-                string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-                routes = JsonUtility.FromJson<CorpTradeRouteWrapper>(wrapped)?.items;
-            }
-            catch { _tradeRoutePanel.SetActive(false); yield break; }
-
-            if (routes == null || routes.Length == 0)
-            {
-                _tradeRoutePanel.SetActive(false);
-                yield break;
-            }
-
-            var sb = new StringBuilder();
-            foreach (var r in routes)
-            {
-                string typeStr = r.routeType switch
-                {
-                    CorpTradeRouteType.Land     => "Terre",
-                    CorpTradeRouteType.Maritime => "Mer",
-                    CorpTradeRouteType.Orbital  => "Orbital",
-                    _                           => r.routeType.ToString(),
-                };
-                string statusStr = r.status == CorpTradeRouteStatus.Active
-                    ? "<color=#8f8>Active</color>"
-                    : "<color=#f88>Suspendue</color>";
-                sb.AppendLine($"• [{typeStr}] {r.fromTileId[..Math.Min(6, r.fromTileId.Length)]}→{r.toTileId[..Math.Min(6, r.toTileId.Length)]}  Eff:{r.currentEfficiency:P0}  {statusStr}");
-            }
-
-            _tradeRouteListLabel.text = sb.ToString().TrimEnd();
-            _tradeRoutePanel.SetActive(true);
-        }
+        if (_tradeRoutePanel != null) _tradeRoutePanel.SetActive(false);
+        yield break; // TODO Phase 9.3
     }
-
-    // ── Expeditions (Phase 9.3) ───────────────────────────────────────────────
-
-    [Serializable] private class CorpExpeditionWrapper { public CorpExpeditionUnit[] items; }
 
     private IEnumerator RefreshExpeditionsForCorp(string corpId)
     {
-        if (_expeditionPanel == null) yield break;
-
-        // Check if tile has a port-type building — show launch button only if so
-        bool hasPort = false;
-        if (_buildingListContent != null)
-        {
-            foreach (var lbl in _buildingListContent.GetComponentsInChildren<TextMeshProUGUI>())
-            {
-                string t = lbl.text;
-                if (t.Contains("Route") || t.Contains("Port maritime") || t.Contains("Spatioport"))
-                {
-                    hasPort = true;
-                    break;
-                }
-            }
-        }
-        if (_launchExpeditionBtn != null)
-            _launchExpeditionBtn.interactable = hasPort;
-
-        string url = $"{simulationServerUrl.TrimEnd('/')}/game/expeditions?corp_id={UnityWebRequest.EscapeURL(corpId)}";
-        using (UnityWebRequest req = UnityWebRequest.Get(url))
-        {
-            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-            yield return req.SendWebRequest();
-
-            if (req.result != UnityWebRequest.Result.Success)
-            {
-                _expeditionListLabel.text = "";
-                _expeditionPanel.SetActive(hasPort);
-                yield break;
-            }
-
-            CorpExpeditionUnit[] exps;
-            try
-            {
-                string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-                exps = JsonUtility.FromJson<CorpExpeditionWrapper>(wrapped)?.items;
-            }
-            catch { _expeditionPanel.SetActive(hasPort); yield break; }
-
-            var sb = new StringBuilder();
-            if (exps != null)
-            {
-                foreach (var e in exps)
-                {
-                    if (e.status != CorpExpeditionStatus.InTransit) continue;
-                    string typeStr = e.routeType switch
-                    {
-                        CorpTradeRouteType.Land     => "Terre",
-                        CorpTradeRouteType.Maritime => "Mer",
-                        CorpTradeRouteType.Orbital  => "Orbital",
-                        _                           => e.routeType.ToString(),
-                    };
-                    sb.AppendLine($"• [{typeStr}] {e.fromPortTileId[..Math.Min(6, e.fromPortTileId.Length)]}→{e.toPortTileId[..Math.Min(6, e.toPortTileId.Length)]}  {e.ticksRemaining}/{e.totalTicks} ticks");
-                }
-            }
-            _expeditionListLabel.text = sb.Length > 0 ? sb.ToString().TrimEnd() : "(aucune en cours)";
-            _expeditionPanel.SetActive(true);
-        }
-    }
-
-    private IEnumerator DoLaunchExpedition()
-    {
-        if (!_hasCurrentTile || string.IsNullOrEmpty(_currentTile.tileId)) yield break;
-        int corpIdx = _corpIds.Count > 0 ? _corpDropdown.value : -1;
-        if (corpIdx < 0 || corpIdx >= _corpIds.Count) yield break;
-        string corpId  = _corpIds[corpIdx];
-        string destTile = _expeditionDestInput != null ? _expeditionDestInput.text.Trim() : "";
-        if (string.IsNullOrEmpty(destTile))
-        {
-            _tileStatus.text = "<color=orange>Entrez un tile destination</color>";
-            yield break;
-        }
-
-        _tileStatus.text = "Lancement expédition...";
-        string url  = simulationServerUrl.TrimEnd('/') + "/game/expeditions";
-        string json = $"{{\"corp_id\":\"{EscapeJson(corpId)}\",\"from_tile\":\"{EscapeJson(_currentTile.tileId)}\",\"to_tile\":\"{EscapeJson(destTile)}\",\"body_id\":\"{EscapeJson(_activeBodyId)}\",\"route_type\":2}}";
-        byte[] body = Encoding.UTF8.GetBytes(json);
-        using (UnityWebRequest req = new UnityWebRequest(url, "POST"))
-        {
-            req.uploadHandler   = new UploadHandlerRaw(body);
-            req.downloadHandler = new DownloadHandlerBuffer();
-            req.SetRequestHeader("Content-Type", "application/json");
-            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-            yield return req.SendWebRequest();
-            if (req.result == UnityWebRequest.Result.Success)
-            {
-                _tileStatus.text = "<color=#8f8>Expédition lancée !</color>";
-                if (_expeditionDestInput != null) _expeditionDestInput.text = "";
-                yield return RefreshExpeditionsForCorp(corpId);
-            }
-            else
-            {
-                string msg = req.downloadHandler?.text ?? req.error;
-                _tileStatus.text = $"<color=red>{msg}</color>";
-            }
-        }
-    }
-
-    private IEnumerator DoCorruptNationalization()
-    {
-        if (!_hasCurrentTile || string.IsNullOrEmpty(_currentTile.tileId)) yield break;
-        _tileStatus.text = "Corruption en cours...";
-        string url = simulationServerUrl.TrimEnd('/')
-            + $"/game/corporations/corrupt-nationalization"
-            + $"?body_id={UnityWebRequest.EscapeURL(_activeBodyId)}"
-            + $"&tile_id={UnityWebRequest.EscapeURL(_currentTile.tileId)}";
-        using (UnityWebRequest req = UnityWebRequest.PostWwwForm(url, ""))
-        {
-            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-            yield return req.SendWebRequest();
-            if (req.result == UnityWebRequest.Result.Success)
-            {
-                _tileStatus.text = "<color=#8f8>Corruption réussie</color>";
-                planetSphere?.RefreshOwnershipOverlay();
-                if (_debugOpen) StartCoroutine(RefreshCorpsForDebug());
-            }
-            else
-            {
-                _tileStatus.text = $"<color=red>{req.downloadHandler?.text ?? req.error}</color>";
-            }
-        }
-    }
-
-    // ── Event toast polling (Phase 8) ────────────────────────────────────────
-
-    private IEnumerator PollEventToastLoop()
-    {
-        while (true)
-        {
-            yield return new WaitForSeconds(10f);
-
-            string url = simulationServerUrl.TrimEnd('/') + "/game/events?limit=1";
-            using (UnityWebRequest req = UnityWebRequest.Get(url))
-            {
-                req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-                yield return req.SendWebRequest();
-
-                if (req.result == UnityWebRequest.Result.Success)
-                {
-                    string json = req.downloadHandler.text;
-                    var wrapper = JsonUtility.FromJson<GameEventListWrapper>("{\"items\":" + json + "}");
-                    if (wrapper != null && wrapper.items != null && wrapper.items.Length > 0)
-                    {
-                        var ev = wrapper.items[0];
-                        if (ev.id != _lastKnownEventId)
-                            ShowEventToast(ev);
-                    }
-                }
-            }
-        }
-    }
-
-    private void ShowEventToast(GameEventData ev)
-    {
-        _lastKnownEventId = ev.id;
-
-        Color accent;
-        switch (ev.eventType)
-        {
-            case GameEventType.RencontreAlienne:    accent = new Color(0f,   1f,   1f);   break;
-            case GameEventType.TempeteSolaire:      accent = new Color(1f,   0.9f, 0f);   break;
-            case GameEventType.DecouverteMiniere:   accent = new Color(0.3f, 1f,   0.3f); break;
-            case GameEventType.CriseEconomique:     accent = new Color(1f,   0.2f, 0.2f); break;
-            case GameEventType.SabotageCorpo:       accent = new Color(1f,   0.5f, 0f);   break;
-            case GameEventType.Rebellion:           accent = new Color(1f,   0f,   1f);   break;
-            case GameEventType.MigrationPopulation: accent = new Color(0.4f, 0.8f, 1f);   break;
-            default:                                accent = Color.white;                  break;
-        }
-
-        string hexColor = ColorUtility.ToHtmlStringRGB(accent);
-        _eventToastLabel.text  = $"<color=#{hexColor}><b>[{ev.name}]</b></color>  {ev.description}";
-        _eventToastLabel.color = Color.white;
-
-        _eventToastPanel.SetActive(true);
-        StartCoroutine(AutoDismissToast(6f));
-    }
-
-    private IEnumerator AutoDismissToast(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        if (_eventToastPanel != null)
-            _eventToastPanel.SetActive(false);
+        if (_expeditionPanel != null) _expeditionPanel.SetActive(false);
+        yield break; // TODO Phase 9.3
     }
 
     // =========================================================
@@ -1200,8 +1020,10 @@ public class GameHUD : MonoBehaviour
         BuildLeftPanel();
         BuildRightPanel();
         BuildScoreboardPanel();
-        BuildEventToastPanel();
         BuildDebugDrawer();
+        BuildEventFeedPanel();
+        BuildEventPopupPanel();
+        BuildTooltipPanel();
     }
 
     // ── TopBar ───────────────────────────────────────────────────────────────
@@ -1241,6 +1063,17 @@ public class GameHUD : MonoBehaviour
         _planetLabel.fontStyle = FontStyles.Bold;
         _planetLabel.color     = Color.white;
         _planetLabel.alignment = TextAlignmentOptions.Center;
+
+        // Tick counter + crédits (Polish)
+        GameObject tickGo = new GameObject("TickCreditsLabel", typeof(RectTransform));
+        tickGo.transform.SetParent(_topBar.transform, false);
+        var tickLe = tickGo.AddComponent<LayoutElement>();
+        tickLe.preferredWidth = 180;
+        _tickCreditsLabel = tickGo.AddComponent<TextMeshProUGUI>();
+        _tickCreditsLabel.fontSize  = 11;
+        _tickCreditsLabel.color     = new Color(0.75f, 0.75f, 0.75f);
+        _tickCreditsLabel.alignment = TextAlignmentOptions.Center;
+        _tickCreditsLabel.text      = "Tick —";
 
         // Globe / Carte toggle
         _toggleViewBtn = MakeTopBarButton("Vue Carte", new Color(0.22f, 0.38f, 0.62f), 130);
@@ -1526,7 +1359,7 @@ public class GameHUD : MonoBehaviour
         buildingListLayout.childForceExpandHeight = false;
         var buildingListFitter = _buildingListContent.AddComponent<ContentSizeFitter>();
         buildingListFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        RebuildBuildingListUI(null);
+        RebuildBuildingListUI(null, null);
 
         // Market section (Phase 7.3) — visible when tile belongs to local corp
         _marketPanel = new GameObject("MarketPanel", typeof(RectTransform));
@@ -1540,7 +1373,7 @@ public class GameHUD : MonoBehaviour
 
         MakeLabel(_marketPanel, "── Marché local ──", 10, false, 10, new Color(0.55f, 0.55f, 0.55f)).transform.SetParent(_marketPanel.transform, false);
         _marketPricesLabel = MakeLabel(_marketPanel, "", 11, false, 0, Color.white);
-        _marketPricesLabel.GetComponent<LayoutElement>().preferredHeight = 80;
+        _marketPricesLabel.GetComponent<LayoutElement>().preferredHeight = 60;
         MakeLabel(_marketPanel, "── Population ──", 10, false, 6, new Color(0.55f, 0.55f, 0.55f)).transform.SetParent(_marketPanel.transform, false);
         _marketPopLabel = MakeLabel(_marketPanel, "", 11, false, 0, Color.white);
         _marketPopLabel.GetComponent<LayoutElement>().preferredHeight = 30;
@@ -1576,6 +1409,7 @@ public class GameHUD : MonoBehaviour
         _bidBtn.onClick.AddListener(   () => StartCoroutine(DoBidOnSelected()));
         _acceptBtn.onClick.AddListener(() => StartCoroutine(DoAcceptSelected()));
         _breakBtn.onClick.AddListener( () => StartCoroutine(DoBreakSelected()));
+        AddTooltipTrigger(_breakBtn.gameObject, "Rompre ce contrat. Une pénalité en crédits sera appliquée et votre réputation sera dégradée.");
 
         _contractPanel.SetActive(false);
 
@@ -1604,74 +1438,37 @@ public class GameHUD : MonoBehaviour
 
         _corruptBtn = MakeTextButton(natBtnRow, "Corrompre");
         _corruptBtn.onClick.AddListener(() => StartCoroutine(DoCorruptNationalization()));
+        AddTooltipTrigger(_corruptBtn.gameObject, "Verse un pot-de-vin pour retarder ou annuler la nationalisation. Coût proportionnel au délai restant.");
 
         _nationalizationPanel.SetActive(false);
+
+        // ── Section Écologie (Phase 11.5) ─────────────────────────────────────
+        MakeSeparator(rp);
+        _ecologyPanel = new GameObject("EcologyPanel", typeof(RectTransform));
+        _ecologyPanel.transform.SetParent(rp.transform, false);
+        var ecVl = _ecologyPanel.AddComponent<VerticalLayoutGroup>();
+        ecVl.spacing = 4;
+        ecVl.childControlWidth = true;
+        ecVl.childControlHeight = false;
+        ecVl.childForceExpandWidth = true;
+        ecVl.childForceExpandHeight = false;
+        _ecologyPanel.AddComponent<LayoutElement>().flexibleWidth = 1f;
+
+        MakeLabel(_ecologyPanel, "── Écologie ──", 10, false, 14, new Color(0.55f, 0.55f, 0.55f)).transform.SetParent(_ecologyPanel.transform, false);
+        GameObject ecLblGo = new GameObject("EcologyLabel", typeof(RectTransform));
+        ecLblGo.transform.SetParent(_ecologyPanel.transform, false);
+        ecLblGo.AddComponent<LayoutElement>().preferredHeight = 70;
+        _ecologyLabel = ecLblGo.AddComponent<TextMeshProUGUI>();
+        _ecologyLabel.fontSize  = 11;
+        _ecologyLabel.color     = new Color(0.85f, 0.85f, 0.85f);
+        _ecologyLabel.alignment = TextAlignmentOptions.TopLeft;
+        _ecologyPanel.SetActive(false);
 
         // Status label
         _tileStatus = MakeLabel(rp, "", 12, false, 20, new Color(0.5f, 1f, 0.55f));
         _tileStatus.alignment = TextAlignmentOptions.Center;
 
         _rightPanel.SetActive(false);
-    }
-
-    // ── Scoreboard ───────────────────────────────────────────────────────────
-
-    private void BuildScoreboardPanel()
-    {
-        _scoreboardPanel = new GameObject("ScoreboardPanel", typeof(RectTransform));
-        _scoreboardPanel.transform.SetParent(_canvas.transform, false);
-        var rt = _scoreboardPanel.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0, 0);
-        rt.anchorMax = new Vector2(1, 0);
-        rt.pivot     = new Vector2(0.5f, 0);
-        rt.offsetMin = new Vector2(0, 0);
-        rt.offsetMax = new Vector2(0, 40);  // 40px high, bottom strip
-
-        _scoreboardPanel.AddComponent<Image>().color = new Color(0.05f, 0.05f, 0.07f, 0.85f);
-
-        var hl = _scoreboardPanel.AddComponent<HorizontalLayoutGroup>();
-        hl.padding            = new RectOffset(12, 12, 8, 8);
-        hl.spacing            = 10;
-        hl.childControlWidth  = false;
-        hl.childControlHeight = true;
-        hl.childForceExpandWidth  = false;
-        hl.childForceExpandHeight = true;
-
-        _scoreboardLabel = MakeLabel(_scoreboardPanel, "Scoreboard: Loading...", 10, false, 14, Color.white);
-        _scoreboardLabel.GetComponent<LayoutElement>().flexibleWidth = 1;
-    }
-
-    // ── EventToast ───────────────────────────────────────────────────────────
-
-    private void BuildEventToastPanel()
-    {
-        _eventToastPanel = new GameObject("EventToastPanel", typeof(RectTransform));
-        _eventToastPanel.transform.SetParent(_canvas.transform, false);
-        var rt = _eventToastPanel.GetComponent<RectTransform>();
-        rt.anchorMin        = new Vector2(0.1f, 0f);
-        rt.anchorMax        = new Vector2(0.9f, 0f);
-        rt.pivot            = new Vector2(0.5f, 0f);
-        rt.anchoredPosition = new Vector2(0f, 8f);
-        rt.sizeDelta        = new Vector2(0f, 64f);
-
-        var bg = _eventToastPanel.AddComponent<Image>();
-        bg.color = new Color(0f, 0f, 0f, 0.85f);
-
-        var labelGo = new GameObject("EventToastLabel", typeof(RectTransform));
-        labelGo.transform.SetParent(_eventToastPanel.transform, false);
-        var lrt = labelGo.GetComponent<RectTransform>();
-        lrt.anchorMin  = Vector2.zero;
-        lrt.anchorMax  = Vector2.one;
-        lrt.offsetMin  = new Vector2(8f, 4f);
-        lrt.offsetMax  = new Vector2(-8f, -4f);
-
-        _eventToastLabel = labelGo.AddComponent<TextMeshProUGUI>();
-        _eventToastLabel.fontSize  = 12;
-        _eventToastLabel.color     = Color.white;
-        _eventToastLabel.alignment = TextAlignmentOptions.Center;
-        _eventToastLabel.richText  = true;
-
-        _eventToastPanel.SetActive(false);
     }
 
     // ── DebugDrawer ──────────────────────────────────────────────────────────
@@ -1894,7 +1691,7 @@ public class GameHUD : MonoBehaviour
         }
     }
 
-    private void RebuildBuildingListUI(List<BuildingDataItem> buildings)
+    private void RebuildBuildingListUI(List<BuildingDataItem> buildings, List<ConstructionQueueItem> queue)
     {
         if (_buildingListContent == null)
             return;
@@ -1902,7 +1699,10 @@ public class GameHUD : MonoBehaviour
         foreach (Transform child in _buildingListContent.transform)
             Destroy(child.gameObject);
 
-        if (buildings == null || buildings.Count == 0)
+        bool hasBuildings = buildings != null && buildings.Count > 0;
+        bool hasQueue     = queue != null && queue.Count > 0;
+
+        if (!hasBuildings && !hasQueue)
         {
             TextMeshProUGUI emptyLabel = MakeLabel(_buildingListContent, "Aucun bâtiment", 11, false, 20, new Color(0.75f, 0.75f, 0.75f));
             emptyLabel.alignment = TextAlignmentOptions.TopLeft;
@@ -1910,36 +1710,198 @@ public class GameHUD : MonoBehaviour
         }
 
         TMP_FontAsset iconFont = EnsureBuildingIconFontAsset();
-        foreach (BuildingDataItem building in buildings)
+
+        if (hasBuildings)
         {
-            GameHUDBuildingIconDefinition iconDef = GameHUDBuildingIcons.Get(building.buildingType);
+            foreach (BuildingDataItem building in buildings)
+            {
+                GameHUDBuildingIconDefinition iconDef = GameHUDBuildingIcons.Get(building.buildingType);
 
-            GameObject row = new GameObject("BuildingRow", typeof(RectTransform));
-            row.transform.SetParent(_buildingListContent.transform, false);
-            row.AddComponent<LayoutElement>().preferredHeight = 22;
-            var rowLayout = row.AddComponent<HorizontalLayoutGroup>();
-            rowLayout.spacing = 6;
-            rowLayout.childControlHeight = true;
-            rowLayout.childControlWidth = false;
-            rowLayout.childForceExpandWidth = false;
+                GameObject row = new GameObject("BuildingRow", typeof(RectTransform));
+                row.transform.SetParent(_buildingListContent.transform, false);
+                row.AddComponent<LayoutElement>().preferredHeight = 22;
+                var rowLayout = row.AddComponent<HorizontalLayoutGroup>();
+                rowLayout.spacing = 6;
+                rowLayout.childControlHeight = true;
+                rowLayout.childControlWidth = false;
+                rowLayout.childForceExpandWidth = false;
+                row.AddComponent<Image>().color = Color.clear;
+                AddTooltipTrigger(row, iconDef.TooltipText);
 
-            GameObject iconGo = new GameObject("Icon", typeof(RectTransform));
-            iconGo.transform.SetParent(row.transform, false);
-            var iconLe = iconGo.AddComponent<LayoutElement>();
-            iconLe.preferredWidth = 18;
-            iconLe.preferredHeight = 18;
-            var iconLabel = iconGo.AddComponent<TextMeshProUGUI>();
-            ApplyBuildingIcon(iconLabel, iconDef, 14);
+                GameObject iconGo = new GameObject("Icon", typeof(RectTransform));
+                iconGo.transform.SetParent(row.transform, false);
+                var iconLe = iconGo.AddComponent<LayoutElement>();
+                iconLe.preferredWidth = 18;
+                iconLe.preferredHeight = 18;
+                var iconLabel = iconGo.AddComponent<TextMeshProUGUI>();
+                ApplyBuildingIcon(iconLabel, iconDef, 14);
 
-            GameObject labelGo = new GameObject("Label", typeof(RectTransform));
-            labelGo.transform.SetParent(row.transform, false);
-            labelGo.AddComponent<LayoutElement>().flexibleWidth = 1;
-            var label = labelGo.AddComponent<TextMeshProUGUI>();
-            label.fontSize = 11;
-            label.color = Color.white;
-            label.alignment = TextAlignmentOptions.MidlineLeft;
-            label.text = $"{iconDef.DisplayName}  <size=10><color=#AAAAAA>(tick {building.ticksActive}, staff {building.workerRatio * 100f:F0}%)</color></size>";
-            label.overflowMode = TextOverflowModes.Ellipsis;
+                GameObject labelGo = new GameObject("Label", typeof(RectTransform));
+                labelGo.transform.SetParent(row.transform, false);
+                labelGo.AddComponent<LayoutElement>().flexibleWidth = 1;
+                var label = labelGo.AddComponent<TextMeshProUGUI>();
+                label.fontSize = 11;
+                label.color = Color.white;
+                label.alignment = TextAlignmentOptions.MidlineLeft;
+                label.text = $"{iconDef.DisplayName}  <size=10><color=#AAAAAA>(tick {building.ticksActive}, staff {building.workerRatio * 100f:F0}%)</color></size>";
+                label.overflowMode = TextOverflowModes.Ellipsis;
+
+                // Worker ratio slider
+                GameObject sliderGo = new GameObject("WorkerSlider", typeof(RectTransform));
+                sliderGo.transform.SetParent(row.transform, false);
+                var sliderLe = sliderGo.AddComponent<LayoutElement>();
+                sliderLe.preferredWidth = 60;
+                sliderLe.preferredHeight = 16;
+                var slider = sliderGo.AddComponent<Slider>();
+                slider.minValue = 0f;
+                slider.maxValue = 1f;
+                slider.wholeNumbers = false;
+                slider.value = building.workerRatio;
+                // capture variables for closure
+                string bid   = building.buildingId;
+                string bcorp = building.corpId;
+                slider.onValueChanged.AddListener((v) =>
+                {
+                    StopAllCoroutines();  // throttle — caller side note: only this one ideally
+                    StartCoroutine(PatchWorkerRatio(bcorp, bid, v));
+                    // restart pollers
+                    StartCoroutine(PollEventFeed());
+                    StartCoroutine(PollTickStatus());
+                    StartCoroutine(PollScoreboard());
+                    StartCoroutine(PollConstructionQueue());
+                });
+            }
+        }
+
+        // ── En construction ───────────────────────────────────────────
+        if (hasQueue)
+        {
+            if (hasBuildings) MakeSeparator(_buildingListContent);
+
+            TextMeshProUGUI queueHeader = MakeLabel(_buildingListContent, "\u2699 En construction", 10, false, 18, new Color(1f, 0.75f, 0.2f));
+            queueHeader.alignment = TextAlignmentOptions.TopLeft;
+
+            foreach (ConstructionQueueItem item in queue)
+            {
+                GameHUDBuildingIconDefinition iconDef = GameHUDBuildingIcons.Get(item.buildingType);
+
+                GameObject row = new GameObject("QueueRow", typeof(RectTransform));
+                row.transform.SetParent(_buildingListContent.transform, false);
+                row.AddComponent<LayoutElement>().preferredHeight = 32;
+                var rowLayout = row.AddComponent<VerticalLayoutGroup>();
+                rowLayout.spacing = 2;
+                rowLayout.childControlWidth = true;
+                rowLayout.childForceExpandWidth = true;
+                row.AddComponent<Image>().color = new Color(0.2f, 0.2f, 0.05f, 0.5f);
+
+                // Top row: icon + label
+                GameObject topRow = new GameObject("TopRow", typeof(RectTransform));
+                topRow.transform.SetParent(row.transform, false);
+                topRow.AddComponent<LayoutElement>().preferredHeight = 18;
+                var topLayout = topRow.AddComponent<HorizontalLayoutGroup>();
+                topLayout.spacing = 4;
+                topLayout.childControlHeight = true;
+                topLayout.childControlWidth = false;
+                topLayout.childForceExpandWidth = false;
+
+                GameObject iconGo = new GameObject("Icon", typeof(RectTransform));
+                iconGo.transform.SetParent(topRow.transform, false);
+                var iconLe = iconGo.AddComponent<LayoutElement>();
+                iconLe.preferredWidth = 16;
+                iconLe.preferredHeight = 16;
+                var iconLabel = iconGo.AddComponent<TextMeshProUGUI>();
+                ApplyBuildingIcon(iconLabel, iconDef, 12);
+
+                GameObject labelGo = new GameObject("Label", typeof(RectTransform));
+                labelGo.transform.SetParent(topRow.transform, false);
+                labelGo.AddComponent<LayoutElement>().flexibleWidth = 1;
+                var label = labelGo.AddComponent<TextMeshProUGUI>();
+                label.fontSize = 10;
+                label.color = new Color(1f, 0.9f, 0.5f);
+                label.alignment = TextAlignmentOptions.MidlineLeft;
+                string statusStr = item.status == 1 ? "en cours" : "en attente";
+                label.text = $"{iconDef.DisplayName}  <color=#888>({statusStr}, {item.ticksRemaining} ticks)</color>";
+                label.overflowMode = TextOverflowModes.Ellipsis;
+
+                // Progress bar
+                if (item.totalCostPts > 0)
+                {
+                    GameObject barBg = new GameObject("BarBg", typeof(RectTransform));
+                    barBg.transform.SetParent(row.transform, false);
+                    var barBgLe = barBg.AddComponent<LayoutElement>();
+                    barBgLe.preferredHeight = 6;
+                    var barBgImg = barBg.AddComponent<Image>();
+                    barBgImg.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+
+                    GameObject barFill = new GameObject("BarFill", typeof(RectTransform));
+                    barFill.transform.SetParent(barBg.transform, false);
+                    var fillImg = barFill.AddComponent<Image>();
+                    fillImg.color = new Color(1f, 0.7f, 0f, 1f);
+                    var fillRt = barFill.GetComponent<RectTransform>();
+                    fillRt.anchorMin = Vector2.zero;
+                    fillRt.anchorMax = new Vector2(0f, 1f);
+                    float pct = Mathf.Clamp01((float)item.pointsAccumulated / item.totalCostPts);
+                    fillRt.anchorMax = new Vector2(pct, 1f);
+                    fillRt.offsetMin = Vector2.zero;
+                    fillRt.offsetMax = Vector2.zero;
+                }
+            }
+        }
+    }
+
+    private IEnumerator PatchWorkerRatio(string corpId, string buildingId, float ratio)
+    {
+        string url = $"{simulationServerUrl.TrimEnd('/')}/game/corporations/{corpId}/buildings/{buildingId}/workers"
+                   + $"?worker_ratio={ratio:F2}";
+        using (var req = new UnityWebRequest(url, "PATCH"))
+        {
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
+            // silent failure — ratio is cosmetic until next tick refresh
+        }
+    }
+
+    private IEnumerator PollConstructionQueue()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(3f);
+
+            if (_corpIds == null || _corpIds.Count == 0) continue;
+            int corpIdx = Mathf.Clamp(_corpDropdown != null ? _corpDropdown.value : 0, 0, _corpIds.Count - 1);
+            string corpId = _corpIds[corpIdx];
+
+            string url = $"{simulationServerUrl.TrimEnd('/')}/game/corporations/{corpId}/construction-queue";
+            using (var req = UnityWebRequest.Get(url))
+            {
+                req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+                yield return req.SendWebRequest();
+                if (req.result != UnityWebRequest.Result.Success) continue;
+
+                var wrapper = JsonUtility.FromJson<ConstructionQueueArrayWrapper>(
+                    "{\"items\":" + req.downloadHandler.text + "}");
+                if (wrapper?.items == null) continue;
+
+                _pendingConstructions.Clear();
+                _constructionTileIds.Clear();
+                foreach (var item in wrapper.items)
+                {
+                    _pendingConstructions.Add(item);
+                    _constructionTileIds.Add(item.tileId);
+                }
+
+                // If the inspector is showing a tile with queue items, refresh the list
+                if (_currentTile.tileId != null && _constructionTileIds.Contains(_currentTile.tileId))
+                {
+                    var tileItems = new List<ConstructionQueueItem>();
+                    foreach (var item in _pendingConstructions)
+                        if (item.tileId == _currentTile.tileId) tileItems.Add(item);
+                    // We'd need the current active buildings — keep current list, just update queue section
+                    // For simplicity refresh the full tile data
+                    yield return RefreshBuildingsForTile(corpId, _currentTile.tileId);
+                }
+            }
         }
     }
 
@@ -2127,7 +2089,6 @@ public class GameHUD : MonoBehaviour
 
     [Serializable] private class CorpListWrapper { public CorporationData[] items; }
     [Serializable] private class BuildingDataArrayWrapper { public BuildingDataItem[] items; }
-    [Serializable] private class GameEventListWrapper { public GameEventData[] items; }
     [Serializable] private class BuildingDataItem
     {
         public string id;
@@ -2137,5 +2098,419 @@ public class GameHUD : MonoBehaviour
         public string corpId;
         public float  workerRatio;
         public int    ticksActive;
+        // Read-only alias used in worker-ratio closure
+        public string buildingId { get { return id; } }
+    }
+
+    [Serializable] private class ConstructionQueueArrayWrapper { public ConstructionQueueItem[] items; }
+    [Serializable] private class ConstructionQueueItem
+    {
+        public string id;
+        public int    buildingType;
+        public string tileId;
+        public string bodyId;
+        public string corpId;
+        public int    status;          // 0=Pending, 1=InProgress, 2=Done
+        public int    ticksRemaining;
+        public int    totalCostPts;
+        public int    pointsAccumulated;
+    }
+
+    // ── Event feed (Phase 8) ──────────────────────────────────────────────────
+
+    [Serializable] private class EventDataArrayWrapper { public EventData[] items; }
+
+    private void BuildEventPopupPanel()
+    {
+        _eventPopupPanel = new GameObject("EventPopupPanel", typeof(RectTransform));
+        _eventPopupPanel.transform.SetParent(_canvas.transform, false);
+        var rt = _eventPopupPanel.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 1f);
+        rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot     = new Vector2(0.5f, 1f);
+        rt.sizeDelta = new Vector2(380f, 80f);
+        rt.anchoredPosition = new Vector2(0f, -70f);
+
+        var bg = _eventPopupPanel.AddComponent<UnityEngine.UI.Image>();
+        bg.color = new Color(0.35f, 0.05f, 0.05f, 0.9f);
+
+        var labelGo = new GameObject("EventPopupLabel", typeof(RectTransform));
+        labelGo.transform.SetParent(_eventPopupPanel.transform, false);
+        var lrt = labelGo.GetComponent<RectTransform>();
+        lrt.anchorMin = Vector2.zero;
+        lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = new Vector2(8f, 4f);
+        lrt.offsetMax = new Vector2(-8f, -4f);
+
+        _eventPopupLabel = labelGo.AddComponent<TextMeshProUGUI>();
+        _eventPopupLabel.fontSize    = 12f;
+        _eventPopupLabel.alignment   = TextAlignmentOptions.Center;
+        _eventPopupLabel.color       = Color.white;
+        _eventPopupLabel.textWrappingMode = TextWrappingModes.Normal;
+
+        _eventPopupPanel.SetActive(false);
+    }
+
+    private IEnumerator ShowEventPopup(string text, float duration = 7f)
+    {
+        if (_eventPopupLabel != null) _eventPopupLabel.text = text;
+        if (_eventPopupPanel != null) _eventPopupPanel.SetActive(true);
+        yield return new WaitForSeconds(duration);
+        if (_eventPopupPanel != null) _eventPopupPanel.SetActive(false);
+    }
+
+    private void BuildEventFeedPanel()
+    {
+        _eventFeedPanel = new GameObject("EventFeedPanel", typeof(RectTransform));
+        _eventFeedPanel.transform.SetParent(_canvas.transform, false);
+
+        var rt = _eventFeedPanel.GetComponent<RectTransform>();
+        rt.anchorMin        = new Vector2(0f, 0f);
+        rt.anchorMax        = new Vector2(0f, 0f);
+        rt.pivot            = new Vector2(0f, 0f);
+        rt.anchoredPosition = new Vector2(10f, 10f);
+        rt.sizeDelta        = new Vector2(350f, 130f);
+
+        _eventFeedPanel.AddComponent<Image>().color = new Color(0.04f, 0.04f, 0.08f, 0.88f);
+
+        var vl = _eventFeedPanel.AddComponent<VerticalLayoutGroup>();
+        vl.padding              = new RectOffset(10, 10, 8, 8);
+        vl.spacing              = 4;
+        vl.childControlWidth    = true;
+        vl.childControlHeight   = false;
+        vl.childForceExpandWidth  = true;
+        vl.childForceExpandHeight = false;
+
+        // Header
+        var headerGo = new GameObject("Header", typeof(RectTransform));
+        headerGo.transform.SetParent(_eventFeedPanel.transform, false);
+        headerGo.AddComponent<LayoutElement>().preferredHeight = 16;
+        var headerTmp = headerGo.AddComponent<TextMeshProUGUI>();
+        headerTmp.text      = "\u2500\u2500 \u00c9v\u00e9nements r\u00e9cents \u2500\u2500";
+        headerTmp.fontSize  = 10;
+        headerTmp.color     = new Color(0.55f, 0.55f, 0.55f);
+        headerTmp.alignment = TextAlignmentOptions.Center;
+
+        // Content label
+        var lblGo = new GameObject("EventFeedLabel", typeof(RectTransform));
+        lblGo.transform.SetParent(_eventFeedPanel.transform, false);
+        lblGo.AddComponent<LayoutElement>().preferredHeight = 96;
+        _eventFeedLabel = lblGo.AddComponent<TextMeshProUGUI>();
+        _eventFeedLabel.fontSize     = 11;
+        _eventFeedLabel.color        = new Color(0.85f, 0.85f, 0.85f);
+        _eventFeedLabel.alignment    = TextAlignmentOptions.TopLeft;
+        _eventFeedLabel.overflowMode = TextOverflowModes.Ellipsis;
+
+        _eventFeedPanel.SetActive(false);
+    }
+
+    private void BuildScoreboardPanel()
+    {
+        _scoreboardPanel = new GameObject("ScoreboardPanel", typeof(RectTransform));
+        _scoreboardPanel.transform.SetParent(_canvas.transform, false);
+        var rt = _scoreboardPanel.GetComponent<RectTransform>();
+        rt.anchorMin        = new Vector2(0, 0);
+        rt.anchorMax        = new Vector2(1, 0);
+        rt.pivot            = new Vector2(0.5f, 0);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta        = new Vector2(0, 28);
+        _scoreboardPanel.AddComponent<Image>().color = new Color(0.04f, 0.04f, 0.08f, 0.88f);
+
+        var lblGo = new GameObject("ScoreboardLabel", typeof(RectTransform));
+        lblGo.transform.SetParent(_scoreboardPanel.transform, false);
+        var lrt = lblGo.GetComponent<RectTransform>();
+        lrt.anchorMin = Vector2.zero;
+        lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = new Vector2(10f, 2f);
+        lrt.offsetMax = new Vector2(-10f, -2f);
+        _scoreboardLabel = lblGo.AddComponent<TextMeshProUGUI>();
+        _scoreboardLabel.fontSize     = 11;
+        _scoreboardLabel.color        = new Color(0.85f, 0.85f, 0.85f);
+        _scoreboardLabel.alignment    = TextAlignmentOptions.Center;
+        _scoreboardLabel.overflowMode = TextOverflowModes.Ellipsis;
+
+        _scoreboardPanel.SetActive(false);
+    }
+
+    private IEnumerator PollEventFeed()
+    {
+        while (true)
+        {
+            string url = simulationServerUrl.TrimEnd('/') + "/game/events?limit=5";
+            using (UnityWebRequest req = UnityWebRequest.Get(url))
+            {
+                req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+                yield return req.SendWebRequest();
+
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    var wrapper = JsonUtility.FromJson<EventDataArrayWrapper>(
+                        "{\"items\":" + req.downloadHandler.text + "}");
+                    if (wrapper?.items != null && wrapper.items.Length > 0)
+                    {
+                        // Popup notification — only if we already had a baseline (skip first load)
+                        if (wrapper.items.Length > 0)
+                        {
+                            int newestTick = wrapper.items[0].tick;
+                            if (_lastSeenEventTick >= 0 && newestTick > _lastSeenEventTick)
+                            {
+                                var ev0 = wrapper.items[0];
+                                string popupText = $"\u26a1 {LocalizeEventType(ev0.eventType)} \u2014 {ev0.name}";
+                                StartCoroutine(ShowEventPopup(popupText));
+                            }
+                            _lastSeenEventTick = newestTick;
+                        }
+
+                        var sb = new System.Text.StringBuilder();
+                        foreach (var ev in wrapper.items)
+                        {
+                            string delta = ev.effect.creditsDelta != 0f
+                                ? $" \u0394{ev.effect.creditsDelta:+0;-0}\u00a2"
+                                : "";
+                            string entity = string.IsNullOrEmpty(ev.affectedEntityId)
+                                ? ""
+                                : $" [{ev.affectedEntityId}]";
+                            sb.AppendLine($"[t{ev.tick}] {ev.name}{entity}{delta}");
+                        }
+                        if (_eventFeedLabel != null)
+                            _eventFeedLabel.text = sb.ToString().TrimEnd();
+                        if (_eventFeedPanel != null)
+                            _eventFeedPanel.SetActive(true);
+                    }
+                    else
+                    {
+                        if (_eventFeedPanel != null)
+                            _eventFeedPanel.SetActive(false);
+                    }
+                }
+                // On network error, leave panel as-is (stale data is fine)
+            }
+            yield return new WaitForSeconds(30f);
+        }
+    }
+
+    // ── Tick Status polling (Polish) ─────────────────────────────────────────
+
+    [Serializable]
+    private class TickStatusDto
+    {
+        public int  tickCount;
+        public bool tickRunning;
+    }
+
+    private IEnumerator PollTickStatus()
+    {
+        while (true)
+        {
+            string url = simulationServerUrl.TrimEnd('/') + "/tick/status";
+            using (UnityWebRequest req = UnityWebRequest.Get(url))
+            {
+                req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+                yield return req.SendWebRequest();
+
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    var dto = JsonUtility.FromJson<TickStatusDto>(req.downloadHandler.text);
+                    if (dto != null)
+                    {
+                        _lastKnownTick = dto.tickCount;
+                        UpdateTickCreditsLabel();
+                    }
+                }
+            }
+            yield return new WaitForSeconds(10f);
+        }
+    }
+
+    private void UpdateTickCreditsLabel()
+    {
+        if (_tickCreditsLabel == null) return;
+        string tickPart = _lastKnownTick >= 0 ? $"Tick {_lastKnownTick}" : "Tick —";
+        if (!float.IsNaN(_selectedCorpCredits))
+            _tickCreditsLabel.text = $"{tickPart}  |  {_selectedCorpCredits:N0} cr";
+        else
+            _tickCreditsLabel.text = tickPart;
+    }
+
+    // ── Scoreboard polling (Phase 7.5) ─────────────────────────────────────
+
+    [Serializable]
+    private class ScoreboardEntryDto
+    {
+        public string corpId;
+        public string corpName;
+        public float  credits;
+        public int    tileCount;
+        public float  globalReputation;
+        public float  score;
+    }
+
+    [Serializable]
+    private class ScoreboardEntryList { public ScoreboardEntryDto[] items; }
+
+    private IEnumerator PollScoreboard()
+    {
+        while (true)
+        {
+            string url = simulationServerUrl.TrimEnd('/') + "/game/scoreboard";
+            using (var req = UnityWebRequest.Get(url))
+            {
+                req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+                yield return req.SendWebRequest();
+
+                if (req.result == UnityWebRequest.Result.Success && _scoreboardLabel != null)
+                {
+                    ScoreboardEntryDto[] entries;
+                    try
+                    {
+                        string wrapped = $"{{\"items\":{req.downloadHandler.text}}}";
+                        entries = JsonUtility.FromJson<ScoreboardEntryList>(wrapped).items;
+                    }
+                    catch { entries = null; }
+
+                    if (entries != null && entries.Length > 0)
+                    {
+                        var sb = new System.Text.StringBuilder();
+                        int shown = Mathf.Min(entries.Length, 3);
+                        for (int i = 0; i < shown; i++)
+                        {
+                            if (i > 0) sb.Append("  |  ");
+                            var e = entries[i];
+                            sb.Append($"#{i + 1} {e.corpName}  ({e.tileCount} tiles)  *{e.score:F2}");
+                        }
+                        _scoreboardLabel.text = sb.ToString();
+                    }
+                }
+            }
+            yield return new WaitForSeconds(30f);
+        }
+    }
+
+    // ── Nationalization corruption ────────────────────────────────────────────
+
+    private IEnumerator DoCorruptNationalization()
+    {
+        if (string.IsNullOrEmpty(_activeNationalizationId)) yield break;
+
+        int idx = _corpIds.Count > 0 ? _corpDropdown.value : -1;
+        if (idx < 0 || idx >= _corpIds.Count) yield break;
+        string corpId = _corpIds[idx];
+
+        string url  = $"{simulationServerUrl.TrimEnd('/')}/game/nationalizations/{_activeNationalizationId}/corrupt";
+        string json = $"{{\"corp_id\":\"{EscapeJson(corpId)}\",\"bribe_amount\":500}}";
+        byte[] body = Encoding.UTF8.GetBytes(json);
+        using (var req = new UnityWebRequest(url, "POST"))
+        {
+            req.uploadHandler   = new UploadHandlerRaw(body);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            yield return req.SendWebRequest();
+
+            if (req.result == UnityWebRequest.Result.Success)
+                _tileStatus.text = "Corruption r\u00e9ussie";
+            else
+                _tileStatus.text = "<color=red>Corruption \u00e9chou\u00e9e</color>";
+        }
+    }
+
+    // ── Event localisation (Polish) ──────────────────────────────────────────
+
+    private static string LocalizeEventType(EventType t) => t switch
+    {
+        EventType.RencontreAlienne        => "Rencontre Alien",
+        EventType.TempeteSolaire          => "Tempête Solaire",
+        EventType.DecouverteMiniere       => "Découverte Minière",
+        EventType.CriseEconomique         => "Crise Économique",
+        EventType.SabotageCorpo           => "Sabotage Corpo",
+        EventType.Rebellion               => "Rébellion",
+        EventType.MigrationPopulation     => "Migration Pop.",
+        EventType.DecouverteMegastructure => "Mégastructure",
+        EventType.EmpireGalactique        => "Empire Galactique",
+        _                                 => t.ToString(),
+    };
+
+    // ── Tooltip flottant (Phase 12 Polish) ────────────────────────────────────
+
+    private void BuildTooltipPanel()
+    {
+        _tooltipPanel = new GameObject("TooltipPanel", typeof(RectTransform));
+        _tooltipPanel.transform.SetParent(_canvas.transform, false);
+        var rt = _tooltipPanel.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot     = new Vector2(0f, 1f);
+        rt.sizeDelta = new Vector2(260f, 70f);
+
+        var bg = _tooltipPanel.AddComponent<Image>();
+        bg.color = new Color(0.06f, 0.06f, 0.10f, 0.96f);
+        bg.raycastTarget = false;
+
+        var labelGo = new GameObject("TooltipLabel", typeof(RectTransform));
+        labelGo.transform.SetParent(_tooltipPanel.transform, false);
+        var lrt = labelGo.GetComponent<RectTransform>();
+        lrt.anchorMin = Vector2.zero;
+        lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = new Vector2(8f,  6f);
+        lrt.offsetMax = new Vector2(-8f, -6f);
+
+        _tooltipLabel = labelGo.AddComponent<TextMeshProUGUI>();
+        _tooltipLabel.fontSize      = 11;
+        _tooltipLabel.color         = new Color(0.9f, 0.9f, 0.9f);
+        _tooltipLabel.alignment     = TextAlignmentOptions.TopLeft;
+        _tooltipLabel.overflowMode  = TextOverflowModes.Overflow;
+        _tooltipLabel.raycastTarget = false;
+
+        _tooltipPanel.SetActive(false);
+    }
+
+    private void ShowTooltip(string text, Vector2 screenPos)
+    {
+        if (_tooltipPanel == null) return;
+        _tooltipLabel.text = text;
+        _tooltipPanel.SetActive(true);
+        RepositionTooltip(screenPos);
+    }
+
+    private void HideTooltip()
+    {
+        if (_tooltipPanel != null)
+            _tooltipPanel.SetActive(false);
+    }
+
+    private void RepositionTooltip(Vector2 screenPos)
+    {
+        if (_tooltipPanel == null) return;
+        var rt       = _tooltipPanel.GetComponent<RectTransform>();
+        var canvasRt = _canvas.GetComponent<RectTransform>();
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRt, screenPos, null, out Vector2 local))
+            return;
+
+        local += new Vector2(14f, -14f);
+        Rect  canvasRect = canvasRt.rect;
+        float w          = rt.sizeDelta.x;
+        float h          = rt.sizeDelta.y;
+        local.x = Mathf.Clamp(local.x, canvasRect.xMin,     canvasRect.xMax - w);
+        local.y = Mathf.Clamp(local.y, canvasRect.yMin + h, canvasRect.yMax);
+        rt.anchoredPosition = local;
+    }
+
+    private void AddTooltipTrigger(GameObject go, string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var trigger  = go.AddComponent<TooltipTrigger>();
+        trigger.Text  = text;
+        trigger.Owner = this;
+    }
+
+    private class TooltipTrigger : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerMoveHandler
+    {
+        public string  Text;
+        public GameHUD Owner;
+
+        public void OnPointerEnter(PointerEventData e) => Owner?.ShowTooltip(Text, e.position);
+        public void OnPointerMove (PointerEventData e) => Owner?.RepositionTooltip(e.position);
+        public void OnPointerExit (PointerEventData e) => Owner?.HideTooltip();
     }
 }
+

@@ -111,6 +111,14 @@ public struct RegionOpenRequest
 }
 
 [System.Serializable]
+public struct ActionResult
+{
+    public bool success;
+    public string message;
+    public ViewStateSnapshot state;
+}
+
+[System.Serializable]
 public struct ProjectionSummary
 {
     public bool isValid;
