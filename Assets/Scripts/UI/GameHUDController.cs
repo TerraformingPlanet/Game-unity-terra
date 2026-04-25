@@ -38,6 +38,7 @@ public class GameHUDController : MonoBehaviour
     [Header("UXML Templates")]
     [SerializeField] private VisualTreeAsset topBarTemplate;
     [SerializeField] private VisualTreeAsset leftPanelTemplate;
+    [SerializeField] private VisualTreeAsset bottomActionBarTemplate;
 
     [Header("Global StyleSheets")]
     [SerializeField] private StyleSheet variablesStyleSheet;
@@ -87,6 +88,16 @@ public class GameHUDController : MonoBehaviour
     private int           _activeEventTab = 0;   // 0 = events, 1 = actions
     private const int     MaxFeedEntries = 8;
 
+    // ── Phase 3: BottomActionBar ──────────────────────────────────────
+    private VisualElement _bottomBar;
+    private Button        _tabTerritoire;
+    private Button        _tabConstruction;
+    private Button        _tabMarche;
+    private Button        _tabContrats;
+    private Button        _tabTerraform;
+    private Label         _corpStatusLabel;
+    private int           _activeTabIndex = -1; // none selected by default
+
     // =========================================================
     // Lifecycle
     // =========================================================
@@ -123,7 +134,22 @@ public class GameHUDController : MonoBehaviour
         if (_doc.rootVisualElement != null && !_doc.rootVisualElement.Contains(_root))
             _doc.rootVisualElement.Add(_root);
 
-        // ── Phase 1: Build TopBar ────────────────────────────────────
+        // ── Désactiver l'ancien HUD uGUI (GameHUD.cs) ────────────────
+        // GameHUD.BuildCanvas() est appelé dans Awake() — enabled=false arrive
+        // trop tard. On détruit le canvas qu'il a créé.
+        var legacyHud = FindAnyObjectByType<GameHUD>(FindObjectsInactive.Include);
+        if (legacyHud != null)
+        {
+            legacyHud.enabled = false;
+            var legacyCanvas = legacyHud.transform.Find("GameHUDCanvas");
+            if (legacyCanvas != null)
+            {
+                Destroy(legacyCanvas.gameObject);
+                Debug.Log("[GameHUDController] GameHUDCanvas (legacy uGUI) détruit.");
+            }
+        }
+
+        // ── Phase 1: Build TopBar ─────────────────────────────────────
         BuildTopBar();
 
         // ── Phase 2: Build LeftPanel ─────────────────────────────────
@@ -137,6 +163,9 @@ public class GameHUDController : MonoBehaviour
         BuildTooltip();
         BuildEventFeed();
         StartCoroutine(PollEventFeed());
+
+        // ── Phase 3: Build BottomActionBar ───────────────────────────
+        BuildBottomActionBar();
 
         // ── Events ───────────────────────────────────────────────────
         ViewManager.OnViewChanged += OnViewChanged;
@@ -311,6 +340,10 @@ public class GameHUDController : MonoBehaviour
         // Phase 4: EventFeed visible only in Planet view
         if (_eventFeed != null)
             _eventFeed.style.display = inPlanet ? DisplayStyle.Flex : DisplayStyle.None;
+
+        // Phase 3: BottomActionBar visible only in Planet view
+        if (_bottomBar != null)
+            _bottomBar.style.display = inPlanet ? DisplayStyle.Flex : DisplayStyle.None;
     }
 
     private void OnTileResolved(GoldbergTileState tile)
@@ -527,14 +560,7 @@ public class GameHUDController : MonoBehaviour
     private TextField     _corpNameInput;
     private Button        _btnCreateCorp;
     private VisualElement _buildingListContainer;
-    private VisualElement _constructionListContainer;
-    private VisualElement _constructionSection;
     private Label         _tileStatusLabel;
-    private Label         _marketPricesLabelEl;
-    private Label         _marketPopLabelEl;
-    private Label         _contractListLabelEl;
-    private Label         _natLabelEl;
-    private Label         _ecologyLabelEl;
 
     // ── State ─────────────────────────────────────────────────
     private string       _activeBodyId  = "";
@@ -609,14 +635,7 @@ public class GameHUDController : MonoBehaviour
         _corpNameInput           = _tileInspector.Q<TextField>("corp-name-input");
         _btnCreateCorp           = _tileInspector.Q<Button>("btn-create-corp");
         _buildingListContainer   = _tileInspector.Q<VisualElement>("building-list-container");
-        _constructionListContainer = _tileInspector.Q<VisualElement>("construction-list-container");
-        _constructionSection     = _tileInspector.Q<VisualElement>("construction-section");
         _tileStatusLabel         = _tileInspector.Q<Label>("tile-status-label");
-        _marketPricesLabelEl     = _tileInspector.Q<Label>("market-prices-label");
-        _marketPopLabelEl        = _tileInspector.Q<Label>("market-pop-label");
-        _contractListLabelEl     = _tileInspector.Q<Label>("contract-list-label");
-        _natLabelEl              = _tileInspector.Q<Label>("nat-label");
-        _ecologyLabelEl          = _tileInspector.Q<Label>("ecology-label");
 
         // Wire buttons
         _btnClaim?   .RegisterCallback<ClickEvent>(_ => OnInspectorClaimClicked());
@@ -624,12 +643,6 @@ public class GameHUDController : MonoBehaviour
         _btnCreateCorp?.RegisterCallback<ClickEvent>(_ => OnInspectorCreateCorpClicked());
         _tileInspector.Q<Button>("btn-close-inspector")
             ?.RegisterCallback<ClickEvent>(_ => CloseInspector());
-
-        // Collapsible section toggles
-        WireCollapsible("market-toggle",        "market-body");
-        WireCollapsible("contract-toggle",      "contract-body");
-        WireCollapsible("nat-toggle",           "nat-body");
-        WireCollapsible("ecology-toggle",       "ecology-body");
 
         // Start hidden
         _tileInspector.style.display = DisplayStyle.None;
@@ -822,7 +835,6 @@ public class GameHUDController : MonoBehaviour
                     ? buildingCardTemplate.Instantiate()
                     : BuildBuildingCardProcedural();
 
-                // Set fields
                 string glyph = b.buildingType >= 0 && b.buildingType < _buildingGlyphs.Length
                     ? _buildingGlyphs[b.buildingType] : "?";
                 string name = b.buildingType >= 0 && b.buildingType < _buildingNames.Length
@@ -833,7 +845,6 @@ public class GameHUDController : MonoBehaviour
                 card.Q<Label>("building-workers")?.Do(l => l.text = $"Workers: {b.workerRatio * 100f:F0}%");
                 card.Q<Label>("level-badge")     ?.Do(l => l.text = b.level.ToString());
 
-                // Wire +/- buttons (capture ids in closure)
                 string bid    = b.id;
                 string corpId = _ownerCorpId;
 
@@ -845,44 +856,7 @@ public class GameHUDController : MonoBehaviour
                 _buildingListContainer.Add(card);
             }
         }
-
-        // Construction queue
-        if (_constructionSection != null)
-            _constructionSection.style.display = (queue != null && queue.Count > 0)
-                ? DisplayStyle.Flex : DisplayStyle.None;
-
-        if (_constructionListContainer != null)
-        {
-            _constructionListContainer.Clear();
-            if (queue != null)
-            {
-                foreach (var ci in queue)
-                {
-                    VisualElement ccard = constructionCardTemplate != null
-                        ? constructionCardTemplate.Instantiate()
-                        : BuildConstructionCardProcedural();
-
-                    string glyph = ci.buildingType >= 0 && ci.buildingType < _buildingGlyphs.Length
-                        ? _buildingGlyphs[ci.buildingType] : "?";
-                    string name = ci.buildingType >= 0 && ci.buildingType < _buildingNames.Length
-                        ? _buildingNames[ci.buildingType] : "Construction";
-
-                    float pct = ci.totalCostPts > 0
-                        ? (float)ci.pointsAccumulated / ci.totalCostPts
-                        : 0f;
-                    string statusTxt = ci.status == 1
-                        ? $"En cours… {ci.ticksRemaining} ticks" : "En file d'attente";
-
-                    ccard.Q<Label>("constr-icon")  ?.Do(l => l.text = glyph);
-                    ccard.Q<Label>("constr-name")  ?.Do(l => l.text = name);
-                    ccard.Q<Label>("constr-status")?.Do(l => l.text = statusTxt);
-                    ccard.Q<VisualElement>("constr-progress-fill")
-                        ?.Do(el => el.style.width = new StyleLength(Length.Percent(pct * 100f)));
-
-                    _constructionListContainer.Add(ccard);
-                }
-            }
-        }
+        // Note: construction queue (queue param) is kept for future CONSTRUCTION tab rendering.
     }
 
     // Procedural fallbacks for BuildingCard / ConstructionCard
@@ -1087,6 +1061,129 @@ public class GameHUDController : MonoBehaviour
         s?.Replace("\\", "\\\\").Replace("\"", "\\\"") ?? "";
 
     // =========================================================
+    // Phase 3 — BottomActionBar
+    // =========================================================
+
+    private static readonly string[]   _tabNames       = { "TERRITOIRE", "CONSTRUCTION", "MARCHÉ", "CONTRATS", "TERRAFORM" };
+    private static readonly string[]   _tabButtonNames = { "tab-territoire", "tab-construction", "tab-marche", "tab-contrats", "tab-terraform" };
+    private static readonly string[]   _tabModifiers   = { "territoire", "construction", "marche", "contrats", "terraform" };
+
+    private void BuildBottomActionBar()
+    {
+        VisualTreeAsset asset = bottomActionBarTemplate
+            ?? Resources.Load<VisualTreeAsset>("UI/Templates/BottomActionBar");
+
+        if (asset != null)
+        {
+            asset.CloneTree(_root);
+            _bottomBar = _root.Q<VisualElement>("bottom-action-bar");
+        }
+
+        if (_bottomBar == null)
+        {
+            _bottomBar = BuildBottomActionBarProcedural();
+            _root.Add(_bottomBar);
+        }
+
+        // Grab element refs
+        _corpStatusLabel  = _bottomBar.Q<Label>("label-corp-status");
+        _tabTerritoire    = _bottomBar.Q<Button>("tab-territoire");
+        _tabConstruction  = _bottomBar.Q<Button>("tab-construction");
+        _tabMarche        = _bottomBar.Q<Button>("tab-marche");
+        _tabContrats      = _bottomBar.Q<Button>("tab-contrats");
+        _tabTerraform     = _bottomBar.Q<Button>("tab-terraform");
+
+        // Wire tab clicks
+        Button[] tabs = { _tabTerritoire, _tabConstruction, _tabMarche, _tabContrats, _tabTerraform };
+        for (int i = 0; i < tabs.Length; i++)
+        {
+            int idx = i; // capture
+            tabs[i]?.RegisterCallback<ClickEvent>(_ => SetBottomTab(idx));
+        }
+
+        // Force critical layout styles inline (CloneTree ne garantit pas l'application
+        // des <Style> src dans le UXML quand on clone dans un container existant).
+        _bottomBar.style.position         = Position.Absolute;
+        _bottomBar.style.bottom           = new StyleLength(0f);
+        _bottomBar.style.left             = new StyleLength(0f);
+        _bottomBar.style.right            = new StyleLength(0f);
+        _bottomBar.style.height           = new StyleLength(52f);
+        _bottomBar.style.flexDirection    = FlexDirection.Row;
+        _bottomBar.style.alignItems       = Align.Center;
+        _bottomBar.style.justifyContent   = Justify.Center;
+        _bottomBar.style.backgroundColor  = new StyleColor(new Color(0.031f, 0.031f, 0.055f, 0.92f));
+        _bottomBar.style.borderTopWidth   = 1f;
+        _bottomBar.style.borderTopColor   = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
+
+        // Start hidden; shown by OnViewChanged when entering Planet view
+        _bottomBar.style.display = DisplayStyle.None;
+    }
+
+    /// <summary>Activates the tab at <paramref name="idx"/> (0–4), deactivates others.</summary>
+    private void SetBottomTab(int idx)
+    {
+        Button[] tabs    = { _tabTerritoire, _tabConstruction, _tabMarche, _tabContrats, _tabTerraform };
+        string[] mods    = _tabModifiers;
+        string   active  = "bottom-action-bar__tab--active";
+
+        for (int i = 0; i < tabs.Length; i++)
+        {
+            if (tabs[i] == null) continue;
+            bool isActive = (i == idx);
+            tabs[i].EnableInClassList(active, isActive);
+        }
+
+        _activeTabIndex = (_activeTabIndex == idx) ? -1 : idx; // toggle off if already active
+        if (_activeTabIndex == -1)
+            for (int i = 0; i < tabs.Length; i++)
+                tabs[i]?.EnableInClassList(active, false);
+
+        Debug.Log($"[GameHUDController] BottomTab → {(idx < _tabNames.Length ? _tabNames[idx] : idx.ToString())}");
+    }
+
+    /// <summary>Updates the corp status label in the bottom bar (name, credits, tile count).</summary>
+    public void SetCorpStatus(string corpName, float credits, int tileCount)
+    {
+        if (_corpStatusLabel == null) return;
+        _corpStatusLabel.text = string.IsNullOrEmpty(corpName)
+            ? ""
+            : $"{corpName}   {credits:N0} ¢   {tileCount} tuiles";
+    }
+
+    private VisualElement BuildBottomActionBarProcedural()
+    {
+        var bar = new VisualElement { name = "bottom-action-bar" };
+        bar.AddToClassList("bottom-action-bar");
+
+        _corpStatusLabel = new Label { name = "label-corp-status", text = "" };
+        _corpStatusLabel.AddToClassList("bottom-action-bar__status");
+        _corpStatusLabel.AddToClassList("hud-label--secondary");
+        bar.Add(_corpStatusLabel);
+
+        string[] names = _tabNames;
+        string[] bnames = _tabButtonNames;
+        string[] mods = _tabModifiers;
+        Button[] refs = new Button[5];
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            var btn = new Button { name = bnames[i], text = names[i] };
+            btn.AddToClassList("bottom-action-bar__tab");
+            btn.AddToClassList($"bottom-action-bar__tab--{mods[i]}");
+            bar.Add(btn);
+            refs[i] = btn;
+        }
+
+        _tabTerritoire   = refs[0];
+        _tabConstruction = refs[1];
+        _tabMarche       = refs[2];
+        _tabContrats     = refs[3];
+        _tabTerraform    = refs[4];
+
+        return bar;
+    }
+
+    // =========================================================
     // Phase 4 — Tooltip
     // =========================================================
 
@@ -1157,6 +1254,16 @@ public class GameHUDController : MonoBehaviour
         tabEvents .RegisterCallback<ClickEvent>(_ => SetEventTab(0, tabEvents, tabActions));
         tabActions.RegisterCallback<ClickEvent>(_ => SetEventTab(1, tabEvents, tabActions));
 
+        // Force layout inline — pannneau droit fixe
+        _eventFeed.style.position        = Position.Absolute;
+        _eventFeed.style.right           = new StyleLength(0f);
+        _eventFeed.style.top             = new StyleLength(32f);  // topbar height
+        _eventFeed.style.bottom          = new StyleLength(52f);  // bottombar height
+        _eventFeed.style.width           = new StyleLength(240f);
+        _eventFeed.style.flexDirection   = FlexDirection.Column;
+        _eventFeed.style.backgroundColor = new StyleColor(new Color(0.05f, 0.05f, 0.08f, 0.92f));
+        _eventFeed.style.borderLeftWidth = 1f;
+        _eventFeed.style.borderLeftColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
         _eventFeed.style.display = DisplayStyle.None;
         _root.Add(_eventFeed);
     }
@@ -1175,9 +1282,10 @@ public class GameHUDController : MonoBehaviour
     public void PushFeedEntry(string message)
     {
         if (_eventFeedListActions == null) return;
-        var row = new Label { text = message };
+        var row = new Button { text = message };
         row.AddToClassList("event-feed__entry");
         row.AddToClassList("event-feed__entry--local");
+        row.RegisterCallback<ClickEvent>(_ => Debug.Log($"[EventFeed] Action: {message}"));
         _eventFeedListActions.Insert(0, row);
         while (_eventFeedListActions.childCount > MaxFeedEntries)
             _eventFeedListActions.RemoveAt(_eventFeedListActions.childCount - 1);
@@ -1211,8 +1319,11 @@ public class GameHUDController : MonoBehaviour
                             string label = string.IsNullOrEmpty(e.name)
                                 ? $"[T{e.tick}] {e.eventType}"
                                 : $"[T{e.tick}] {e.name}";
-                            var row = new Label { text = label };
+                            var eventId = e.id;
+                            var row = new Button { text = label };
                             row.AddToClassList("event-feed__entry");
+                            row.RegisterCallback<ClickEvent>(_ =>
+                                Debug.Log($"[EventFeed] Événement sélectionné: {eventId}"));
                             _eventFeedList.Add(row);
                         }
                     }

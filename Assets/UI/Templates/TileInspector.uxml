@@ -35,52 +35,6 @@
                 <ui:VisualElement name="building-list-container" class="tile-inspector__card-list" />
             </ui:VisualElement>
 
-            <!-- Construction queue — populated dynamically (ConstructionCard.uxml × M) -->
-            <ui:VisualElement name="construction-section" class="tile-inspector__section">
-                <ui:Label text="FILE DE CONSTRUCTION" class="tile-inspector__section-title" />
-                <ui:VisualElement name="construction-list-container" class="tile-inspector__card-list" />
-            </ui:VisualElement>
-
-            <ui:VisualElement class="hud-separator" />
-
-            <!-- Collapsible: Marché -->
-            <ui:VisualElement name="market-section" class="tile-inspector__collapsible">
-                <ui:Label name="market-toggle" text="▶ MARCHÉ" class="tile-inspector__collapsible-header" />
-                <ui:VisualElement name="market-body" class="tile-inspector__collapsible-body">
-                    <ui:Label name="market-prices-label" text="" class="tile-inspector__body-text" />
-                    <ui:Label name="market-pop-label"    text="" class="tile-inspector__body-text" />
-                </ui:VisualElement>
-            </ui:VisualElement>
-
-            <!-- Collapsible: Contrats -->
-            <ui:VisualElement name="contract-section" class="tile-inspector__collapsible">
-                <ui:Label name="contract-toggle" text="▶ CONTRATS" class="tile-inspector__collapsible-header" />
-                <ui:VisualElement name="contract-body" class="tile-inspector__collapsible-body">
-                    <ui:Label name="contract-list-label" text="" class="tile-inspector__body-text" />
-                    <ui:VisualElement class="tile-inspector__btn-row">
-                        <ui:Button name="btn-bid"    text="Candidater" class="hud-btn" />
-                        <ui:Button name="btn-accept" text="Accepter"   class="hud-btn" />
-                        <ui:Button name="btn-break"  text="Rompre"     class="hud-btn hud-btn--unclaim" />
-                    </ui:VisualElement>
-                </ui:VisualElement>
-            </ui:VisualElement>
-
-            <!-- Collapsible: Nationalisation -->
-            <ui:VisualElement name="nationalization-section" class="tile-inspector__collapsible">
-                <ui:Label name="nat-toggle" text="▶ NATIONALISATION" class="tile-inspector__collapsible-header" />
-                <ui:VisualElement name="nat-body" class="tile-inspector__collapsible-body">
-                    <ui:Label name="nat-label"  text="" class="tile-inspector__body-text tile-inspector__body-text--warning" />
-                    <ui:Button name="btn-corrupt" text="Corrompre" class="hud-btn" />
-                </ui:VisualElement>
-            </ui:VisualElement>
-
-            <!-- Collapsible: Écologie -->
-            <ui:VisualElement name="ecology-section" class="tile-inspector__collapsible">
-                <ui:Label name="ecology-toggle" text="▶ ÉCOLOGIE" class="tile-inspector__collapsible-header" />
-                <ui:VisualElement name="ecology-body" class="tile-inspector__collapsible-body">
-                    <ui:Label name="ecology-label" text="" class="tile-inspector__body-text" />
-                </ui:VisualElement>
-            </ui:VisualElement>
 
             <!-- Status feedback -->
             <ui:Label name="tile-status-label" text="" class="tile-inspector__status-label" />

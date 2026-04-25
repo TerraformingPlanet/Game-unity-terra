@@ -32,6 +32,7 @@
     --energy-yellow:       rgb(255, 215, 50);
     --eco-green:           rgb(80,  200, 120);
     --research-blue:       rgb(100, 160, 255);
+    --diplomacy-purple:    rgb(200, 128, 255);
 
     /* ── Terrain tag palette ─────────────────────────────────────── */
     --terrain-ocean:   rgb( 30,  90, 180);
@@ -55,9 +56,14 @@
     /* ── Geometry ────────────────────────────────────────────────── */
     --panel-radius:   6px;
     --card-radius:    4px;
+    --pill-radius:    20px;
     --panel-padding:  12px;
     --gap-xs:  4px;
     --gap-sm:  8px;
     --gap-md: 12px;
     --gap-lg: 20px;
+
+    /* ── Bottom action bar ───────────────────────────────────────── */
+    --bottom-bar-height: 52px;
+    --bottom-bar-bg:     rgba(8, 8, 14, 0.92);
 }

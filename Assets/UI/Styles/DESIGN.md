@@ -31,6 +31,7 @@ colors:
   energy:            "#ffd732"
   eco:               "#50c878"
   research:          "#64a0ff"
+  diplomacy:         "#c880ff"
   # Terrain tags
   terrain-ocean:     "#1e5ab4"
   terrain-coast:     "#3c8cc8"
@@ -64,6 +65,7 @@ spacing:
 rounded:
   card:   4px
   panel:  6px
+  pill:   20px
 
 components:
   topbar:
@@ -92,6 +94,9 @@ components:
     backgroundColor: "{colors.btn-build}"
     textColor: "{colors.text-primary}"
     rounded: "{rounded.card}"
+  bottom-action-bar:
+    height: 52px
+    backgroundColor: "{colors.topbar-bg}"
 ---
 
 ## Overview
@@ -128,6 +133,7 @@ Ne jamais utiliser un fond opaque plein sur les panneaux flottants.
 - Énergie : jaune
 - Éco/bio : vert
 - Recherche : bleu
+- Diplomatie : violet (`diplomacy`) — contrats avec les États, relations inter-entités
 
 **Terrain tags** — palette de lecture rapide des types de tuiles. Ne pas réutiliser ces couleurs
 hors du contexte terrain (badges tuile, minimap).
@@ -171,6 +177,13 @@ pour la visibilité sur fond sombre.
 
 **Section headers** (`.tile-inspector__section-title`) — style caption, all-caps, `text-secondary`.
 Espacement : `margin-bottom: 6px`.
+
+**Bottom Action Bar** (`.bottom-action-bar`) — barre fixe en bas d'écran, `height: 52px`.
+Contient 5 onglets pill (`.bottom-action-bar__tab`) représentant les axes de progression
+de la corporation : Territoire, Construction, Marché, Contrats, Terraform. Chaque axe a sa
+couleur d'accent domain au survol et à l'état actif. Fond semi-transparent identique à la
+TopBar. L'onglet actif affiche un `border` 1px dans la couleur de son axe et un fond teinté
+à 12% d'opacité.
 
 **Terrain badge** — fond coloré `terrain-*`, rayon `card`, texte `text-primary` 10px.
 Utiliser uniquement les couleurs `terrain-*` pour ces badges.

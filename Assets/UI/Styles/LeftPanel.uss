@@ -7,7 +7,7 @@
     left: 0;
     top: var(--topbar-height);
     width: 220px;
-    bottom: 0;
+    bottom: var(--bottom-bar-height);
     background-color: var(--panel-bg);
     border-right-width: 1px;
     border-right-color: var(--panel-border);

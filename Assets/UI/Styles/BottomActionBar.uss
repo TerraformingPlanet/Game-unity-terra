@@ -1,0 +1,110 @@
+/* BottomActionBar.uss — Corporation action tab bar.
+   Fixed to bottom of screen. 5 axes: Territoire, Construction,
+   Marché, Contrats, Terraform.
+   Variables come from variables.uss / base.uss. */
+
+/* ── Container ────────────────────────────────────────────────── */
+.bottom-action-bar {
+    position: Absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: var(--bottom-bar-height);
+    background-color: var(--bottom-bar-bg);
+    border-top-width: 1px;
+    border-top-color: var(--panel-border);
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ── Corp status label (left side) ───────────────────────────── */
+.bottom-action-bar__status {
+    position: Absolute;
+    left: 12px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+}
+
+/* ── Tab base ─────────────────────────────────────────────────── */
+.bottom-action-bar__tab {
+    height: 32px;
+    border-top-left-radius:     var(--pill-radius);
+    border-top-right-radius:    var(--pill-radius);
+    border-bottom-left-radius:  var(--pill-radius);
+    border-bottom-right-radius: var(--pill-radius);
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: 20px;
+    padding-right: 20px;
+    margin-left: 5px;
+    margin-right: 5px;
+    background-color: rgba(255, 255, 255, 0.06);
+    border-width: 1px;
+    border-color: var(--panel-border);
+    color: var(--text-secondary);
+    font-size: var(--font-size-caption);
+    -unity-font-style: normal;
+    transition-duration: 0.15s;
+    transition-property: background-color, border-color, color;
+}
+
+.bottom-action-bar__tab:hover {
+    background-color: rgba(255, 255, 255, 0.10);
+    color: var(--text-primary);
+}
+
+/* ── Territoire — blue accent ─────────────────────────────────── */
+.bottom-action-bar__tab--territoire:hover {
+    color: var(--text-accent);
+}
+
+.bottom-action-bar__tab--territoire.bottom-action-bar__tab--active {
+    background-color: rgba(100, 180, 255, 0.12);
+    border-color: var(--text-accent);
+    color: var(--text-accent);
+}
+
+/* ── Construction — orange ────────────────────────────────────── */
+.bottom-action-bar__tab--construction:hover {
+    color: var(--construction-orange);
+}
+
+.bottom-action-bar__tab--construction.bottom-action-bar__tab--active {
+    background-color: rgba(255, 140, 0, 0.12);
+    border-color: var(--construction-orange);
+    color: var(--construction-orange);
+}
+
+/* ── Marché — yellow ──────────────────────────────────────────── */
+.bottom-action-bar__tab--marche:hover {
+    color: var(--energy-yellow);
+}
+
+.bottom-action-bar__tab--marche.bottom-action-bar__tab--active {
+    background-color: rgba(255, 215, 50, 0.12);
+    border-color: var(--energy-yellow);
+    color: var(--energy-yellow);
+}
+
+/* ── Contrats — purple (diplomacy) ───────────────────────────── */
+.bottom-action-bar__tab--contrats:hover {
+    color: var(--diplomacy-purple);
+}
+
+.bottom-action-bar__tab--contrats.bottom-action-bar__tab--active {
+    background-color: rgba(200, 128, 255, 0.12);
+    border-color: var(--diplomacy-purple);
+    color: var(--diplomacy-purple);
+}
+
+/* ── Terraform — green ────────────────────────────────────────── */
+.bottom-action-bar__tab--terraform:hover {
+    color: var(--eco-green);
+}
+
+.bottom-action-bar__tab--terraform.bottom-action-bar__tab--active {
+    background-color: rgba(80, 200, 120, 0.12);
+    border-color: var(--eco-green);
+    color: var(--eco-green);
+}

@@ -1,0 +1,44 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements">
+
+    <!-- BottomActionBar.uxml
+         Corporation action tab bar, fixed to the bottom of the screen.
+         5 axes of progression: Territoire, Construction, Marché, Contrats, Terraform.
+         Active tab: add class "bottom-action-bar__tab--active" via C# on selection.
+         Bound by BottomActionBarController region in GameHUDController.cs.
+         NOTE: TileInspector.uss bottom should be set to var(--bottom-bar-height)
+               once this bar is integrated in GameHUD.cs. -->
+
+    <Style src="../Styles/variables.uss" />
+    <Style src="../Styles/base.uss" />
+    <Style src="../Styles/BottomActionBar.uss" />
+
+    <ui:VisualElement name="bottom-action-bar" class="bottom-action-bar">
+
+        <!-- Corp status — name + credits + tile count (filled by C#) -->
+        <ui:Label name="label-corp-status" text=""
+                  class="bottom-action-bar__status hud-label--secondary" />
+
+        <!-- Territoire — claim, caravanes, orbital -->
+        <ui:Button name="tab-territoire" text="TERRITOIRE"
+                   class="bottom-action-bar__tab bottom-action-bar__tab--territoire" />
+
+        <!-- Construction — bâtiments, file de construction -->
+        <ui:Button name="tab-construction" text="CONSTRUCTION"
+                   class="bottom-action-bar__tab bottom-action-bar__tab--construction" />
+
+        <!-- Marché — ressources, prix, routes commerciales -->
+        <ui:Button name="tab-marche" text="MARCHÉ"
+                   class="bottom-action-bar__tab bottom-action-bar__tab--marche" />
+
+        <!-- Contrats — diplomatie États, nationalisation, alliances -->
+        <ui:Button name="tab-contrats" text="CONTRATS"
+                   class="bottom-action-bar__tab bottom-action-bar__tab--contrats" />
+
+        <!-- Terraform — modification environnementale, biomes, atmosphère -->
+        <ui:Button name="tab-terraform" text="TERRAFORM"
+                   class="bottom-action-bar__tab bottom-action-bar__tab--terraform" />
+
+    </ui:VisualElement>
+
+</ui:UXML>
