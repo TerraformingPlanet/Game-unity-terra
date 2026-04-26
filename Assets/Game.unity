@@ -3652,58 +3652,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.RectMask2D
   m_Padding: {x: 0, y: 0, z: 0, w: 0}
   m_Softness: {x: 0, y: 0}
---- !u!1 &719780509
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 719780511}
-  - component: {fileID: 719780510}
-  m_Layer: 0
-  m_Name: GameHUD
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 0
---- !u!114 &719780510
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 719780509}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 5b8a1bb6876c9dd44b9345b6408f0fc0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::GameHUD
-  viewManager: {fileID: 0}
-  terraformHUD: {fileID: 0}
-  planetSphere: {fileID: 0}
-  debugHydrologyPanel: {fileID: 0}
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 5
-  useFontAwesomeBuildingIcons: 1
-  fontAwesomeSolidResourcePath: Fonts/Font Awesome 7 Free-Solid-900
---- !u!4 &719780511
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 719780509}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &721927640
 GameObject:
   m_ObjectHideFlags: 0
@@ -4215,7 +4163,7 @@ MonoBehaviour:
   preferServerCommands: 1
   fallbackToLocalSimulationOnServerFailure: 1
   simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 2
+  simulationServerTimeoutSeconds: 15
   serverPollingIntervalSeconds: 5
 --- !u!114 &820548244
 MonoBehaviour:
@@ -4264,7 +4212,7 @@ MonoBehaviour:
   startingView: 1
   preferServerRegionSync: 1
   simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 2
+  simulationServerTimeoutSeconds: 15
 --- !u!114 &820548245
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4448,8 +4396,8 @@ MonoBehaviour:
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
   m_Interactable: 1
-  m_TargetGraphic: {fileID: 0}
-  m_TextViewport: {fileID: 0}
+  m_TargetGraphic: {fileID: 875461181}
+  m_TextViewport: {fileID: 87324878}
   m_TextComponent: {fileID: 2104303578}
   m_Placeholder: {fileID: 985014908}
   m_VerticalScrollbar: {fileID: 0}
@@ -4795,15 +4743,16 @@ MonoBehaviour:
   cacheGeneratedProjections: 1
   enableLod: 1
   startAtMaxResolution: 1
-  lodFarDistance: 26
+  lodFarDistance: 40
   lodNearDistance: 20
   lodNearExtraDivisions: 0
   cameraController: {fileID: 0}
   fetchServerTilesOnLoad: 1
   simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 2
+  simulationServerTimeoutSeconds: 15
   hoverTintColor: {r: 1, g: 1, b: 1, a: 0.35}
   hoverTooltipDelay: 0.6
+  debugLodVerbose: 0
 --- !u!64 &905619745
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -4905,8 +4854,8 @@ MonoBehaviour:
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
   m_Interactable: 1
-  m_TargetGraphic: {fileID: 0}
-  m_TextViewport: {fileID: 0}
+  m_TargetGraphic: {fileID: 917554588}
+  m_TextViewport: {fileID: 709145677}
   m_TextComponent: {fileID: 1636262198}
   m_Placeholder: {fileID: 2072717830}
   m_VerticalScrollbar: {fileID: 0}
@@ -5798,7 +5747,7 @@ MonoBehaviour:
   actions: []
   preferServerActionDefinitions: 1
   simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 2
+  simulationServerTimeoutSeconds: 15
 --- !u!114 &1021400414
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10926,8 +10875,8 @@ MonoBehaviour:
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
   m_Interactable: 1
-  m_TargetGraphic: {fileID: 0}
-  m_TextViewport: {fileID: 0}
+  m_TargetGraphic: {fileID: 1667926147}
+  m_TextViewport: {fileID: 1921262353}
   m_TextComponent: {fileID: 178890403}
   m_Placeholder: {fileID: 1358817283}
   m_VerticalScrollbar: {fileID: 0}
@@ -11157,7 +11106,7 @@ MonoBehaviour:
   hideUntilLogin:
   - {fileID: 1089811650}
   - {fileID: 2089395117}
-  - {fileID: 719780509}
+  - {fileID: 0}
 --- !u!1 &1733874262
 GameObject:
   m_ObjectHideFlags: 0
@@ -13160,11 +13109,12 @@ MonoBehaviour:
   planetSphere: {fileID: 0}
   debugHydrologyPanel: {fileID: 0}
   simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 5
+  simulationServerTimeoutSeconds: 15
   useFontAwesomeBuildingIcons: 1
   fontAwesomeSolidResourcePath: Fonts/Font Awesome 7 Free-Solid-900
   topBarTemplate: {fileID: 9197481963319205126, guid: 540ccf9a233efae41a437bc8e45c1976, type: 3}
   leftPanelTemplate: {fileID: 9197481963319205126, guid: 13d112ba29cca5640ab54838d8f8b38e, type: 3}
+  bottomActionBarTemplate: {fileID: 0}
   variablesStyleSheet: {fileID: 7433441132597879392, guid: 886c0e9d22ed36545b71db46f5cbeee8, type: 3}
   baseStyleSheet: {fileID: 7433441132597879392, guid: 7dfc724221f68d5408b909e592814e28, type: 3}
   tileInspectorTemplate: {fileID: 9197481963319205126, guid: 5e296965fc13ad942b7abc317846065b, type: 3}
@@ -13767,5 +13717,4 @@ SceneRoots:
   - {fileID: 699849941}
   - {fileID: 1327836893}
   - {fileID: 2001086951}
-  - {fileID: 719780511}
   - {fileID: 2089395120}
