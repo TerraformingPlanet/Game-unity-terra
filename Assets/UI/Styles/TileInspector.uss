@@ -23,7 +23,53 @@
     border-bottom-color: var(--panel-border);
     flex-shrink: 0;
 }
+/* ── Tabs Résumé / Population / Bâtiment ─────────────────────── */
+.tile-inspector__tabs {
+    flex-direction: row;
+    flex-shrink: 0;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--panel-border);
+    background-color: rgba(0,0,0,0.2);
+}
 
+.tile-inspector__tab {
+    flex-grow: 1;
+    height: 32px;
+    font-size: 10px;
+    -unity-font-style: bold;
+    color: var(--text-secondary);
+    background-color: rgba(0,0,0,0);
+    border-width: 0;
+    border-radius: 0;
+    padding: 0;
+    border-right-width: 1px;
+    border-right-color: var(--panel-border);
+}
+
+.tile-inspector__tab:hover {
+    background-color: rgba(255,255,255,0.05);
+    color: var(--text-primary);
+}
+
+.tile-inspector__tab--active {
+    color: var(--text-accent);
+    border-bottom-width: 2px;
+    border-bottom-color: var(--text-accent);
+    background-color: rgba(255,255,255,0.04);
+}
+
+/* ── Tab content ────────────────────────────────────────── */
+.tile-inspector__tab-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.tile-inspector__info-label {
+    font-size: 12px;
+    color: var(--text-primary);
+    white-space: normal;
+    padding-top: 2px;
+}
 .tile-inspector__header-title {
     flex-grow: 1;
     font-size: 13px;
@@ -90,6 +136,13 @@
     font-size: 13px;
     color: var(--text-primary);
     flex-grow: 1;
+}
+
+.tile-inspector__state-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    -unity-font-style: italic;
 }
 
 /* ── Dropdown ─────────────────────────────────────────────────────── */

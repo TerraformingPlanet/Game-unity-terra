@@ -39,7 +39,7 @@ public class TerraformSystem : MonoBehaviour
     [SerializeField] private bool preferServerCommands = true;
     [SerializeField] private bool fallbackToLocalSimulationOnServerFailure = true;
     [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
-    [SerializeField] private float simulationServerTimeoutSeconds = 2f;
+    [SerializeField] private float simulationServerTimeoutSeconds = 15f;
     [SerializeField] private float serverPollingIntervalSeconds = 5f;
 
     private ITickSource _tickSource;

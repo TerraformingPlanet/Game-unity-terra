@@ -133,43 +133,40 @@ public static class GoldbergFaceColorizer
             }
         }
 
-        // ── B. tileId → lat/lon (lookup rapide) ───────────────────────────────
-        var latLonByTile = new Dictionary<string, (float lat, float lon)>(serverTiles.Length);
-        for (int j = 0; j < serverTiles.Length; j++)
-        {
-            string tid = serverTiles[j].tileId;
-            if (!string.IsNullOrEmpty(tid) && !latLonByTile.ContainsKey(tid))
-                latLonByTile[tid] = (serverTiles[j].latNorm, serverTiles[j].lonNorm);
-        }
+        // ── B. (inchangé — latLonByTile supprimé, non nécessaire dans le nouvel algo) ──
 
         // ── C. Marquer les faces Goldberg comme owned ──────────────────────────
-        // Uniquement pour les tuiles H3 claimées (ownershipTints).  Nearest-neighbor lat/lon.
-        var faceOwner = new Dictionary<int, string>();
-        var faceColor = new Dictionary<int, Color>();
+        // Pour chaque face Goldberg, trouve la tuile H3 la plus proche (nearest-neighbor).
+        // Si cette tuile est claimée, la face hérite de la propriété.
+        // Cela garantit que TOUTES les faces d'un territoire sont marquées —
+        // pas seulement les faces correspondant au centroïde d'une tuile H3.
+        var faceOwner = new Dictionary<int, string>(faces.Length);
+        var faceColor = new Dictionary<int, Color>(faces.Length);
 
-        foreach (var kv in ownershipTints)
+        for (int fi = 0; fi < faces.Length; fi++)
         {
-            string tileId = kv.Key;
-            if (!tileToCorpId.TryGetValue(tileId, out string corpId)) continue;
-            if (!latLonByTile.TryGetValue(tileId, out var ll)) continue;
+            float fLat = faces[fi].latNorm;
+            float fLon = faces[fi].lonNorm;
 
-            float tLat = ll.lat, tLon = ll.lon;
-            float best = float.MaxValue; int bestF = 0;
-            for (int i = 0; i < faces.Length; i++)
+            float bestDist = float.MaxValue;
+            int   bestJ    = 0;
+            for (int j = 0; j < serverTiles.Length; j++)
             {
-                float dLat = faces[i].latNorm - tLat;
-                float dLon = faces[i].lonNorm - tLon;
+                float dLat = fLat - serverTiles[j].latNorm;
+                float dLon = fLon - serverTiles[j].lonNorm;
                 if (dLon >  0.5f) dLon -= 1f;
                 if (dLon < -0.5f) dLon += 1f;
                 float d = dLat * dLat + dLon * dLon;
-                if (d < best) { best = d; bestF = i; }
+                if (d < bestDist) { bestDist = d; bestJ = j; }
             }
-            // Plusieurs tuiles H3 peuvent mapper vers la même face Goldberg — première gagne
-            if (!faceOwner.ContainsKey(bestF))
-            {
-                faceOwner[bestF] = corpId;
-                faceColor[bestF] = kv.Value;
-            }
+
+            string tileId = serverTiles[bestJ].tileId;
+            if (string.IsNullOrEmpty(tileId)) continue;
+            if (!tileToCorpId.TryGetValue(tileId, out string corpId)) continue;
+            if (!ownershipTints.TryGetValue(tileId, out Color col)) continue;
+
+            faceOwner[fi] = corpId;
+            faceColor[fi] = col;
         }
 
         // ── D. Arêtes frontières ───────────────────────────────────────────────
@@ -257,25 +254,6 @@ public static class GoldbergFaceColorizer
     }
 
     /// <summary>
-    /// Derives a stable, vibrant HSV color from a corporation UUID.
-    /// The first 8 non-dash characters drive the hue; saturation and value are fixed.
-    /// </summary>
-    public static Color CorpColorFromId(string corpId)
-    {
-        if (string.IsNullOrEmpty(corpId)) return Color.white;
-        int hash = 17;
-        int count = 0;
-        for (int i = 0; i < corpId.Length && count < 8; i++)
-        {
-            if (corpId[i] == '-') continue;
-            hash = hash * 31 + corpId[i];
-            count++;
-        }
-        float hue = (hash & 0x7FFFFFFF) % 360 / 360f;
-        return Color.HSVToRGB(hue, 0.85f, 0.90f);
-    }
-
-    /// <summary>
     /// Applies ownership tint to corporation territory.
     /// Border tiles (at least one neighbor unowned or belonging to a different corp) receive
     /// a strong tint (borderBlend). Interior tiles receive a very faint tint (interiorBlend)
@@ -299,24 +277,35 @@ public static class GoldbergFaceColorizer
             || tileToCorpId == null)
             return;
 
-        // Build tileId → server tile index for fast lookup
-        var tileLookup = new Dictionary<string, int>(serverTiles.Length);
-        for (int j = 0; j < serverTiles.Length; j++)
+        // Itère sur chaque face Goldberg (même sens que GetBoundaryLoops : Goldberg→H3).
+        // Garantit que face teintée = face incluse dans la frontière (pas de décalage).
+        for (int fi = 0; fi < faces.Length; fi++)
         {
-            string tid = serverTiles[j].tileId;
-            if (!string.IsNullOrEmpty(tid) && !tileLookup.ContainsKey(tid))
-                tileLookup[tid] = j;
-        }
+            float fLat = faces[fi].latNorm;
+            float fLon = faces[fi].lonNorm;
 
-        foreach (var kv in ownershipTints)
-        {
-            string tileId = kv.Key;
-            if (!tileLookup.TryGetValue(tileId, out int tileIdx)) continue;
+            // Nearest-neighbor H3 tile depuis la face
+            float bestDist2 = float.MaxValue;
+            int   bestJ     = -1;
+            for (int j = 0; j < serverTiles.Length; j++)
+            {
+                float dLat = fLat - serverTiles[j].latNorm;
+                float dLon = fLon - serverTiles[j].lonNorm;
+                if (dLon >  0.5f) dLon -= 1f;
+                if (dLon < -0.5f) dLon += 1f;
+                float d = dLat * dLat + dLon * dLon;
+                if (d < bestDist2) { bestDist2 = d; bestJ = j; }
+            }
 
-            // Border detection: is any neighbor unowned or owned by a different corp?
+            if (bestJ < 0) continue;
+
+            string tileId = serverTiles[bestJ].tileId;
+            if (!ownershipTints.TryGetValue(tileId, out Color corpColor)) continue;
+            if (!tileToCorpId.TryGetValue(tileId, out string corpId)) continue;
+
+            // Border detection: au moins un voisin H3 n'appartient pas au même corp
+            GoldbergTileState tile = serverTiles[bestJ];
             bool isBorder = true;
-            GoldbergTileState tile = serverTiles[tileIdx];
-            tileToCorpId.TryGetValue(tileId, out string corpId);
             if (tile.neighborIds != null && tile.neighborIds.Length > 0)
             {
                 isBorder = false;
@@ -328,25 +317,7 @@ public static class GoldbergFaceColorizer
             }
 
             float blendAmount = isBorder ? borderBlend : interiorBlend;
-            float tLat        = tile.latNorm;
-            float tLon        = tile.lonNorm;
-            Color corpColor   = kv.Value;
-
-            // Nearest-neighbor face search
-            float bestDist2 = float.MaxValue;
-            int   bestFace  = -1;
-            for (int i = 0; i < faces.Length; i++)
-            {
-                float dLat = faces[i].latNorm - tLat;
-                float dLon = faces[i].lonNorm - tLon;
-                if (dLon >  0.5f) dLon -= 1f;
-                if (dLon < -0.5f) dLon += 1f;
-                float dist2 = dLat * dLat + dLon * dLon;
-                if (dist2 < bestDist2) { bestDist2 = dist2; bestFace = i; }
-            }
-
-            if (bestFace >= 0)
-                faces[bestFace].color = Color.Lerp(faces[bestFace].color, corpColor, blendAmount);
+            faces[fi].color = Color.Lerp(faces[fi].color, corpColor, blendAmount);
         }
     }
 }

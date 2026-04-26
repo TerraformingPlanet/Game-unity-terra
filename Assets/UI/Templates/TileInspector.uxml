@@ -6,10 +6,17 @@
     <!-- TileInspector: LEFT panel, replaces LeftPanel when a tile is selected. -->
     <ui:VisualElement name="tile-inspector" class="tile-inspector">
 
-        <!-- ── Fixed header: terrain label + tileId + close ── -->
+        <!-- ── Fixed header: terrain label + close ── -->
         <ui:VisualElement class="tile-inspector__header">
             <ui:Label name="tile-header-label" text="Roche — tile-id" class="tile-inspector__header-title" />
             <ui:Button name="btn-close-inspector" text="✕" class="tile-inspector__close-btn" />
+        </ui:VisualElement>
+
+        <!-- ── Tabs: Résumé / Population / Bâtiment ── -->
+        <ui:VisualElement class="tile-inspector__tabs">
+            <ui:Button name="tab-resume"     text="Résumé"      class="tile-inspector__tab tile-inspector__tab--active" />
+            <ui:Button name="tab-population" text="Population"   class="tile-inspector__tab" />
+            <ui:Button name="tab-batiment"   text="Bâtiment"    class="tile-inspector__tab" />
         </ui:VisualElement>
 
         <!-- ── Scrollable body ── -->
@@ -17,26 +24,57 @@
                        horizontal-scroller-visibility="Hidden"
                        vertical-scroller-visibility="Auto">
 
-            <!-- Owner section -->
-            <ui:VisualElement class="tile-inspector__section">
-                <ui:Label text="PROPRIÉTAIRE" class="tile-inspector__section-title" />
-                <ui:VisualElement class="tile-inspector__owner-row">
-                    <ui:VisualElement name="corp-badge" class="tile-inspector__corp-badge" />
-                    <ui:Label name="corp-owner-label" text="Non revendiquée" class="tile-inspector__owner-name" />
+            <!-- ===== Tab 0 : Résumé ===== -->
+            <ui:VisualElement name="tab-content-resume" class="tile-inspector__tab-content">
+
+                <!-- Propriétaire -->
+                <ui:VisualElement class="tile-inspector__section">
+                    <ui:Label text="PROPRIÉTAIRE" class="tile-inspector__section-title" />
+                    <ui:VisualElement class="tile-inspector__owner-row">
+                        <ui:VisualElement name="corp-badge" class="tile-inspector__corp-badge" />
+                        <ui:Label name="corp-owner-label" text="Non revendiquée" class="tile-inspector__owner-name" />
+                    </ui:VisualElement>
+                    <ui:Label name="state-label" text="" class="tile-inspector__state-label" />
                 </ui:VisualElement>
+
+                <ui:VisualElement class="hud-separator" />
+
+                <!-- Terrain / coordonnées -->
+                <ui:VisualElement class="tile-inspector__section">
+                    <ui:Label text="TERRAIN" class="tile-inspector__section-title" />
+                    <ui:Label name="terrain-info-label" text="" class="tile-inspector__info-label" />
+                </ui:VisualElement>
+
             </ui:VisualElement>
 
+            <!-- ===== Tab 1 : Population ===== -->
+            <ui:VisualElement name="tab-content-population" class="tile-inspector__tab-content">
 
-            <ui:VisualElement class="hud-separator" />
+                <ui:VisualElement class="tile-inspector__section">
+                    <ui:Label text="POPULATION" class="tile-inspector__section-title" />
+                    <ui:Label name="pop-summary-label" text="" class="tile-inspector__info-label" />
+                </ui:VisualElement>
 
-            <!-- Buildings list — populated dynamically (BuildingCard.uxml × N) -->
-            <ui:VisualElement class="tile-inspector__section">
-                <ui:Label text="BÂTIMENTS" class="tile-inspector__section-title" />
-                <ui:VisualElement name="building-list-container" class="tile-inspector__card-list" />
+                <ui:VisualElement class="hud-separator" />
+
+                <ui:VisualElement class="tile-inspector__section">
+                    <ui:Label text="TERRITOIRE" class="tile-inspector__section-title" />
+                    <ui:Label name="territory-label" text="" class="tile-inspector__info-label" />
+                </ui:VisualElement>
+
             </ui:VisualElement>
 
+            <!-- ===== Tab 2 : Bâtiment ===== -->
+            <ui:VisualElement name="tab-content-batiment" class="tile-inspector__tab-content">
 
-            <!-- Status feedback -->
+                <ui:VisualElement class="tile-inspector__section">
+                    <ui:Label text="BÂTIMENTS" class="tile-inspector__section-title" />
+                    <ui:VisualElement name="building-list-container" class="tile-inspector__card-list" />
+                </ui:VisualElement>
+
+            </ui:VisualElement>
+
+            <!-- Status feedback (commun à tous les tabs) -->
             <ui:Label name="tile-status-label" text="" class="tile-inspector__status-label" />
 
         </ui:ScrollView>
