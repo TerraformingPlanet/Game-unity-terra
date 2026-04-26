@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Networking;
@@ -148,11 +149,15 @@ public class PlanetSphereGoldberg : MonoBehaviour
     [Tooltip("CameraController de la scène — auto-détecté si null.")]
     [SerializeField] private CameraController cameraController;
 
+    [Header("Palette de couleurs")]
+    [Tooltip("Palette de couleurs de terrain. Si null, des couleurs par défaut sont utilisées.")]
+    [SerializeField] private TerrainColorPalette terrainPalette;
+
     [Header("Serveur")]
     [Tooltip("Recolorise les tuiles GP depuis GET /bodies/{id}/tiles après LoadPlanet.")]
     [SerializeField] private bool fetchServerTilesOnLoad = true;
     [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
-    [SerializeField] private float simulationServerTimeoutSeconds = 2f;
+    [SerializeField] private float simulationServerTimeoutSeconds = 15f;
 
     // =========================================================
     // Runtime
@@ -162,6 +167,10 @@ public class PlanetSphereGoldberg : MonoBehaviour
     [SerializeField] private Color hoverTintColor = new Color(1f, 1f, 1f, 0.35f);
     [Tooltip("Délai en secondes avant l'apparition du tooltip au survol (LOD 1 seulement).")]
     [SerializeField] private float hoverTooltipDelay = 0.6f;
+
+    [Header("Debug")]
+    [Tooltip("Active les logs détaillés pour LOD et overlays.")]
+    [SerializeField] private bool debugLodVerbose = false;
 
     private MeshFilter    _meshFilter;
     private MeshRenderer  _meshRenderer;
@@ -191,13 +200,21 @@ public class PlanetSphereGoldberg : MonoBehaviour
     private int           _lodHiDivisions;              // subdivisions du LOD haut
     private GoldbergSphereGenerator.GoldbergMeshData _sphereDataLo; // cache LOD bas
     private GoldbergSphereGenerator.GoldbergMeshData _sphereDataHi; // cache LOD haut
-    private GoldbergTileState[]           _cachedServerTiles;  // tuiles du serveur (pour re-coloriser)
+    private GoldbergTileState[]           _cachedServerTiles;    // tuiles du serveur res=2 (pour re-coloriser)
+    private GoldbergTileState[]           _cachedServerTilesHi;  // tuiles res=3 (pour ReapplyOverlays au LOD haut — évite mismatch H3 res)
     private Dictionary<TerrainType, Color> _cachedColorByType; // couleurs (pour re-coloriser)
     private Dictionary<string, Color>      _ownershipTints;    // tileId → corp color (Phase 7.1)
     private Dictionary<string, string>     _tileToCorpId;      // tileId → corpId, for border detection (Phase 7.1)
+    private Dictionary<string, Color>      _stateTints;        // tileId → state color (Phase colonisation) — terres seulement
+    private Dictionary<string, Color>      _allStateTints;     // tileId → state color — tous tiles (pour bordures)
+    private Dictionary<string, string>     _tileToStateId;     // tileId → stateId
+    private Dictionary<string, string>     _tileToStateName;   // tileId → stateName
+    private bool                            _stateOverlayFetched; // éviter fetch multiple
+    private bool                            _ownershipOverlayFetched; // éviter fetch multiple
     private OwnershipBorderRenderer        _borderRenderer;    // dessine les frontières en LineRenderer
-    private bool          _lodHiColored   = false;     // tuiles res=3 déjà appliquées au LOD haut
-    private bool          _lodHiFetching  = false;     // fetch en cours
+    private bool          _lodHiColored      = false;  // tuiles res=3 déjà appliquées au LOD haut
+    private bool          _lodHiFetching     = false;  // fetch en cours
+    private bool          _lodHiBaseColored  = false;  // couleurs biomes res=2 déjà appliquées au LOD haut (évite re-colorisation dans ApplyLodLevel)
 
     // =========================================================
     // Propriétés pour PlanetTangentView
@@ -305,42 +322,36 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
     private IEnumerator FetchAndColorizeHiLod()
     {
-        string baseUrl = simulationServerUrl.TrimEnd('/');
-        var allTiles   = new List<GoldbergTileState>();
-        int page       = 0;
-        const int pageSize = 5000;
-        int lodTimeoutSec = 60;  // première génération res=3 peut prendre ~2s + réseau
+        const int lodTimeoutSec = 60;  // première génération res=3 peut prendre ~2s + réseau
 
-        while (true)
+        GoldbergTileState[] tilesArray = null;
+        string tilesError = null;
+        yield return StartCoroutine(FetchTilesPages(_activeBodyId, 3, 5000, lodTimeoutSec,
+            tiles => tilesArray = tiles,
+            err   => tilesError = err));
+
+        if (tilesError != null)
         {
-            string url = $"{baseUrl}/bodies/{_activeBodyId}/tiles/lod?h3_resolution=3&page={page}&size={pageSize}";
-            using UnityWebRequest req = UnityWebRequest.Get(url);
-            req.timeout = lodTimeoutSec;
-            yield return req.SendWebRequest();
-
-            if (req.result != UnityWebRequest.Result.Success)
-            {
-                Debug.LogWarning($"[PlanetSphereGoldberg] LOD haut fetch échoué ({req.error}).");
-                _lodHiFetching = false;
-                yield break;
-            }
-
-            string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-            GoldbergTileArray batch;
-            try   { batch = JsonUtility.FromJson<GoldbergTileArray>(wrapped); }
-            catch { Debug.LogWarning("[PlanetSphereGoldberg] LOD haut parse invalide."); _lodHiFetching = false; yield break; }
-
-            if (batch?.items == null || batch.items.Length == 0) break;
-            allTiles.AddRange(batch.items);
-            if (batch.items.Length < pageSize) break;
-            page++;
+            Debug.LogWarning($"[PlanetSphereGoldberg] LOD haut fetch échoué ({tilesError}).");
+            _lodHiFetching = false;
+            yield break;
         }
+        if (tilesArray == null || tilesArray.Length == 0) { _lodHiFetching = false; yield break; }
 
-        if (allTiles.Count == 0) { _lodHiFetching = false; yield break; }
+        // NE PAS recoloriser le terrain avec les tuiles res=3.
+        // Les couleurs terrain (res=2) sont déjà appliquées sur _sphereDataHi.faces dans
+        // FetchAndColorizeFromServer. Recoloriser avec res=3 provoque un décalage :
+        // H3 res=3 découpe l'espace différemment (un hex res=2 "Eau" peut avoir des
+        // sous-tuiles res=3 "Roche" aux bordures), ce qui désynchronise les couleurs
+        // des faces avec les borders de territoire dessinées depuis les tileIds res=2.
+        //
+        // Les tuiles res=3 sont stockées pour un usage futur (tooltip précis au LOD haut).
+        _cachedServerTilesHi = tilesArray;
 
-        // Applique les tuiles res=3 sur le mesh haut (indépendamment du LOD actif)
-        GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataHi.faces, allTiles.ToArray(), _cachedColorByType);
-        GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
+        // Réappliquer les overlays (corp, construction) sur les couleurs terrain déjà présentes.
+        // Utiliser res=2 pour les tints — les dicts ownershipTints/stateTints sont indexés par tileId res=2.
+        if (_cachedServerTiles != null)
+            ReapplyOverlays(_sphereDataHi, _cachedServerTiles);
 
         // Si le LOD haut est affiché, resync snapshot hover pour refléter les nouvelles couleurs
         if (_currentLodLevel == 1)
@@ -349,7 +360,11 @@ public class PlanetSphereGoldberg : MonoBehaviour
             _hoveredFaceId    = -1;
         }
 
-        Debug.Log($"[PlanetSphereGoldberg] LOD haut — {allTiles.Count} tuiles res=3 appliquées sur {_sphereDataHi.faces.Length} faces.");
+        if (debugLodVerbose)
+            Debug.Log($"[PlanetSphereGoldberg] LOD haut — {tilesArray.Length} tuiles res=3 appliquées sur {_sphereDataHi.faces.Length} faces.");
+
+        if (debugLodVerbose)
+            Debug.Log($"[LOD] FetchAndColorizeHiLod | tiles={tilesArray.Length} | hiFaces={_sphereDataHi.faces.Length} | ownershipTints={_ownershipTints?.Count ?? 0}");
 
         _lodHiColored  = true;
         _lodHiFetching = false;
@@ -367,6 +382,7 @@ public class PlanetSphereGoldberg : MonoBehaviour
     {
         _ownershipTints = null;
         _tileToCorpId   = null;
+        _ownershipOverlayFetched = false;
         _borderRenderer?.ClearBorders();
         StartCoroutine(FetchOwnershipOverlay());
     }
@@ -384,15 +400,26 @@ public class PlanetSphereGoldberg : MonoBehaviour
     /// </summary>
     private void RebuildBorderLoops()
     {
-        if (_ownershipTints == null || _ownershipTints.Count == 0
-            || _cachedServerTiles == null || _tileToCorpId == null
-            || _sphereData.faces == null)
+        if (_cachedServerTiles == null || _sphereData.faces == null) return;
+
+        var loops = new System.Collections.Generic.List<(Vector3[], Color)>();
+
+        // Corp borders — couleur de la corp (teinte ownership)
+        if (_ownershipTints != null && _ownershipTints.Count > 0 && _tileToCorpId != null)
+            loops.AddRange(GoldbergFaceColorizer.GetBoundaryLoops(
+                _sphereData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId));
+
+        // State borders (political map) — couleur de l'état (pas de recoloration des tuiles)
+        if (_allStateTints != null && _allStateTints.Count > 0 && _tileToStateId != null)
         {
-            return;
+            var stateLoops = GoldbergFaceColorizer.GetBoundaryLoops(
+                _sphereData.faces, _cachedServerTiles, _allStateTints, _tileToStateId);
+            // Conserver la couleur de l'état retournée par GetBoundaryLoops
+            loops.AddRange(stateLoops);
         }
-        var loops = GoldbergFaceColorizer.GetBoundaryLoops(
-            _sphereData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId);
-        _borderRenderer?.UpdateBorders(loops);
+
+        if (loops.Count > 0)
+            _borderRenderer?.UpdateBorders(loops);
     }
 
     /// <summary>
@@ -404,29 +431,61 @@ public class PlanetSphereGoldberg : MonoBehaviour
     {
         _constructionTileIds = tileIds ?? new HashSet<string>();
 
-        if (_ownershipTints == null) _ownershipTints = new Dictionary<string, Color>();
-
-        Color constructionColor = new Color(1f, 0.55f, 0f, 1f); // orange
-        foreach (string tileId in _constructionTileIds)
-            _ownershipTints[tileId] = constructionColor;
-
         RebuildBorderLoops();
+        ReapplyOverlays(_sphereData, _cachedServerTiles);
     }
 
     /// <summary>
-    /// Fetches GET /game/corporations and tints each claimed tile on the current body
-    /// with the owning corporation's derived color. Called after biome colorization.
+    /// Applique les teintes overlays (corp) sur un mesh donné, puis ApplyFaceColors.
+    /// Utilisé après chaque recolorisation biomes pour maintenir les teintes.
+    /// </summary>
+    private void ReapplyOverlays(GoldbergSphereGenerator.GoldbergMeshData meshData, GoldbergTileState[] serverTiles)
+    {
+        if (serverTiles == null) return;
+
+        // Teintes état (political map) — PAS de recoloration des tuiles.
+        // Les frontières d'état sont dessinées uniquement via OwnershipBorderRenderer (RebuildBorderLoops).
+        // Les couleurs terrain (TerrainColorPalette) restent intactes.
+
+        // Teintes corp (ownership) — par-dessus les couleurs terrain
+        if (_ownershipTints != null && _ownershipTints.Count > 0 && _tileToCorpId != null)
+            GoldbergFaceColorizer.ApplyOwnershipTint(
+                meshData.faces, serverTiles, _ownershipTints, _tileToCorpId,
+                borderBlend: 0.25f, interiorBlend: 0.10f);
+
+        // Teintes construction (orange pulsing)
+        if (_constructionTileIds != null && _constructionTileIds.Count > 0)
+        {
+            var constructionTints = new Dictionary<string, Color>();
+            Color constructionColor = new Color(1f, 0.55f, 0f, 1f); // orange
+            foreach (string tileId in _constructionTileIds)
+                constructionTints[tileId] = constructionColor;
+            GoldbergFaceColorizer.ApplyOwnershipTint(
+                meshData.faces, serverTiles, constructionTints, null, // no corpId for borders
+                borderBlend: 0.25f, interiorBlend: 0.10f);
+        }
+
+        // Appliquer les couleurs finales au mesh
+        GoldbergSphereGenerator.ApplyFaceColors(meshData.mesh, meshData.faces, meshData.vertexFaceId);
+
+        if (debugLodVerbose)
+            Debug.Log($"[OVERLAY] ReapplyOverlays | faces={meshData.faces.Length} | stateTints={_stateTints?.Count ?? 0} | corpTints={_ownershipTints?.Count ?? 0} | constructionTints={_constructionTileIds?.Count ?? 0}");
+    }
+
+    /// <summary>
+    /// Fetches GET /bodies/{body_id}/ownership-tiles and tints each claimed tile on the current body
+    /// with the owning corporation's color from server. Called after biome colorization.
     /// No-op if no tiles are claimed on this body or if the server is unreachable.
     /// </summary>
     private IEnumerator FetchOwnershipOverlay()
     {
         if (string.IsNullOrEmpty(_activeBodyId) || _cachedServerTiles == null) yield break;
+        if (_ownershipOverlayFetched) yield break;
 
-        string baseUrl = simulationServerUrl.TrimEnd('/');
-        CorporationDataArray corps = null;
-        using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/game/corporations"))
+        OwnershipTileDtoArray tiles = null;
+        using (UnityWebRequest req = UnityWebRequest.Get(BaseUrl + "/bodies/" + _activeBodyId + "/ownership-tiles"))
         {
-            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            req.timeout = TimeoutSec;
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
@@ -436,30 +495,19 @@ public class PlanetSphereGoldberg : MonoBehaviour
             }
 
             string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-            try   { corps = JsonUtility.FromJson<CorporationDataArray>(wrapped); }
+            try   { tiles = JsonUtility.FromJson<OwnershipTileDtoArray>(wrapped); }
             catch { Debug.LogWarning("[PlanetSphereGoldberg] Ownership parse invalide."); yield break; }
         }
-        if (corps?.items == null || corps.items.Length == 0) yield break;
+        if (tiles?.items == null || tiles.items.Length == 0) { _borderRenderer?.ClearBorders(); yield break; }
 
-        // Build tileId → corp color + tileId → corpId maps (filtered to tiles on the current body)
+        // Build tileId → corp color + tileId → corpId maps
         var tints     = new Dictionary<string, Color>();
         var toCorpId  = new Dictionary<string, string>();
-        Debug.Log($"[PlanetSphereGoldberg] Ownership: {corps.items.Length} corp(s) reçue(s), activeBodyId='{_activeBodyId}'");
-        foreach (CorporationData corp in corps.items)
+        foreach (OwnershipTileDto dto in tiles.items)
         {
-            int tileLen = corp.claimedTiles?.Length ?? -1;
-            Debug.Log($"[PlanetSphereGoldberg]   corp='{corp.name}' id='{corp.id}' claimedTiles.Length={tileLen}");
-            if (corp.claimedTiles == null) continue;
-            Color corpColor = GoldbergFaceColorizer.CorpColorFromId(corp.id);
-            foreach (ClaimedTile ct in corp.claimedTiles)
-            {
-                Debug.Log($"[PlanetSphereGoldberg]     tile bodyId='{ct.bodyId}' tileId='{ct.tileId}' match={ct.bodyId == _activeBodyId}");
-                if (ct.bodyId == _activeBodyId && !string.IsNullOrEmpty(ct.tileId))
-                {
-                    tints[ct.tileId]    = corpColor;
-                    toCorpId[ct.tileId] = corp.id;
-                }
-            }
+            Color corpColor = new Color(dto.colorR, dto.colorG, dto.colorB, 1f);
+            tints[dto.tileId]    = corpColor;
+            toCorpId[dto.tileId] = dto.corpId;
         }
         Debug.Log($"[PlanetSphereGoldberg] Ownership: {tints.Count} tuile(s) à teinter sur ce corps.");
 
@@ -472,7 +520,90 @@ public class PlanetSphereGoldberg : MonoBehaviour
         RebuildBorderLoops();
 
         string rendererStatus = _borderRenderer != null ? "OK" : "no renderer";
-        Debug.Log($"[PlanetSphereGoldberg] Ownership overlay : {tints.Count} tuile(s), {rendererStatus} ({corps.items.Length} corpo(s)).");
+
+        if (debugLodVerbose)
+            Debug.Log($"[OVERLAY] FetchOwnershipOverlay | tints={tints.Count} | renderer={rendererStatus}");
+
+        Debug.Log($"[PlanetSphereGoldberg] Ownership overlay : {tints.Count} tuile(s), {rendererStatus}.");
+
+        _ownershipOverlayFetched = true;
+        ReapplyOverlays(_sphereData, _cachedServerTiles);
+        // Resync snapshot hover — évite le flash vers couleurs pre-overlay au survol
+        if (_sphereData.mesh != null)
+            _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
+    }
+
+    private IEnumerator FetchStateOverlay()
+    {
+        if (string.IsNullOrEmpty(_activeBodyId) || _cachedServerTiles == null) yield break;
+
+        string url = BaseUrl + $"/game/bodies/{_activeBodyId}/state-tile-colors";
+        using (UnityWebRequest req = UnityWebRequest.Get(url))
+        {
+            req.timeout = TimeoutSec;
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                Debug.LogWarning($"[PlanetSphereGoldberg] State overlay fetch échoué ({req.error}) — ignoré.");
+                yield break;
+            }
+
+            StateTileColorArray data;
+            string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
+            try   { data = JsonUtility.FromJson<StateTileColorArray>(wrapped); }
+            catch { Debug.LogWarning("[PlanetSphereGoldberg] State overlay parse invalide."); yield break; }
+
+            if (data?.items == null || data.items.Length == 0) yield break;
+
+            // Éviter fetch multiple (cause de couleurs changeantes)
+            if (_stateOverlayFetched) yield break;
+
+            // Map tileId → terrainType pour exclure précisément les tuiles d'eau du coloris
+            var tileTerrain = new Dictionary<string, TerrainType>();
+            if (_cachedServerTiles != null)
+                foreach (GoldbergTileState t in _cachedServerTiles)
+                    if (!string.IsNullOrEmpty(t.tileId))
+                        tileTerrain[t.tileId] = t.terrainType;
+
+            var stateColorCache = new Dictionary<string, Color>();
+            var stateTints    = new Dictionary<string, Color>();  // coloris terre seulement
+            var allStateTints = new Dictionary<string, Color>();  // tous tiles — pour GetBoundaryLoops
+            var tileToStateId   = new Dictionary<string, string>(); // tous tiles (terre + eau)
+            var tileToStateName = new Dictionary<string, string>(); // tous tiles — nom d'état
+            foreach (StateTileColorDto entry in data.items)
+            {
+                if (string.IsNullOrEmpty(entry.tileId)) continue;
+                Color col = new Color(entry.colorR, entry.colorG, entry.colorB, 1f);
+                tileToStateId[entry.tileId]   = entry.stateId;
+                tileToStateName[entry.tileId] = entry.stateName;
+                allStateTints[entry.tileId] = col;                // TOUS les tiles
+                // Exclure les tuiles d'eau du coloris (mais garder pour bordures)
+                if (!tileTerrain.TryGetValue(entry.tileId, out TerrainType tt) || tt != TerrainType.Eau)
+                    stateTints[entry.tileId] = col;               // coloris terre uniquement
+            }
+
+            _stateTints      = stateTints;
+            _allStateTints   = allStateTints;
+            _tileToStateId   = tileToStateId;
+            _tileToStateName = tileToStateName;
+
+            // Draw state boundary lines — pas de teinte de couleur, couleurs biomes conservées
+            RebuildBorderLoops();
+
+            _stateOverlayFetched = true;
+
+            // Appliquer les couleurs d'état au mesh actif (comme FetchOwnershipOverlay le fait pour corp)
+            ReapplyOverlays(_sphereData, _cachedServerTiles);
+            // Resync snapshot hover — évite le flash vers couleurs pre-overlay au survol
+            if (_sphereData.mesh != null)
+                _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
+
+            Debug.Log($"[PlanetSphereGoldberg] State overlay : {stateTints.Count} tuile(s) colorées + bordures d'État.");
+
+            if (debugLodVerbose)
+                Debug.Log($"[OVERLAY] FetchStateOverlay | stateTints={stateTints.Count} | allStateTints={allStateTints.Count} | states={stateColorCache.Count} | tileToStateId={tileToStateId.Count}");
+        }
     }
 
     // =========================================================
@@ -491,6 +622,10 @@ public class PlanetSphereGoldberg : MonoBehaviour
             Debug.LogError("[PlanetSphereGoldberg] OrbitalBody manquant.");
             return;
         }
+
+        // Reset state overlay flag (nouveau LoadPlanet)
+        _stateOverlayFetched = false;
+        _ownershipOverlayFetched = false;
 
 #pragma warning disable CS0618
         CacheKey cacheKey = new CacheKey(body.GetInstanceID(), coherenceOverride, 0);
@@ -544,8 +679,9 @@ public class PlanetSphereGoldberg : MonoBehaviour
             _sphereDataLo = _sphereData;  // LOD bas  = mesh déjà généré (ex: 492 faces)
             _sphereDataHi = GoldbergSphereGenerator.GenerateWithDivisions(_lodHiDivisions);  // ex: 1962 faces
             _currentLodLevel = -1;
-            _lodHiColored  = false;
-            _lodHiFetching = false;
+            _lodHiColored     = false;
+            _lodHiFetching    = false;
+            _lodHiBaseColored = false;
 
             for (int faceIndex = 0; faceIndex < _sphereDataHi.faces.Length; faceIndex++)
                 _sphereDataHi.faces[faceIndex].color = baseColorForLod;
@@ -584,9 +720,6 @@ public class PlanetSphereGoldberg : MonoBehaviour
         _activeWaterLevelOffset   = waterLevelOffset;
         if (fetchServerTilesOnLoad)
             StartCoroutine(FetchAndColorizeFromServer(body.bodyName, coherenceOverride, waterLevelOffset));
-
-        if (enableLod && startAtMaxResolution)
-            TryStartHiLodFetch();
     }
 
     private PlanetCloudLayer EnsureCloudLayer()
@@ -617,6 +750,55 @@ public class PlanetSphereGoldberg : MonoBehaviour
     // Recolorisation depuis le serveur §4.4
     // =========================================================
 
+    // ── HTTP helpers ─────────────────────────────────────────
+
+    /// <summary>Timeout en secondes, au minimum 1.</summary>
+    private int TimeoutSec => Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+
+    /// <summary>URL de base du serveur (sans slash final).</summary>
+    private string BaseUrl => simulationServerUrl.TrimEnd('/');
+
+    /// <summary>
+    /// Coroutine utilitaire : récupère toutes les pages de tuiles H3 depuis
+    /// GET /bodies/{bodyId}/tiles/lod?h3_resolution={res}&amp;page=N&amp;size={pageSize}.
+    /// Appelle <paramref name="onComplete"/> avec le tableau complet en cas de succès,
+    /// ou <paramref name="onError"/> (nullable) avec le message d'erreur en cas d'échec.
+    /// </summary>
+    private IEnumerator FetchTilesPages(
+        string bodyId, int h3Resolution, int pageSize, int timeoutSec,
+        Action<GoldbergTileState[]> onComplete, Action<string> onError = null)
+    {
+        var allTiles = new List<GoldbergTileState>();
+        int page     = 0;
+
+        while (true)
+        {
+            string url = $"{BaseUrl}/bodies/{bodyId}/tiles/lod?h3_resolution={h3Resolution}&page={page}&size={pageSize}";
+            using UnityWebRequest req = UnityWebRequest.Get(url);
+            req.timeout = timeoutSec;
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                onError?.Invoke(req.error);
+                yield break;
+            }
+
+            GoldbergTileArray batch;
+            try   { batch = JsonUtility.FromJson<GoldbergTileArray>("{\"items\":" + req.downloadHandler.text + "}"); }
+            catch { onError?.Invoke($"parse error page {page}"); yield break; }
+
+            if (batch?.items == null || batch.items.Length == 0) break;
+            allTiles.AddRange(batch.items);
+            if (batch.items.Length < pageSize) break;
+            page++;
+        }
+
+        onComplete(allTiles.ToArray());
+    }
+
+    // ── DTO internes ─────────────────────────────────────────
+
     [Serializable]
     private class BodyListEntryArray   { public SimulationBodyListEntry[] items; }
     [Serializable]
@@ -624,35 +806,35 @@ public class PlanetSphereGoldberg : MonoBehaviour
     [Serializable]
     private class CorporationDataArray { public CorporationData[] items; }
 
+    [Serializable]
+    private struct StateTileColorDto
+    {
+        public string tileId;
+        public string stateId;
+        public string stateName;
+        public string profileKey;
+        public float  colorR;
+        public float  colorG;
+        public float  colorB;
+    }
+    [Serializable]
+    private class StateTileColorArray  { public StateTileColorDto[] items; }
+
     private IEnumerator FetchAndColorizeFromServer(string planetName,
         DebugCoherenceOverride coherenceOverride = DebugCoherenceOverride.None,
         float waterLevelOffset = 0f)
     {
-        // Construire colorByType depuis les biomes déclarés sur le corps (couverture complète)
-        var colorByType = new Dictionary<TerrainType, Color>();
-        if (_activeBody?.layers != null)
-        {
-            foreach (LayerZone layer in _activeBody.layers)
-                if (layer?.biomes != null)
-                    foreach (TerrainData td in layer.biomes)
-                        if (td != null && !colorByType.ContainsKey(td.terrainType))
-                            colorByType[td.terrainType] = td.color;
-        }
-        // Fallback couleurs réalistes pour les types non couverts par les biomes
-        if (!colorByType.ContainsKey(TerrainType.Roche))             colorByType[TerrainType.Roche]             = new Color(0.45f, 0.38f, 0.30f); // brun rocheux
-        if (!colorByType.ContainsKey(TerrainType.Eau))               colorByType[TerrainType.Eau]               = new Color(0.10f, 0.35f, 0.65f); // bleu océan
-        if (!colorByType.ContainsKey(TerrainType.Glace))             colorByType[TerrainType.Glace]             = new Color(0.88f, 0.93f, 0.98f); // blanc-bleuté glace
-        if (!colorByType.ContainsKey(TerrainType.Vegetation))        colorByType[TerrainType.Vegetation]        = new Color(0.25f, 0.52f, 0.20f); // vert végétation
-        if (!colorByType.ContainsKey(TerrainType.AtmosphereToxique)) colorByType[TerrainType.AtmosphereToxique] = new Color(0.55f, 0.50f, 0.15f); // jaune-brun toxique
-        if (!colorByType.ContainsKey(TerrainType.Metal))             colorByType[TerrainType.Metal]             = new Color(0.60f, 0.60f, 0.65f); // gris métal
+        // Couleurs terrain : palette Unity (source de vérité), le serveur envoie seulement l'index int.
+        var colorByType = terrainPalette != null
+            ? terrainPalette.ToDictionary()
+            : TerrainColorPalette.DefaultDictionary();
 
         // 1) Récupérer la liste des corps pour trouver le bodyId
-        string baseUrl = simulationServerUrl.TrimEnd('/');
         string bodyId  = null;
 
-        using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/bodies"))
+        using (UnityWebRequest req = UnityWebRequest.Get(BaseUrl + "/bodies"))
         {
-            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+            req.timeout = TimeoutSec;
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
@@ -680,114 +862,44 @@ public class PlanetSphereGoldberg : MonoBehaviour
             }
         }
 
-        // Si le serveur est vide (démarrage frais), lancer le bootstrap automatique
+        // Si le serveur n'a pas encore de corps, on attend — le bootstrap est géré côté serveur.
         if (string.IsNullOrEmpty(bodyId))
         {
-            Debug.Log($"[PlanetSphereGoldberg] Corps '{planetName}' absent — bootstrap automatique.");
-            // DebugCoherenceOverride est un IntEnum côté Python → envoyer la valeur entière
-            int overrideInt    = (int)coherenceOverride;
-            string escapedName = UnityWebRequest.EscapeURL(planetName);
-            string waterStr    = waterLevelOffset.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
-            string bootstrapUrl = $"{baseUrl}/commands/bootstrap-demo?planet_name={escapedName}&projection_override={overrideInt}&projection_water_level={waterStr}";
-
-            using (UnityWebRequest bsReq = UnityWebRequest.PostWwwForm(bootstrapUrl, ""))
-            {
-                bsReq.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds * 3f));
-                yield return bsReq.SendWebRequest();
-                if (bsReq.result != UnityWebRequest.Result.Success)
-                {
-                    Debug.LogWarning($"[PlanetSphereGoldberg] Bootstrap échoué ({bsReq.error}) — skip recolorisation.");
-                    yield break;
-                }
-                Debug.Log($"[PlanetSphereGoldberg] Bootstrap OK → re-fetch /bodies.");
-            }
-
-            // Re-fetch /bodies après bootstrap
-            using (UnityWebRequest req2 = UnityWebRequest.Get(baseUrl + "/bodies"))
-            {
-                req2.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-                yield return req2.SendWebRequest();
-                if (req2.result == UnityWebRequest.Result.Success)
-                {
-                    string wrapped2 = "{\"items\":" + req2.downloadHandler.text + "}";
-                    BodyListEntryArray list2;
-                    try   { list2 = JsonUtility.FromJson<BodyListEntryArray>(wrapped2); }
-                    catch { list2 = null; }
-                    if (list2?.items != null)
-                    {
-                        foreach (SimulationBodyListEntry entry in list2.items)
-                        {
-                            if (entry.name == planetName && entry.surfaceType == "goldberg")
-                            {
-                                bodyId = entry.bodyId;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (string.IsNullOrEmpty(bodyId))
-            {
-                Debug.LogWarning($"[PlanetSphereGoldberg] Corps '{planetName}' toujours introuvable après bootstrap.");
-                yield break;
-            }
+            Debug.LogWarning($"[PlanetSphereGoldberg] Corps '{planetName}' introuvable sur le serveur. Le serveur n'est peut-être pas encore prêt.");
+            yield break;
         }
 
         // Mémorise le bodyId pour les lookups H3 au clic
         _activeBodyId = bodyId;
 
-        // 2) Paginer les tuiles : GET /bodies/{bodyId}/tiles?page=N&size=200
-        var allTiles = new List<GoldbergTileState>();
-        int page     = 0;
-        const int pageSize = 200;
+        // 2) Récupérer TOUTES les tuiles via /tiles/lod?h3_resolution=2 (pagination)
+        GoldbergTileState[] tilesArray = null;
+        string tilesError = null;
+        yield return StartCoroutine(FetchTilesPages(bodyId, 2, 6000, TimeoutSec,
+            tiles => tilesArray = tiles,
+            err   => tilesError = err));
 
-        while (true)
+        if (tilesError != null)
         {
-            string url = $"{baseUrl}/bodies/{bodyId}/tiles?page={page}&size={pageSize}";
-            using UnityWebRequest req = UnityWebRequest.Get(url);
-            req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-            yield return req.SendWebRequest();
-
-            if (req.result != UnityWebRequest.Result.Success)
-            {
-                Debug.LogWarning($"[PlanetSphereGoldberg] /tiles page {page} indisponible ({req.error}).");
-                break;
-            }
-
-            string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-            GoldbergTileArray batch;
-            try   { batch = JsonUtility.FromJson<GoldbergTileArray>(wrapped); }
-            catch { Debug.LogWarning($"[PlanetSphereGoldberg] Parse /tiles page {page} invalide."); break; }
-
-            if (batch?.items == null || batch.items.Length == 0)
-                break;
-
-            allTiles.AddRange(batch.items);
-
-            if (batch.items.Length < pageSize)
-                break;
-
-            page++;
+            Debug.LogWarning($"[PlanetSphereGoldberg] /tiles/lod indisponible ({tilesError}).");
+            yield break;
         }
-
-        if (allTiles.Count == 0)
+        if (tilesArray == null || tilesArray.Length == 0)
         {
             Debug.LogWarning($"[PlanetSphereGoldberg] Aucune tuile reçue du serveur pour '{planetName}'.");
             yield break;
         }
 
         // 3) Recoloriser les faces GP
-        GoldbergTileState[] tilesArray = allTiles.ToArray();
         if (enableLod && _sphereDataLo.faces != null)
         {
             GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataLo.faces, tilesArray, colorByType);
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereDataLo.mesh, _sphereDataLo.faces, _sphereDataLo.vertexFaceId);
+            ReapplyOverlays(_sphereDataLo, tilesArray);
         }
         else
         {
             GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereData.faces, tilesArray, colorByType);
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereData.mesh, _sphereData.faces, _sphereData.vertexFaceId);
+            ReapplyOverlays(_sphereData, tilesArray);
         }
 
         // Cache pour re-colorisation LOD
@@ -798,7 +910,8 @@ public class PlanetSphereGoldberg : MonoBehaviour
         if (enableLod && _sphereDataHi.faces != null)
         {
             GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataHi.faces, tilesArray, colorByType);
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
+            ReapplyOverlays(_sphereDataHi, tilesArray);
+            _lodHiBaseColored = true;  // couleurs biomes déjà appliquées — ApplyLodLevel n'a pas besoin de refaire
         }
 
         if (_sphereData.mesh != null)
@@ -806,10 +919,19 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         Debug.Log($"[PlanetSphereGoldberg] Tuiles serveur appliquées : {tilesArray.Length} tuiles → {_sphereData.faces.Length} faces.");
 
+        if (debugLodVerbose)
+            Debug.Log($"[LOD] FetchAndColorizeFromServer | tiles={tilesArray.Length} | enableLod={enableLod} | hiLodReady={_sphereDataHi.faces != null} | ownershipTints={_ownershipTints?.Count ?? 0}");
+
         // Ownership overlay (Phase 7.1) — tint des hexes claimés sur ce corps
         _ownershipTints  = null;
         _tileToCorpId    = null;
         yield return StartCoroutine(FetchOwnershipOverlay());
+
+        // State overlay (Phase colonisation) — carte politique
+        _stateTints      = null;
+        _tileToStateId   = null;
+        _tileToStateName = null;
+        yield return StartCoroutine(FetchStateOverlay());
 
         // Si on était déjà en LOD haut avant la fin du fetch, swap maintenant que _cachedServerTiles est prêt
         if (_currentLodLevel == 1) ApplyLodLevel(1);
@@ -832,6 +954,43 @@ public class PlanetSphereGoldberg : MonoBehaviour
     public void ClearProjectionCache()
     {
         ClearSphereCache();
+    }
+
+    /// <summary>
+    /// Snapshot debug : affiche dans la console un histogramme des couleurs actuelles
+    /// des faces du mesh actif (_sphereData). Utiliser avant/après un switch LOD pour
+    /// vérifier que les couleurs terrain ne changent pas.
+    /// </summary>
+    [ContextMenu("Debug — Snapshot couleurs faces")]
+    public void DebugSnapshotFaceColors()
+    {
+        if (_sphereData.faces == null || _sphereData.faces.Length == 0)
+        {
+            Debug.LogWarning("[Snapshot] Aucune face — charger une planète d'abord.");
+            return;
+        }
+
+        // Histogramme par couleur arrondie (R/G/B à 2 décimales)
+        var hist = new Dictionary<string, int>();
+        for (int i = 0; i < _sphereData.faces.Length; i++)
+        {
+            Color c = _sphereData.faces[i].color;
+            string key = $"({c.r:F2},{c.g:F2},{c.b:F2})";
+            hist[key] = hist.TryGetValue(key, out int v) ? v + 1 : 1;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"[Snapshot] LOD={_currentLodLevel} | faces={_sphereData.faces.Length} | body={_activeBodyId}");
+        sb.AppendLine($"  res2_tiles={_cachedServerTiles?.Length ?? 0} | res3_tiles={_cachedServerTilesHi?.Length ?? 0}");
+        sb.AppendLine($"  stateTints={_allStateTints?.Count ?? 0} | corpTints={_ownershipTints?.Count ?? 0}");
+        sb.AppendLine("  Histogramme couleurs (top 10) :");
+        int rank = 0;
+        foreach (var kv in hist.OrderByDescending(x => x.Value))
+        {
+            sb.AppendLine($"    #{rank + 1}: {kv.Key} → {kv.Value} faces");
+            if (++rank >= 10) break;
+        }
+        Debug.Log(sb.ToString());
     }
 
     // =========================================================
@@ -1013,11 +1172,27 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         var nextData = level == 1 ? _sphereDataHi : _sphereDataLo;
 
-        // LOD haut : colorise avec res=2 si res=3 pas encore prêt
-        if (level == 1 && !_lodHiColored && _cachedServerTiles != null && _cachedColorByType != null)
+        // LOD haut : colorise avec res=2 seulement si les biomes n'ont pas encore été appliqués
+        // (_lodHiBaseColored est mis à true dans FetchAndColorizeFromServer dès que les tuiles sont appliquées)
+        if (level == 1 && !_lodHiBaseColored && !_lodHiColored && _cachedServerTiles != null && _cachedColorByType != null)
         {
             GoldbergFaceColorizer.ColorizeFromServerTiles(nextData.faces, _cachedServerTiles, _cachedColorByType);
-            GoldbergSphereGenerator.ApplyFaceColors(nextData.mesh, nextData.faces, nextData.vertexFaceId);
+            ReapplyOverlays(nextData, _cachedServerTiles);
+            _lodHiBaseColored = true;
+        }
+        else if (level == 1 && _lodHiBaseColored)
+        {
+            // Re-appliquer les overlays (ownership, states) sur les couleurs déjà présentes.
+            // IMPORTANT : pas de condition !_lodHiColored — si FetchAndColorizeHiLod s'est terminé
+            // avant FetchOwnershipOverlay/FetchStateOverlay (race condition), les overlays auraient
+            // été appliqués avec des données null. On doit re-passer ici une fois les données reçues.
+            ReapplyOverlays(nextData, _cachedServerTiles);
+        }
+        else if (level == 0 && _cachedServerTiles != null)
+        {
+            // Reapply overlays sur LOD bas — garantit que les tints récents (corp/état)
+            // sont présents même si RefreshOwnershipOverlay s'est fait pendant LOD haut.
+            ReapplyOverlays(nextData, _cachedServerTiles);
         }
 
         _sphereData       = nextData;
@@ -1030,6 +1205,9 @@ public class PlanetSphereGoldberg : MonoBehaviour
 
         string label = level == 1 ? "HAUT" : "BAS";
         Debug.Log($"[PlanetSphereGoldberg] LOD → {label} ({nextData.faces.Length} faces) dist={cameraController?.OrbitDistance:F1}");
+
+        if (debugLodVerbose)
+            Debug.Log($"[LOD] ApplyLodLevel | level={level} | cachedTiles={_cachedServerTiles?.Length ?? 0} | ownershipTints={_ownershipTints?.Count ?? 0}");
 
         // Recalculer les frontières avec le nouveau mesh actif pour éviter le mismatch LOD.
         RebuildBorderLoops();
@@ -1047,10 +1225,10 @@ public class PlanetSphereGoldberg : MonoBehaviour
         string url = string.Format(
             CultureInfo.InvariantCulture,
             "{0}/bodies/{1}/tiles/at?lat={2}&lon={3}",
-            simulationServerUrl.TrimEnd('/'), _activeBodyId, latDeg, lonDeg);
+            BaseUrl, _activeBodyId, latDeg, lonDeg);
 
         using UnityWebRequest req = UnityWebRequest.Get(url);
-        req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+        req.timeout = TimeoutSec;
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
@@ -1064,7 +1242,14 @@ public class PlanetSphereGoldberg : MonoBehaviour
             yield break;
 
         LastClickedH3TileId = tile.tileId;
-        Debug.Log($"[PlanetSphereGoldberg] H3 tile : {tile.tileId} | {tile.terrainType} | eau={tile.waterRatio:F2} | t={tile.temperature:F1}°C");
+
+        // Enrichir avec les infos d'état (overlay politique)
+        if (_tileToStateId != null && _tileToStateId.TryGetValue(tile.tileId, out string sid))
+            tile.stateId = sid;
+        if (_tileToStateName != null && _tileToStateName.TryGetValue(tile.tileId, out string sname))
+            tile.stateName = sname;
+
+        Debug.Log($"[PlanetSphereGoldberg] H3 tile : {tile.tileId} | {tile.terrainType} | eau={tile.waterRatio:F2} | t={tile.temperature:F1}°C | state={tile.stateName}");
         OnH3TileResolved?.Invoke(tile);
     }
 

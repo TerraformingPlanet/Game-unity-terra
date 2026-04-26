@@ -81,6 +81,9 @@ public class SolarSystemView : MonoBehaviour
     [SerializeField] private Color orbitColor = new Color(0.5f, 0.5f, 0.5f, 0.4f);
 
     [Header("Mini Goldberg (Biomes)")]
+    [Tooltip("Palette de couleurs de terrain partagée.")]
+    [SerializeField] private TerrainColorPalette terrainPalette;
+
     [Tooltip("URL du serveur pour fetcher les tuiles biome des mini-planètes.")]
     [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
 
@@ -950,7 +953,9 @@ public class SolarSystemView : MonoBehaviour
             yield break;
         }
 
-        Dictionary<TerrainType, Color> colorByType = BuildDefaultColorByType();
+        Dictionary<TerrainType, Color> colorByType = terrainPalette != null
+            ? terrainPalette.ToDictionary()
+            : TerrainColorPalette.DefaultDictionary();
 
         // 2) Fetcher les tuiles de chaque planète et coloriser son mini-mesh
         foreach (KeyValuePair<string, GoldbergSphereGenerator.GoldbergMeshData> kv in meshEntries)
@@ -1005,18 +1010,7 @@ public class SolarSystemView : MonoBehaviour
             _miniPlanetColorizeCoroutine = null;
     }
 
-    private static Dictionary<TerrainType, Color> BuildDefaultColorByType()
-    {
-        return new Dictionary<TerrainType, Color>
-        {
-            { TerrainType.Roche,             new Color(0.45f, 0.38f, 0.30f) },
-            { TerrainType.Eau,               new Color(0.10f, 0.35f, 0.65f) },
-            { TerrainType.Glace,             new Color(0.88f, 0.93f, 0.98f) },
-            { TerrainType.Vegetation,        new Color(0.25f, 0.52f, 0.20f) },
-            { TerrainType.AtmosphereToxique, new Color(0.55f, 0.50f, 0.15f) },
-            { TerrainType.Metal,             new Color(0.60f, 0.60f, 0.65f) },
-        };
-    }
+    // BuildDefaultColorByType() supprimé — remplacer par TerrainColorPalette.DefaultDictionary()
 
     private static Color WaterLevelToColor(float w)
     {
