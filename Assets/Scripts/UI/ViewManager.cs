@@ -112,7 +112,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     [Header("Sync serveur de simulation")]
     [SerializeField] private bool preferServerRegionSync = true;
     [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
-    [SerializeField] private float simulationServerTimeoutSeconds = 2f;
+    [SerializeField] private float simulationServerTimeoutSeconds = 15f;
 
     // =========================================================
     // Runtime

@@ -297,9 +297,11 @@ public class GameHUD : MonoBehaviour
     {
         string tileShort = !string.IsNullOrEmpty(tile.tileId) && tile.tileId.Length > 14
             ? tile.tileId[..14] + "..." : tile.tileId;
+        string stateLine = !string.IsNullOrEmpty(tile.stateName)
+            ? $"\n<size=10><color=#88ccff>\u2691 {tile.stateName}</color></size>" : "";
         _tileHeader.text =
             $"<b>{tile.terrainType}</b>  <size=10>[H3]</size>\n"
-            + $"<size=10><color=#aaa>{tileShort}</color></size>";
+            + $"<size=10><color=#aaa>{tileShort}</color></size>{stateLine}";
         _corpOwnerLabel.text = "Non revendiquée";
         _corpBadge.color     = new Color(0f, 0f, 0f, 0f);
     }
@@ -363,30 +365,26 @@ public class GameHUD : MonoBehaviour
             _corpDropdown.value = 0;
 
             // Détecte si la tuile courante est déjà claimée
+            // In new territorial model, corporations don't own tiles directly
+            // Tiles belong to states; corps influence via vassal relationships
             string ownerCorpId   = null;
             string ownerCorpName = null;
-            if (_currentTile.tileId != null)
-            {
-                foreach (var c in wrapper.items)
-                {
-                    if (c.claimedTiles == null) continue;
-                    foreach (var t in c.claimedTiles)
-                    {
-                        if (t.tileId == _currentTile.tileId)
-                        {
-                            ownerCorpId   = c.id;
-                            ownerCorpName = c.name;
-                            break;
-                        }
-                    }
-                    if (ownerCorpId != null) break;
-                }
-            }
 
             if (ownerCorpId != null)
             {
                 _corpOwnerLabel.text = ownerCorpName;
-                Color col = GoldbergFaceColorizer.CorpColorFromId(ownerCorpId);
+                // Use color from server data instead of calculating locally
+                var ownerCorp = System.Array.Find(wrapper.items, c => c.id == ownerCorpId);
+                Color col;
+                if (ownerCorp.id == ownerCorpId) // struct can't be null, check if found by id match
+                {
+                    col = new Color(ownerCorp.colorR, ownerCorp.colorG, ownerCorp.colorB, 1f);
+                }
+                else
+                {
+                    // Fallback to default color if not found
+                    col = Color.gray;
+                }
                 _corpBadge.color     = col;
                 // Mettre à jour le solde crédits dans le TopBar
                 int ownerIdx = _corpIds.IndexOf(ownerCorpId);
@@ -493,15 +491,10 @@ public class GameHUD : MonoBehaviour
 
         foreach (var corp in corps)
         {
+            // In new model, corporations don't own tiles directly
             int tileCount = 0;
-            if (corp.claimedTiles != null)
-            {
-                foreach (var t in corp.claimedTiles)
-                    if (string.IsNullOrEmpty(_activeBodyId) || t.bodyId == _activeBodyId)
-                        tileCount++;
-            }
 
-            Color corpColor = GoldbergFaceColorizer.CorpColorFromId(corp.id);
+            Color corpColor = new Color(corp.colorR, corp.colorG, corp.colorB, 1f);
 
             // Row: badge + info
             GameObject row = new GameObject("CorpRow", typeof(RectTransform));
@@ -766,7 +759,7 @@ public class GameHUD : MonoBehaviour
             int poor = 0, middle = 0, rich = 0;
             foreach (var corp in new string[] { })  // populated below
                 break;
-            // Find tile population from the CorporationData already loaded (via claimedTiles)
+            // Find tile population from state tile data (population is now on states, not corporations)
             // We re-use the market corpId to fetch corp data with population
             var popReq = UnityWebRequest.Get($"{simulationServerUrl.TrimEnd('/')}/game/corporations/{corpId}");
             popReq.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
@@ -776,24 +769,9 @@ public class GameHUD : MonoBehaviour
                 CorporationData corp;
                 try
                 {
-                    corp = JsonUtility.FromJson<CorporationData>(popReq.downloadHandler.text);
-                    if (corp.claimedTiles != null)
-                    {
-                        foreach (var t in corp.claimedTiles)
-                        {
-                            if (t.tileId != tile.tileId || t.population == null) continue;
-                            foreach (var p in t.population)
-                            {
-                                switch (p.socialClass)
-                                {
-                                    case SocialClass.Poor:   poor   += p.count; break;
-                                    case SocialClass.Middle: middle += p.count; break;
-                                    case SocialClass.Rich:   rich   += p.count; break;
-                                }
-                            }
-                            break;
-                        }
-                    }
+                    // In new model, population is on states, not corporations
+                    // TODO: fetch from state tile data instead
+                    // For now, population stays 0
                 }
                 catch { /* population stays 0 */ }
             }

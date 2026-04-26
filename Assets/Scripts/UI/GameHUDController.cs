@@ -366,7 +366,27 @@ public class GameHUDController : MonoBehaviour
             _tileHeaderLabel.text = $"{tile.terrainType} — {tileShort}";
         }
 
-        StartCoroutine(RefreshCorpListForTile());
+        // Update terrain details
+        if (_terrainInfoLabel != null)
+        {
+            string waterClass = tile.waterClassification switch
+            {
+                WaterClassification.OpenOcean   => "Océan",
+                WaterClassification.InlandWater => "Eau intérieure",
+                WaterClassification.Coast       => "Côte",
+                WaterClassification.FrozenWater => "Eau gelée",
+                _                               => "Sec"
+            };
+            string stateLine = !string.IsNullOrEmpty(tile.stateName)
+                ? $"\nÉtat : {tile.stateName}" : "";
+            _terrainInfoLabel.text =
+                $"Temp : {tile.temperature:F1}°C\n" +
+                $"Eau : {tile.waterRatio * 100f:F0}% ({waterClass})\n" +
+                $"Toxines : {tile.toxinLevel * 100f:F0}%\n" +
+                $"Habitable : {(tile.isHabitable ? "Oui" : "Non")}{stateLine}";
+        }
+
+        StartCoroutine(RefreshStateRelationForTile());
     }
 
     private void OnTileHoverReady(string text, Vector2 screenPos)
@@ -561,6 +581,7 @@ public class GameHUDController : MonoBehaviour
     private Button        _btnCreateCorp;
     private VisualElement _buildingListContainer;
     private Label         _tileStatusLabel;
+    private Label         _terrainInfoLabel;
 
     // ── State ─────────────────────────────────────────────────
     private string       _activeBodyId  = "";
@@ -575,9 +596,10 @@ public class GameHUDController : MonoBehaviour
         public string          id;
         public string          name;
         public float           credits;
-        public ClaimedTileDto[] claimedTiles;
+        public float           colorR;
+        public float           colorG;
+        public float           colorB;
     }
-    [Serializable] private class ClaimedTileDto { public string tileId; public string bodyId; }
     [Serializable] private class CorpListDto    { public CorpDto[] items; }
 
     [Serializable] private class BuildingItem
@@ -636,6 +658,7 @@ public class GameHUDController : MonoBehaviour
         _btnCreateCorp           = _tileInspector.Q<Button>("btn-create-corp");
         _buildingListContainer   = _tileInspector.Q<VisualElement>("building-list-container");
         _tileStatusLabel         = _tileInspector.Q<Label>("tile-status-label");
+        _terrainInfoLabel        = _tileInspector.Q<Label>("terrain-info-label");
 
         // Wire buttons
         _btnClaim?   .RegisterCallback<ClickEvent>(_ => OnInspectorClaimClicked());
@@ -685,84 +708,95 @@ public class GameHUDController : MonoBehaviour
     // Updated OnTileResolved: wired in Start(), replaces Phase 1 stub.
     // (Start() already hooks this; we override the stub body here.)
 
-    // ── Corp list refresh ─────────────────────────────────────
+    // ── Corp list / state relation refresh ────────────────────
 
-    private IEnumerator RefreshCorpListForTile()
+    [Serializable]
+    private class StateDto
+    {
+        public string id;
+        public string name;
+        public bool   isVassal;
+        public string vassalCorpId;
+    }
+
+    private IEnumerator RefreshStateRelationForTile()
     {
         if (_tileStatusLabel != null) _tileStatusLabel.text = "";
-        string url = simulationServerUrl.TrimEnd('/') + "/game/corporations";
-        using (var req = UnityWebRequest.Get(url))
+
+        // ── 1. Fetch all corps for the dropdown & building panel ──────────
+        string corpsUrl = simulationServerUrl.TrimEnd('/') + "/game/corporations";
+        using (var req = UnityWebRequest.Get(corpsUrl))
         {
             req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
             yield return req.SendWebRequest();
 
-            if (req.result != UnityWebRequest.Result.Success)
+            if (req.result == UnityWebRequest.Result.Success)
             {
-                if (_tileStatusLabel != null)
-                    _tileStatusLabel.text = $"Erreur: {req.error}";
-                yield break;
-            }
+                CorpListDto wrapper;
+                try { wrapper = JsonUtility.FromJson<CorpListDto>("{\"items\":" + req.downloadHandler.text + "}"); }
+                catch { wrapper = null; }
 
-            CorpListDto wrapper;
-            try { wrapper = JsonUtility.FromJson<CorpListDto>("{\"items\":" + req.downloadHandler.text + "}"); }
-            catch { yield break; }
-            if (wrapper?.items == null) yield break;
-
-            // Populate dropdown
-            _corpIds.Clear();
-            var choices = new System.Collections.Generic.List<string>();
-            foreach (var c in wrapper.items)
-            {
-                _corpIds.Add(c.id);
-                choices.Add(c.name);
-            }
-            if (_corpDropdown != null)
-            {
-                _corpDropdown.choices = choices;
-                _corpDropdown.index   = 0;
-            }
-
-            // Detect owner of current tile
-            string ownerCorpId = null;
-            string ownerName   = null;
-            if (_currentTile.tileId != null)
-            {
-                foreach (var c in wrapper.items)
+                if (wrapper?.items != null)
                 {
-                    if (c.claimedTiles == null) continue;
-                    foreach (var t in c.claimedTiles)
+                    _corpIds.Clear();
+                    var choices = new System.Collections.Generic.List<string>();
+                    foreach (var c in wrapper.items)
                     {
-                        if (t.tileId == _currentTile.tileId)
-                        {
-                            ownerCorpId = c.id;
-                            ownerName   = c.name;
-                            break;
-                        }
+                        _corpIds.Add(c.id);
+                        choices.Add(c.name);
                     }
-                    if (ownerCorpId != null) break;
+                    if (_corpDropdown != null)
+                    {
+                        _corpDropdown.choices = choices;
+                        if (_corpDropdown.index < 0 || _corpDropdown.index >= choices.Count)
+                            _corpDropdown.index = 0;
+                    }
                 }
-            }
-
-            if (ownerCorpId != null)
-            {
-                _ownerCorpId = ownerCorpId;
-                if (_corpOwnerLabelEl != null) _corpOwnerLabelEl.text = ownerName;
-                if (_corpBadgeEl != null)
-                {
-                    Color col = GoldbergFaceColorizer.CorpColorFromId(ownerCorpId);
-                    _corpBadgeEl.style.backgroundColor = col;
-                }
-                int ownerIdx = _corpIds.IndexOf(ownerCorpId);
-                if (_corpDropdown != null && ownerIdx >= 0) _corpDropdown.index = ownerIdx;
-                yield return RefreshBuildingsForTile(ownerCorpId, _currentTile.tileId);
-            }
-            else
-            {
-                if (_corpOwnerLabelEl != null) _corpOwnerLabelEl.text = "Non revendiquée";
-                if (_corpBadgeEl != null)      _corpBadgeEl.style.backgroundColor = Color.clear;
-                RebuildBuildingList(null, null);
             }
         }
+
+        // ── 2. Fetch state vassal status ───────────────────────────────────
+        string relationLabel = "";
+        if (!string.IsNullOrEmpty(_currentTile.stateId))
+        {
+            string stateUrl = $"{simulationServerUrl.TrimEnd('/')}/game/states/{_currentTile.stateId}";
+            using (var req = UnityWebRequest.Get(stateUrl))
+            {
+                req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+                yield return req.SendWebRequest();
+
+                if (req.result == UnityWebRequest.Result.Success)
+                {
+                    StateDto stateDto;
+                    try { stateDto = JsonUtility.FromJson<StateDto>(req.downloadHandler.text); }
+                    catch { stateDto = null; }
+
+                    if (stateDto != null)
+                    {
+                        if (stateDto.isVassal && !string.IsNullOrEmpty(stateDto.vassalCorpId))
+                            relationLabel = $"Vassal de : {stateDto.vassalCorpId}";
+                        else if (stateDto.isVassal)
+                            relationLabel = "Vassal (corpo inconnue)";
+                        else
+                            relationLabel = "État indépendant";
+                    }
+                }
+            }
+        }
+
+        if (_corpOwnerLabelEl != null)
+            _corpOwnerLabelEl.text = !string.IsNullOrEmpty(relationLabel) ? relationLabel : "—";
+        if (_corpBadgeEl != null)
+            _corpBadgeEl.style.backgroundColor = Color.clear;
+
+        // ── 3. Refresh buildings for selected corp on this tile ───────────
+        string selectedCorpId = _corpIds.Count > 0 && _corpDropdown != null && _corpDropdown.index >= 0
+            ? _corpIds[_corpDropdown.index]
+            : null;
+        if (selectedCorpId != null)
+            yield return RefreshBuildingsForTile(selectedCorpId, _currentTile.tileId);
+        else
+            RebuildBuildingList(null, null);
     }
 
     private IEnumerator RefreshBuildingsForTile(string corpId, string tileId)
@@ -980,7 +1014,7 @@ public class GameHUDController : MonoBehaviour
             {
                 PushFeedEntry($"Claim → {tileId[..Mathf.Min(8, tileId.Length)]}");
                 planetSphere?.RefreshOwnershipOverlay();
-                yield return RefreshCorpListForTile();
+                yield return RefreshStateRelationForTile();
             }
         }
     }
@@ -1012,7 +1046,7 @@ public class GameHUDController : MonoBehaviour
             {
                 PushFeedEntry($"Unclaim → {tileId[..Mathf.Min(8, tileId.Length)]}");
                 planetSphere?.RefreshOwnershipOverlay();
-                yield return RefreshCorpListForTile();
+                yield return RefreshStateRelationForTile();
             }
         }
     }
@@ -1047,7 +1081,7 @@ public class GameHUDController : MonoBehaviour
                 if (_corpNameInput != null) _corpNameInput.value = "";
                 if (_tileStatusLabel != null) _tileStatusLabel.text = $"Corporation '{corpName}' créée.";
                 PushFeedEntry($"Corp créée : {corpName}");
-                yield return RefreshCorpListForTile();
+                yield return RefreshStateRelationForTile();
             }
             else
             {
