@@ -292,6 +292,9 @@ public struct GoldbergTileState
     public float atmosphereDeltaO2;    // O₂ volume fraction delta per tick
     // Ecology fields (Phase 11.5)
     public SpeciesData[] species;      // active species populations on this tile
+    // State/territory fields (Phase Colonisation) — enriched client-side after overlay fetch
+    public string stateId;             // ID of the state owning this tile (empty if none)
+    public string stateName;           // Display name of the state (empty if none)
 }
 
 /// <summary>
@@ -460,6 +463,41 @@ public struct CorpBuilding
 public class CorpBuildingArray { public CorpBuilding[] items; }
 
 /// <summary>
+/// Mirrors Python StateData. Deserialised from GET /game/states/{id}.
+/// </summary>
+[Serializable]
+public struct StateData
+{
+    public string   id;
+    public string   name;
+    public int      stateType;        // StateType enum value
+    public string[] tileIds;
+    public string[] territoryIds;
+    public float    bureaucracy;
+    public float    corruptionRate;
+    public float    toleranceThreshold;
+    public float    taxRate;
+    public float    literacyRate;
+    public string   profileKey;
+    public bool     isAiControlled;
+    // Vassal / soumission system
+    public bool     isVassal;
+    public string   vassalCorpId;     // null / "" if independent
+    // loyalty serialized as flat array of LoyaltyEntry (dict<str,float> → JSON object not supported by JsonUtility)
+    public LoyaltyEntry[] loyalty;
+}
+
+/// <summary>
+/// One entry in StateData.loyalty — bilatéral corp→état loyalty score.
+/// </summary>
+[Serializable]
+public struct LoyaltyEntry
+{
+    public string corpId;
+    public float  value;   // 0..1
+}
+
+/// <summary>
 /// Mirrors Python CorporationData. Deserialised from GET /game/corporations/{id}.
 /// </summary>
 [Serializable]
@@ -468,12 +506,54 @@ public struct CorporationData
     public string        id;
     public string        name;
     public float         credits;
-    public ClaimedTile[] claimedTiles;
     public float         score;
     public bool          isAI;
     public CorpBuilding[] buildings;
     public float         globalReputation;  // Phase 7.5
+    public float         colorR;
+    public float         colorG;
+    public float         colorB;
 }
+
+/// <summary>
+/// Mirrors Python StateTileColorDto. Deserialised from GET /game/bodies/{body_id}/state-tile-colors.
+/// </summary>
+[Serializable]
+public struct StateTileColorDto
+{
+    public string tileId;
+    public string stateId;
+    public string stateName;
+    public string profileKey;
+    public float  colorR;
+    public float  colorG;
+    public float  colorB;
+}
+
+/// <summary>
+/// Wrapper for deserializing JSON arrays of StateTileColorDto.
+/// </summary>
+[Serializable]
+public class StateTileColorArray { public StateTileColorDto[] items; }
+
+/// <summary>
+/// Mirrors Python OwnershipTileDto. Deserialised from GET /bodies/{body_id}/ownership-tiles.
+/// </summary>
+[Serializable]
+public struct OwnershipTileDto
+{
+    public string tileId;
+    public string corpId;
+    public float  colorR;
+    public float  colorG;
+    public float  colorB;
+}
+
+/// <summary>
+/// Wrapper for deserializing JSON arrays of OwnershipTileDto.
+/// </summary>
+[Serializable]
+public class OwnershipTileDtoArray { public OwnershipTileDto[] items; }
 
 /// <summary>
 /// Mirrors Python ResourceType (tradable subset). Prefixed Corp* to avoid collision (Phase 7.3).
@@ -575,9 +655,36 @@ public struct SimStateData
     public string       name;
     public CorpStateType stateType;
     public string[]     tileIds;
+    public string[]     territoryIds;   // Phase Colonisation
     public float        bureaucracy;
     public float        corruptionRate;
     public float        toleranceThreshold;
+    public float        taxRate;
+    public float        literacyRate;   // Phase Colonisation
+    public string       profileKey;     // Phase Colonisation
+    public bool         isAiControlled;
+}
+
+/// <summary>Mirrors Python PopDistribution (Phase Colonisation).</summary>
+[Serializable]
+public struct PopDistribution
+{
+    public float poor;
+    public float middle;
+    public float rich;
+}
+
+/// <summary>Mirrors Python TerritoryData (Phase Colonisation).</summary>
+[Serializable]
+public struct TerritoryData
+{
+    public string   id;
+    public string   name;
+    public string   stateId;
+    public string   bodyId;
+    public string[] tileIds;
+    public int      populationBase;
+    public string   profileKey;
 }
 
 /// <summary>Mirrors Python NationalizationProcess (Phase 7.5).</summary>
