@@ -21,8 +21,8 @@ public class LoginPanel : MonoBehaviour
     // =========================================================
 
     [Header("Serveur")]
-    [Tooltip("URL de base du DedicatedServer, ex: http://localhost:8080")]
-    [SerializeField] private string simulationServerUrl = "http://localhost:8080";
+    [SerializeField] private GameConfig config;
+    private string SimUrl => config != null ? config.simulationServerUrl : "http://127.0.0.1:8080";
 
     [Header("Références UI")]
     [SerializeField] private TMP_InputField  usernameField;
@@ -95,7 +95,7 @@ public class LoginPanel : MonoBehaviour
         SetStatus("Connexion…");
         SetButtonsInteractable(false);
 
-        string url  = simulationServerUrl.TrimEnd('/') + endpoint;
+        string url  = SimUrl.TrimEnd('/') + endpoint;
         string json = $"{{\"username\":\"{EscapeJson(username)}\",\"password\":\"{EscapeJson(password)}\"}}";
         byte[] body = Encoding.UTF8.GetBytes(json);
 
@@ -189,7 +189,7 @@ public class LoginPanel : MonoBehaviour
 
     private IEnumerator CreateCorpCoroutine(string corpName)
     {
-        string url  = simulationServerUrl.TrimEnd('/') + "/game/corporations";
+        string url  = SimUrl.TrimEnd('/') + "/game/corporations";
         string json = $"{{\"name\":\"{EscapeJson(corpName)}\",\"is_ai\":false}}";
         byte[] body = Encoding.UTF8.GetBytes(json);
         using (var req = new UnityWebRequest(url, "POST"))

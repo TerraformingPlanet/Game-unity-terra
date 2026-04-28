@@ -51,7 +51,7 @@ public class TestLaunchMenu : MonoBehaviour
     private void Start()
     {
         EnsureCanvasGroup();
-        SetMenuVisible(visibleOnStart);
+        SetMenuVisible(false); // Always start hidden — toggled via Debug button in GameHUDController
         BindListeners();
         RebuildDropdown();
         ApplyRuntimeLayout();
@@ -60,9 +60,8 @@ public class TestLaunchMenu : MonoBehaviour
 
     private void Update()
     {
-        if (Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame)
-            ToggleMenu();
-
+        // F9 is handled by GameHUDController.ToggleDebugDrawer() which calls ToggleMenu().
+        // We only handle Escape to close.
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame && IsMenuVisible())
             SetMenuVisible(false);
     }

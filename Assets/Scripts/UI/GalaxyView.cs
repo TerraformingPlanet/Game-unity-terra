@@ -31,8 +31,9 @@ public class GalaxyView : MonoBehaviour
     // =========================================================
 
     [Header("Serveur")]
-    [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
-    [SerializeField] private float simulationServerTimeoutSeconds = 15f;
+    [SerializeField] private GameConfig config;
+    private string SimUrl     => config != null ? config.simulationServerUrl           : "http://127.0.0.1:8080";
+    private float  SimTimeout => config != null ? config.simulationServerTimeoutSeconds : 15f;
 
     [Header("Données par défaut")]
     [Tooltip("Nom du système solaire créé automatiquement si le serveur est vide.")]
@@ -89,7 +90,7 @@ public class GalaxyView : MonoBehaviour
 
     private IEnumerator FetchAndBuildGalaxy()
     {
-        string baseUrl = simulationServerUrl.TrimEnd('/');
+        string baseUrl = SimUrl.TrimEnd('/');
 
         SolarSystemStateDto[] systems = null;
         yield return FetchSystems(baseUrl, result => systems = result);
@@ -103,7 +104,7 @@ public class GalaxyView : MonoBehaviour
 
             using (UnityWebRequest postReq = UnityWebRequest.PostWwwForm(postUrl, ""))
             {
-                postReq.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds * 2f));
+                postReq.timeout = Mathf.Max(1, Mathf.CeilToInt(SimTimeout * 2f));
                 yield return postReq.SendWebRequest();
 
                 if (postReq.result != UnityWebRequest.Result.Success)
@@ -128,7 +129,7 @@ public class GalaxyView : MonoBehaviour
     private IEnumerator FetchSystems(string baseUrl, Action<SolarSystemStateDto[]> onResult)
     {
         using UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/galaxy/systems");
-        req.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
+        req.timeout = Mathf.Max(1, Mathf.CeilToInt(SimTimeout));
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)

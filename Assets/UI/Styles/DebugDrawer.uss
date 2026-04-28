@@ -1,0 +1,127 @@
+/* DebugDrawer.uss
+   Panneau de debug ancré en bas, pleine largeur.
+   Variables CSS définies dans variables.uss.
+*/
+
+/* ── Conteneur principal ─────────────────────────────────────────── */
+.debug-drawer {
+    position: absolute;
+    bottom: 52px;    /* au-dessus de la BottomActionBar */
+    left: 0;
+    right: 0;
+    background-color: rgba(10, 10, 20, 0.95);
+    border-top-color: rgba(128, 128, 180, 0.25);
+    border-top-width: 1px;
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    flex-direction: column;
+}
+
+/* ── Titre ────────────────────────────────────────────────────────── */
+.debug-drawer__title {
+    color: rgba(128, 128, 180, 1);
+    font-size: var(--font-size-caption);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+    -unity-text-align: upper-center;
+    margin-bottom: var(--gap-xs);
+}
+
+/* ── Lignes flex-row ─────────────────────────────────────────────── */
+.debug-drawer__row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: var(--gap-xs);
+}
+
+/* ── Séparateur ──────────────────────────────────────────────────── */
+.debug-drawer__separator {
+    height: 1px;
+    background-color: rgba(255, 255, 255, 0.08);
+    margin-top: 4px;
+    margin-bottom: 6px;
+}
+
+/* ── Corp header ─────────────────────────────────────────────────── */
+.debug-drawer__corps-header {
+    margin-bottom: 2px;
+}
+
+.debug-drawer__corp-title {
+    color: rgba(160, 160, 204, 1);
+    font-size: var(--font-size-caption);
+    -unity-font-style: bold;
+    flex-grow: 1;
+}
+
+/* ── Boutons debug ────────────────────────────────────────────────── */
+.debug-drawer__btn {
+    flex-grow: 1;
+    margin-right: 6px;
+    font-size: var(--font-size-caption);
+}
+
+.debug-drawer__btn--green {
+    background-color: rgba(55, 80, 55, 1);
+    border-color: rgba(80, 140, 80, 0.4);
+    margin-right: 0;
+}
+
+.debug-drawer__btn--small {
+    flex-grow: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 10px;
+}
+
+.debug-drawer__btn--blue {
+    background-color: rgba(55, 75, 110, 1);
+    border-color: rgba(80, 120, 180, 0.4);
+}
+
+/* ── Status label ─────────────────────────────────────────────────── */
+.debug-drawer__status {
+    color: var(--text-secondary);
+    font-size: 10px;
+    margin-bottom: 4px;
+    white-space: normal;
+}
+
+/* ── ScrollView corps ─────────────────────────────────────────────── */
+.debug-drawer__scroll {
+    height: 180px;
+    background-color: rgba(15, 15, 26, 1);
+    border-color: rgba(255, 255, 255, 0.06);
+    border-width: 1px;
+    border-radius: var(--card-radius);
+}
+
+/* ── Liste corps (enfant du scroll) ─────────────────────────────── */
+.debug-drawer__list {
+    flex-direction: column;
+    padding: 6px 8px;
+}
+
+/* ── Ligne corp ──────────────────────────────────────────────────── */
+.debug-drawer__corp-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.debug-drawer__corp-badge {
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.debug-drawer__corp-label {
+    color: var(--text-primary);
+    font-size: var(--font-size-caption);
+    flex-grow: 1;
+    white-space: normal;
+}

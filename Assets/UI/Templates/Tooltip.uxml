@@ -1,0 +1,17 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements">
+
+    <!-- Tooltip.uxml
+         Tooltip flottant positionné dynamiquement via ShowTooltip(text, screenPos).
+         picking-mode="Ignore" — ne bloque pas les événements pointeur.
+         Remplace BuildTooltip() procédural dans GameHUDController.cs.
+         Lié par OnTileHoverReady / OnTileHoverCancelled. -->
+
+    <Style src="../Styles/variables.uss" />
+    <Style src="../Styles/base.uss" />
+
+    <ui:VisualElement name="hud-tooltip" class="hud-tooltip" picking-mode="Ignore">
+        <ui:Label name="hud-tooltip-label" class="hud-tooltip__label" />
+    </ui:VisualElement>
+
+</ui:UXML>

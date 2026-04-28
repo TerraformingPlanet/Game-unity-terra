@@ -5,7 +5,8 @@ public enum TerrainType
     AtmosphereToxique = 2,
     Eau = 3,
     Vegetation = 4,
-    Metal = 5
+    Metal = 5,
+    Foret = 6,
 }
 
 public enum TerrainClass

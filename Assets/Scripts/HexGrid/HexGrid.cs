@@ -286,6 +286,9 @@ public int Radius => radius;
                 case TerrainType.Metal:
                     summary.metalTerrainCells++;
                     break;
+                case TerrainType.Foret:
+                    summary.vegetationTerrainCells++;
+                    break;
             }
         }
 

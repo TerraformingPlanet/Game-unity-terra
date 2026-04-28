@@ -192,9 +192,11 @@
 /* ── EventFeed / Journal ────────────────────────────────────────── */
 .event-feed {
     position: absolute;
-    bottom: 12px;
-    right: 12px;
+    bottom: 64px;
+    left: 12px;
     width: 280px;
+    max-height: 320px;
+    overflow: hidden;
     background-color: var(--panel-bg);
     border-color: var(--panel-border);
     border-width: 1px;
@@ -247,4 +249,104 @@
 
 .event-feed__entry--local {
     color: var(--text-primary);
+}
+
+/* ── EventPopup — notification top-centre auto-cachée ───────────── */
+.event-popup {
+    position: absolute;
+    top: 56px;
+    width: 340px;
+    background-color: var(--panel-bg);
+    border-color: var(--panel-border-acc);
+    border-width: 1px;
+    border-radius: var(--panel-radius);
+    padding: var(--gap-sm);
+    align-items: center;
+}
+
+.event-popup__title {
+    color: var(--text-accent);
+    font-size: var(--font-size-caption);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+    -unity-text-align: upper-center;
+}
+
+.event-popup__body {
+    color: var(--text-primary);
+    font-size: var(--font-size-caption);
+    white-space: normal;
+    -unity-text-align: upper-center;
+}
+
+/* ── Time Controls — top-right speed controls ───────────────────── */
+.time-controls-bar {
+    position: absolute;
+    top: 60px;
+    right: 12px;
+    flex-direction: row;
+    align-items: center;
+    background-color: var(--time-controls-bg);
+    border-color: var(--panel-border);
+    border-width: 1px;
+    padding-left: var(--gap-sm);
+    padding-right: var(--gap-sm);
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.time-controls__btn {
+    background-color: var(--btn-neutral);
+    border-color: var(--panel-border);
+    border-width: 1px;
+    border-radius: var(--card-radius);
+    padding-left: var(--gap-xs);
+    padding-right: var(--gap-xs);
+    padding-top: 2px;
+    padding-bottom: 2px;
+    color: var(--text-primary);
+    font-size: var(--font-size-caption);
+    -unity-font-style: bold;
+    margin-right: var(--gap-xs);
+    transition-duration: 0.12s;
+    transition-property: background-color;
+}
+
+.time-controls__btn:hover {
+    background-color: var(--btn-neutral-hover);
+}
+
+.time-controls__btn:active {
+    scale: 0.97;
+}
+
+.time-controls__btn--active {
+    background-color: var(--time-controls-btn-active);
+    border-color: transparent;
+}
+
+.time-controls__progress {
+    color: var(--time-controls-progress-text);
+    font-size: var(--font-size-caption);
+    -unity-font-style: bold;
+    margin-left: var(--gap-sm);
+}
+
+/* ── Market sparkline (bio price history) ──────────────────────────────── */
+.market-sparkline {
+    color: var(--market-sparkline-color);
+    font-size: var(--font-size-caption);
+    -unity-font-style: normal;
+    letter-spacing: 1px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+.market-sparkline--financial {
+    color: var(--market-sparkline-financial-color);
+    font-size: var(--font-size-caption);
+    -unity-font-style: normal;
+    letter-spacing: 1px;
+    margin-top: 2px;
+    margin-bottom: 2px;
 }

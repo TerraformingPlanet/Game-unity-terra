@@ -97,6 +97,10 @@ components:
   bottom-action-bar:
     height: 52px
     backgroundColor: "{colors.topbar-bg}"
+  time-controls:
+    backgroundColor: "{colors.panel-bg}"
+    btn-active: "{colors.btn-build}"
+    progress-text: "{colors.text-accent}"
 ---
 
 ## Overview

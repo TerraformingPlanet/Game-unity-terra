@@ -1,0 +1,34 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements">
+
+    <!-- EventFeed.uxml
+         Flux d'événements bas-gauche (journal serveur + actions locales).
+         Deux onglets : ÉVÉNEMENTS (polling serveur) | ACTIONS (local push).
+         Remplace BuildEventFeed() procédural dans GameHUDController.cs.
+         Lié par PollEventFeed / PushFeedEntry / SetEventTab. -->
+
+    <Style src="../Styles/variables.uss" />
+    <Style src="../Styles/base.uss" />
+
+    <ui:VisualElement name="event-feed" class="event-feed">
+
+        <!-- ── Onglets ───────────────────────────────────────── -->
+        <ui:VisualElement name="event-feed-tabs" class="event-feed__tabs">
+            <ui:Label name="tab-events"  text="ÉVÉNEMENTS"
+                      class="event-feed__tab event-feed__tab--active" />
+            <ui:Label name="tab-actions" text="ACTIONS"
+                      class="event-feed__tab" />
+        </ui:VisualElement>
+
+        <!-- ── Panneau événements (rempli par PollEventFeed) ─── -->
+        <ui:VisualElement name="event-feed-list"
+                          class="event-feed__pane event-feed__list" />
+
+        <!-- ── Panneau actions (rempli par PushFeedEntry) ──── -->
+        <ui:VisualElement name="event-feed-actions"
+                          class="event-feed__pane event-feed__list"
+                          style="display: none;" />
+
+    </ui:VisualElement>
+
+</ui:UXML>

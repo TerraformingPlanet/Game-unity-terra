@@ -287,13 +287,13 @@ public static class SceneSetupHelper
         EditorUtility.DisplayDialog("Nettoyage terminé", msg + "\n\nLa scène a été sauvegardée.", "OK");
     }
 
-    [MenuItem("Tools/Terraformation/Add GameHUD to Scene")]
-    public static void AddGameHUD()
+    [MenuItem("Tools/Terraformation/Add GameHUDController to Scene")]
+    public static void AddGameHUDController()
     {
         if (EditorApplication.isPlaying)
         {
             EditorUtility.DisplayDialog("Play Mode actif",
-                "Arrête le Play Mode avant d'ajouter GameHUD à la scène.", "OK");
+                "Arrête le Play Mode avant d'ajouter GameHUDController à la scène.", "OK");
             return;
         }
 
@@ -301,22 +301,23 @@ public static class SceneSetupHelper
 
         // Vérifie si déjà présent
         foreach (var root in scene.GetRootGameObjects())
-            foreach (var existing in root.GetComponentsInChildren<GameHUD>(true))
+            foreach (var existing in root.GetComponentsInChildren<GameHUDController>(true))
             {
-                Debug.LogWarning("[SceneSetupHelper] GameHUD déjà présent dans la scène.");
+                Debug.LogWarning("[SceneSetupHelper] GameHUDController déjà présent dans la scène.");
                 Selection.activeGameObject = existing.gameObject;
                 return;
             }
 
-        var go = new GameObject("GameHUD");
-        go.AddComponent<GameHUD>();
+        var go = new GameObject("GameHUDController");
+        go.AddComponent<UnityEngine.UIElements.UIDocument>();
+        go.AddComponent<GameHUDController>();
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
         Selection.activeGameObject = go;
-        Debug.Log("[SceneSetupHelper] GameHUD créé dans la scène !");
-        EditorUtility.DisplayDialog("GameHUD ajouté",
-            "GameObject 'GameHUD' créé avec le composant GameHUD.\n" +
-            "Les références (ViewManager, TerraformHUD, PlanetSphereGoldberg) seront auto-trouvées au Start().",
+        Debug.Log("[SceneSetupHelper] GameHUDController créé dans la scène !");
+        EditorUtility.DisplayDialog("GameHUDController ajouté",
+            "GameObject 'GameHUDController' créé avec UIDocument + GameHUDController.\n" +
+            "Assigne les UXML templates et StyleSheets dans l'Inspector.",
             "OK");
     }
 }

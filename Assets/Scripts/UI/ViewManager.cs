@@ -4,7 +4,6 @@ using System.Globalization;
 using UnityEngine;
 using System;
 using UnityEngine.InputSystem;
-using UnityEngine.Networking;
 
 /// <summary>
 /// Machine d'état gérant les niveaux de vue du jeu.
@@ -18,7 +17,7 @@ using UnityEngine.Networking;
 ///   - SolarSystemView.OnPlanetClicked : SolarSystem → Planet
 ///   - TogglePlanetView()              : Globe ↔ Flat au sein de Planet
 /// </summary>
-public class ViewManager : MonoBehaviour, IClientSnapshotSource
+public partial class ViewManager : MonoBehaviour, IClientSnapshotSource
 {
     public enum ViewState { Galaxy, SolarSystem, Planet, Local }
 
@@ -111,8 +110,9 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
 
     [Header("Sync serveur de simulation")]
     [SerializeField] private bool preferServerRegionSync = true;
-    [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
-    [SerializeField] private float simulationServerTimeoutSeconds = 15f;
+    [SerializeField] private GameConfig config;
+    private string SimUrl     => config != null ? config.simulationServerUrl           : "http://127.0.0.1:8080";
+    private float  SimTimeout => config != null ? config.simulationServerTimeoutSeconds : 15f;
 
     // =========================================================
     // Runtime
@@ -234,7 +234,7 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
 
         // Recharge dynamiquement le système depuis le serveur
         if (solarSystemView != null)
-            StartCoroutine(solarSystemView.LoadFromServer(simulationServerUrl, simulationServerTimeoutSeconds));
+            StartCoroutine(solarSystemView.LoadFromServer(SimUrl, SimTimeout));
     }
 
     /// <summary>
@@ -392,156 +392,6 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         Debug.Log("[ViewManager] Recentrage caméra sur l'étoile primaire");
     }
 
-    /// <summary>
-    /// Ouvre la Vue Locale sur la région à la lat/lon donnée.
-    /// Appelé depuis un clic en sous-vue Flat ou Plan Tangent.
-    /// </summary>
-    public void ShowLocalView(float latitude, float longitude)
-    {
-        if (_activePlanet == null) return;
-
-        cameraController?.SetOrbitKeyboardPanEnabled(false);
-
-        _previousStateBeforeLocal   = _state;
-        _previousSubViewBeforeLocal = _planetSubView;
-
-        MapRegion region = BuildRegion(
-            Mathf.Clamp01(latitude),
-            Mathf.Clamp01(longitude),
-            _activeProjectionOverride);
-
-        SetActiveRoot(hexGridRoot);
-        hexGrid.LoadRegion(region);
-        ApplyLocalRuntimeContext(region);
-
-        Bounds gridBounds = hexGrid.GetWorldBounds();
-        float fittedZoom  = Mathf.Max(gridBounds.size.x, gridBounds.size.z) * 1.35f;
-        float appliedZoom = Mathf.Max(localStartZoom, fittedZoom);
-
-        cameraController.SetMode(CameraController.CameraMode.OrthoTopDown, localMinZoom, localMaxZoom);
-        cameraController.FocusOn(gridBounds.center, appliedZoom);
-
-        _state = ViewState.Local;
-        OnViewChanged?.Invoke(_state);
-        Debug.Log($"[ViewManager] → Vue Locale | lat={latitude:F3} lon={longitude:F3} | {_activePlanet.bodyName}");
-        RequestAuthoritativeRegionSync(latitude, longitude);
-    }
-
-    /// <summary>
-    /// Ouvre la Vue Locale pour la dernière tuile sélectionnée en vue Globe.
-    /// Appelé par le bouton "Voir en local" du HUD.
-    /// Mode overlay : le globe reste visible, la grille hex se superpose à la face cliquée.
-    /// </summary>
-    public void EnterLocalFromSelection()
-    {
-        if (!_hasGlobeSelection || _activePlanet == null || planetSphere == null) return;
-        if (_state != ViewState.Planet) return;
-
-        _previousSubViewBeforeLocal = _planetSubView;
-
-        // Activer hexGridRoot EN PARALLÈLE de planetRoot (pas SetActiveRoot qui cache le globe)
-        if (hexGridRoot != null)
-        {
-            hexGridRoot.SetActive(true);
-            hexGrid?.LoadRegion(BuildRegion(_selectedGlobeLat, _selectedGlobeLon, _activeProjectionOverride));
-            PlaceHexGridOnGlobe();
-        }
-
-        // Orbiter vers la face
-        cameraController?.OrbitToFace(
-            planetSphere.LastClickedFaceCentroid.normalized,
-            localOverlayOrbitDistance,
-            localOverlayOrbitDuration);
-
-        Debug.Log($"[ViewManager] Vue locale overlay → face {planetSphere.LastClickedFaceId}");
-    }
-
-    /// <summary>
-    /// Place et dimensionne hexGridRoot exactement sur la face GP cliquée.
-    /// Appelé depuis EnterLocalFromSelection après activation de hexGridRoot.
-    /// </summary>
-    private void PlaceHexGridOnGlobe()
-    {
-        if (hexGridRoot == null || planetSphere == null) return;
-
-        Vector3 dir = planetSphere.LastClickedFaceCentroid.normalized;
-
-        // ── Scale : rayon englobant réel de la grille flat-top en espace local XZ ──
-        // L'étendue Z (R * verticalSpacing + innerRadius) est plus grande que X
-        // et représente le vrai rayon du cercle englobant la grille.
-        float faceRadius = planetSphere.GetFaceRadius(planetSphere.LastClickedFaceId);
-        int   gridRadius = hexGrid != null ? hexGrid.Radius : 5;
-        float xBound     = gridRadius * HexMetrics.horizontalSpacing + HexMetrics.outerRadius;
-        float zBound     = gridRadius * HexMetrics.verticalSpacing   + HexMetrics.innerRadius;
-        float hexBoundRadius = Mathf.Max(xBound, zBound);
-        float scale = faceRadius / hexBoundRadius;
-        hexGridRoot.transform.localScale = Vector3.one * scale;
-
-        // ── Orientation : local Y = outward, local Z = nord, local X = est ──
-        // LookRotation(forward=northTangent, up=dir) → Z→nord, Y→outward, X→est.
-        // La caméra (LookAt sphere center) a aussi northTangent comme viewport-up → alignement garanti.
-        Vector3 worldRef     = Mathf.Abs(Vector3.Dot(dir, Vector3.up)) > 0.99f ? Vector3.forward : Vector3.up;
-        Vector3 northTangent = Vector3.ProjectOnPlane(worldRef, dir).normalized;
-        hexGridRoot.transform.rotation = Quaternion.LookRotation(northTangent, dir);
-
-        // ── Position : collé à la surface (offset minimal anti z-fighting) ──
-        hexGridRoot.transform.position = dir * (GoldbergSphereGenerator.VisualRadius + localOverlaySurfaceOffset);
-
-        // ── Coordonnées sphériques par cellule (nécessaire pour le serveur dédié) ──
-        if (hexGrid != null)
-        {
-            HexCell[] cells = hexGrid.GetCells();
-            if (cells != null)
-            {
-                foreach (HexCell cell in cells)
-                {
-                    Vector3 worldPos  = hexGridRoot.transform.TransformPoint(cell.center);
-                    Vector3 sphereDir = worldPos.normalized;
-                    float latDeg = Mathf.Asin(Mathf.Clamp(sphereDir.y, -1f, 1f)) * Mathf.Rad2Deg;
-                    float lonDeg = Mathf.Atan2(sphereDir.z, sphereDir.x) * Mathf.Rad2Deg;
-                    cell.latOnSphere = (latDeg + 90f)  / 180f;
-                    cell.lonOnSphere = (lonDeg + 180f) / 360f;
-                }
-            }
-        }
-
-        // ── Masquer la face GP remplacée visuellement ──
-        planetSphere.HideFaceOnSphere(planetSphere.LastClickedFaceId);
-
-        Debug.Log($"[ViewManager] PlaceHexGridOnGlobe | faceR={faceRadius:F3} | hexBound={hexBoundRadius:F1} | scale={scale:F5}");
-    }
-
-    /// <summary>
-    /// Ferme la vue locale (overlay globe ou vue locale standard) et retourne au Globe.
-    /// Appelé par le bouton "Fermer" du HUD.
-    /// </summary>
-    public void CloseLocalOverlay()
-    {
-        // Restaure la face GP masquée si nécessaire
-        if (planetSphere != null && planetSphere.LastClickedFaceId >= 0)
-            planetSphere.RestoreFaceOnSphere(planetSphere.LastClickedFaceId);
-
-        // Cas overlay globe : hexGridRoot visible par-dessus planetRoot (state = Planet)
-        if (_state == ViewState.Planet && hexGridRoot != null && hexGridRoot.activeSelf)
-        {
-            hexGridRoot.SetActive(false);
-            Debug.Log("[ViewManager] Vue locale overlay fermée → retour Globe");
-            return;
-        }
-
-        // Cas standard : on était en ViewState.Local
-        if (_state == ViewState.Local && _activePlanet != null)
-        {
-            ShowProjectedPlanet(_activePlanet, _activeProjectionOverride, _activeProjectionWaterLevel);
-            if (_previousSubViewBeforeLocal == PlanetSubView.Flat)
-            {
-                _planetSubView = PlanetSubView.Flat;
-                ApplyPlanetSubView();
-            }
-            Debug.Log("[ViewManager] Vue locale fermée → retour Planet");
-        }
-    }
-
     public bool TryOpenRegionNormalized(float latitude, float longitude)
     {
         if (_activePlanet == null)
@@ -598,67 +448,9 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
         return true;
     }
 
-    public bool TryBuildProjectionState(out ProjectionState state)
-    {
-        return SimulationContractFactory.TryBuildProjectionState(this, out state);
-    }
-
-    public bool TryBuildRegionState(out RegionState state)
-    {
-        return SimulationContractFactory.TryBuildRegionState(this, terraformHUD, progressTracker, out state);
-    }
-
-    public ClientSnapshot BuildClientSnapshot()
-    {
-        return SimulationContractFactory.BuildClientSnapshot(this, terraformHUD, progressTracker, TickManager.Instance);
-    }
-
-    public WorldState BuildWorldState()
-    {
-        return SimulationContractFactory.BuildWorldState(this, terraformHUD, progressTracker, TickManager.Instance);
-    }
-
-    public bool OpenPlanetDebug(OrbitalBody body)
-    {
-        if (body == null)
-            return false;
-
-        OpenPlanet(body, Vector3.zero);
-        return true;
-    }
-
-    public bool LaunchDebugScenario(TestScenarioPreset preset, float latitude, float longitude)
-    {
-        if (preset == null || preset.body == null)
-            return false;
-
-        ShowProjectedPlanet(preset.body, preset.coherenceOverride, _activeProjectionWaterLevel);
-
-        if (!preset.openLocalView)
-            return true;
-
-        _previousStateBeforeLocal = _state;
-        MapRegion region = BuildRegion(Mathf.Clamp01(latitude), Mathf.Clamp01(longitude), preset.coherenceOverride);
-
-        SetActiveRoot(hexGridRoot);
-        hexGrid.LoadRegion(region);
-        ApplyLocalRuntimeContext(region);
-
-        Bounds gridBounds = hexGrid.GetWorldBounds();
-        float fittedZoom = Mathf.Max(gridBounds.size.x, gridBounds.size.z) * 1.35f;
-        float appliedZoom = Mathf.Max(localStartZoom, fittedZoom);
-
-        cameraController.SetMode(CameraController.CameraMode.OrthoTopDown,
-                                 localMinZoom, localMaxZoom);
-        cameraController.FocusOn(gridBounds.center, appliedZoom);
-
-        _state = ViewState.Local;
-        OnViewChanged?.Invoke(_state);
-        Debug.Log($"[ViewManager] → Debug Scenario {preset.displayName} | lat={latitude:F2} lon={longitude:F2} | override={preset.coherenceOverride}");
-        RequestAuthoritativeRegionSync(latitude, longitude);
-
-        return true;
-    }
+    // =========================================================
+    // Helpers privés (SetActiveRoot, ResetPlanetVisuals, BuildRegion)
+    // =========================================================
 
     private MapRegion BuildRegion(float latitude, float longitude, DebugCoherenceOverride coherenceOverride)
     {
@@ -736,17 +528,6 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
     // Helpers
     // =========================================================
 
-    /// <summary>
-    /// Appelé par HexInput quand l'utilisateur clique sur une cellule en vue locale.
-    /// Affiche le panel d'info dans le HUD.
-    /// </summary>
-    public void NotifyCellClicked(HexCell cell)
-    {
-        if (_state != ViewState.Local) return;
-        Debug.Log($"[ViewManager] Cellule cliquée en vue locale : ({cell.Q}, {cell.R})");
-        terraformHUD?.ShowHexPanel(cell);
-    }
-
     private void SetActiveRoot(GameObject active)
     {
         // Désactivation stricte avant réactivation de la cible pour éviter tout état mixte pendant une transition.
@@ -773,88 +554,5 @@ public class ViewManager : MonoBehaviour, IClientSnapshotSource
             planetSphere.RestoreFaceOnSphere(planetSphere.LastClickedFaceId);
     }
 
-    private void ApplyLocalRuntimeContext(MapRegion region)
-    {
-        progressTracker?.ClearAuthoritativeProgress();
-        terraformHUD?.ClearAuthoritativeRegionState();
-
-        if (terraformSystem != null)
-        {
-            GenerationContext ctx;
-            if (_isContextAuthoritative && terraformHUD != null && terraformHUD.HasAuthoritativeRegionState)
-            {
-                // Injection depuis l'état serveur autoritatif
-                ctx = GenerationContext.BuildWithInjected(
-                    hexGrid.GetCells(),
-                    region,
-                    terraformHUD.AuthoritativeRegionState.weather.ToPlanetaryWeatherState(),
-                    terraformHUD.AuthoritativeRegionState.coherence.ToCoherenceConstraint()
-                );
-            }
-            else
-            {
-                // Calcul local classique
-                ctx = GenerationContext.Build(hexGrid.GetCells(), region);
-            }
-
-            terraformSystem.SetContext(ctx);
-            terraformHUD?.SetRegionContext(ctx);
-        }
-
-        progressTracker?.Refresh();
-    }
-
-    private void RequestAuthoritativeRegionSync(float latitude, float longitude)
-    {
-        if (!preferServerRegionSync || !isActiveAndEnabled)
-            return;
-
-        StartCoroutine(SynchronizeRegionStateFromServer(latitude, longitude));
-    }
-
-    private IEnumerator SynchronizeRegionStateFromServer(float latitude, float longitude)
-    {
-        string url = string.Format(
-            CultureInfo.InvariantCulture,
-            "{0}/commands/open-region?latitude={1}&longitude={2}",
-            simulationServerUrl.TrimEnd('/'),
-            latitude,
-            longitude);
-
-        using UnityWebRequest request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST)
-        {
-            downloadHandler = new DownloadHandlerBuffer(),
-            uploadHandler = new UploadHandlerRaw(Array.Empty<byte>()),
-            timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds))
-        };
-        request.SetRequestHeader("Content-Type", "application/json");
-
-        yield return request.SendWebRequest();
-
-        if (request.result != UnityWebRequest.Result.Success)
-        {
-            Debug.LogWarning($"[ViewManager] Sync région serveur indisponible ({request.error}). Fallback local conserve.");
-            yield break;
-        }
-
-        RegionState regionState;
-        try
-        {
-            regionState = JsonUtility.FromJson<RegionState>(request.downloadHandler.text);
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"[ViewManager] Sync région serveur invalide ({ex.Message}). Fallback local conserve.");
-            yield break;
-        }
-
-        if (!regionState.isValid)
-            yield break;
-
-        terraformHUD?.SetAuthoritativeRegionState(regionState);
-        terraformSystem?.SynchronizeAuthoritativeRegionState(regionState);
-
-        // Marquer le contexte comme autoritatif pour les prochains appels à ApplyLocalRuntimeContext
-        _isContextAuthoritative = true;
-    }
 }
+

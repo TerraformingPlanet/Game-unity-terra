@@ -1,0 +1,18 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements">
+
+    <!-- EventPopup.uxml
+         Notification top-centre auto-cachée (~4 s).
+         picking-mode="Ignore" — ne bloque pas les événements pointeur.
+         Remplace BuildEventPopupPanel() (à créer) dans GameHUDController.cs.
+         Affiché via ShowEventPopup(message) depuis n'importe quel système. -->
+
+    <Style src="../Styles/variables.uss" />
+    <Style src="../Styles/base.uss" />
+
+    <ui:VisualElement name="event-popup" class="event-popup" picking-mode="Ignore">
+        <ui:Label name="event-popup-title" class="event-popup__title" />
+        <ui:Label name="event-popup-body"  class="event-popup__body"  />
+    </ui:VisualElement>
+
+</ui:UXML>

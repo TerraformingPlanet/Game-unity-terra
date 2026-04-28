@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections;
 using System.Globalization;
 using UnityEngine;
-using UnityEngine.Networking;
 
 /// <summary>
 /// Applique des actions de terraformation sur des hexagones, fait évoluer
@@ -38,8 +37,9 @@ public class TerraformSystem : MonoBehaviour
     [SerializeField] private HexGrid hexGrid;
     [SerializeField] private bool preferServerCommands = true;
     [SerializeField] private bool fallbackToLocalSimulationOnServerFailure = true;
-    [SerializeField] private string simulationServerUrl = "http://127.0.0.1:8080";
-    [SerializeField] private float simulationServerTimeoutSeconds = 15f;
+    [SerializeField] private GameConfig config;
+    private string SimUrl     => config != null ? config.simulationServerUrl           : "http://127.0.0.1:8080";
+    private float  SimTimeout => config != null ? config.simulationServerTimeoutSeconds : 15f;
     [SerializeField] private float serverPollingIntervalSeconds = 5f;
 
     private ITickSource _tickSource;
@@ -202,22 +202,17 @@ public class TerraformSystem : MonoBehaviour
 
     private IEnumerator FetchServerWorldState()
     {
-        string url = simulationServerUrl.TrimEnd('/') + "/world";
-        using UnityWebRequest request = UnityWebRequest.Get(url);
-        request.timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds));
-
-        yield return request.SendWebRequest();
-
-        if (request.result != UnityWebRequest.Result.Success)
-        {
-            Debug.LogWarning($"[TerraformSystem] Polling serveur indisponible ({request.error}).");
-            yield break;
-        }
+        string url = SimUrl.TrimEnd('/') + "/world";
+        string json = null;
+        yield return SimHttp.Get(url, SimTimeout,
+            r   => json = r,
+            err => Debug.LogWarning($"[TerraformSystem] Polling serveur indisponible ({err})."));
+        if (json == null) yield break;
 
         WorldState worldState;
         try
         {
-            worldState = JsonUtility.FromJson<WorldState>(request.downloadHandler.text);
+            worldState = JsonUtility.FromJson<WorldState>(json);
         }
         catch (Exception ex)
         {
@@ -251,7 +246,7 @@ public class TerraformSystem : MonoBehaviour
         string url = string.Format(
             CultureInfo.InvariantCulture,
             "{0}/commands/queue-action?action_type={1}&q={2}&r={3}",
-            simulationServerUrl.TrimEnd('/'),
+            SimUrl.TrimEnd('/'),
             (int)action.actionType,
             cell.Q,
             cell.R);
@@ -268,7 +263,7 @@ public class TerraformSystem : MonoBehaviour
         string url = string.Format(
             CultureInfo.InvariantCulture,
             "{0}/commands/apply-cell-delta?water_delta={1}&temperature_delta={2}&q={3}&r={4}",
-            simulationServerUrl.TrimEnd('/'),
+            SimUrl.TrimEnd('/'),
             waterDelta,
             temperatureDelta,
             cell.Q,
@@ -283,27 +278,20 @@ public class TerraformSystem : MonoBehaviour
 
     private IEnumerator SendWorldStateCommand(string url, string successMessage, Action fallbackAction, HexCell preferredCell)
     {
-        using UnityWebRequest request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST)
-        {
-            downloadHandler = new DownloadHandlerBuffer(),
-            uploadHandler = new UploadHandlerRaw(Array.Empty<byte>()),
-            timeout = Mathf.Max(1, Mathf.CeilToInt(simulationServerTimeoutSeconds))
-        };
-        request.SetRequestHeader("Content-Type", "application/json");
-
-        yield return request.SendWebRequest();
-
-        if (request.result != UnityWebRequest.Result.Success)
-        {
-            Debug.LogWarning($"[TerraformSystem] Commande serveur indisponible ({request.error}).");
-            fallbackAction?.Invoke();
-            yield break;
-        }
+        string responseJson = null;
+        yield return SimHttp.Post(url, SimTimeout,
+            r   => responseJson = r,
+            err =>
+            {
+                Debug.LogWarning($"[TerraformSystem] Commande serveur indisponible ({err}).");
+                fallbackAction?.Invoke();
+            });
+        if (responseJson == null) yield break;
 
         WorldState worldState;
         try
         {
-            worldState = JsonUtility.FromJson<WorldState>(request.downloadHandler.text);
+            worldState = JsonUtility.FromJson<WorldState>(responseJson);
         }
         catch (Exception ex)
         {

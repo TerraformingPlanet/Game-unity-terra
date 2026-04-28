@@ -27,7 +27,72 @@ public enum SimulationEventType
     Error = 8,
     ThermalEquilibrium = 9,
     HabitabilityThreshold = 10,
-    AtmosphereFormed = 11
+    AtmosphereFormed = 11,
+    ExpeditionLost = 12,
+    ExpeditionDelayed = 13,
+    TradeRouteEstablished = 14
+}
+
+[Serializable]
+public enum TradeRouteType : int
+{
+    Land = 0,
+    Maritime = 1,
+    Orbital = 2
+}
+
+[Serializable]
+public enum TradeRouteActivityStatus : int
+{
+    Active = 0,
+    Suspended = 1
+}
+
+[Serializable]
+public enum ExpeditionStatus : int
+{
+    InTransit = 0,
+    Success = 1,
+    Failed = 2
+}
+
+[Serializable]
+public enum TravelStatus : int
+{
+    InTransit = 0,
+    Arrived = 1,
+    Cancelled = 2
+}
+
+[Serializable]
+public enum AgentActionType : int
+{
+    NoOp = 0,
+    ProposeContract = 1,
+    SetTolerance = 2,
+    TriggerNationalization = 3,
+    ClaimTile = 10,
+    ConstructBuilding = 11,
+    UpdateFsmThresholds = 12,
+    ReorderConstructionQueue = 13
+}
+
+[Serializable]
+public enum CorpProfile : int
+{
+    Economiste = 0,
+    Expansionniste = 1,
+    Militariste = 2
+}
+
+[Serializable]
+public enum BotFSMState : int
+{
+    Idle = 0,
+    Expanding = 1,
+    Building = 2,
+    Trading = 3,
+    Raiding = 4
 }
 
 [Serializable]
@@ -286,6 +351,7 @@ public struct GoldbergTileState
     public float altitude;             // normalised height relative to sea level [-1, 1]
     public float albedo;               // surface reflectivity [0, 1]
     public float solarIrradiance;      // W/m² at tile surface
+    public float humidity;             // atmospheric humidity noise [0, 1] — generation-time
     public float vegetationDensity;    // [0, 1]
     public float wildlifeDensity;      // [0, 1]
     public float atmosphereDeltaCo2;   // CO₂ volume fraction delta per tick
@@ -405,6 +471,7 @@ public enum CorpBuildingType
     Farm        = 1,
     EnergyPlant = 2,
     Research    = 3,
+    Sawmill     = 4,
 }
 
 /// <summary>
@@ -570,6 +637,8 @@ public struct ResourceListing
     public float            price;
     public float            supply;
     public float            demand;
+    public float            priceVelocity;     // Phase 9.4
+    public float[]          priceHistory;      // Phase 9.4 — last 10 prices
 }
 
 /// <summary>
@@ -726,6 +795,9 @@ public enum EventType
     MigrationPopulation     = 6,
     DecouverteMegastructure = 7,
     EmpireGalactique        = 8,
+    Piraterie               = 9,
+    Panne                   = 10,
+    Decouverte              = 11,
 }
 
 /// <summary>Mirrors Python EventEffect (Phase 8).</summary>
@@ -752,4 +824,137 @@ public struct EventData
     public string      affectedEntityType;
     public EventEffect effect;
     public bool        isResolved;
+}
+
+// ── Phase 9.1 — Trade Routes & Expeditions ───────────────────────────────────
+
+/// <summary>Wrapper for dict[str, float] in ExpeditionUnit.cargo.</summary>
+[Serializable]
+public struct CargoEntry
+{
+    public string key;
+    public float value;
+}
+
+/// <summary>Mirrors Python TradeRoute.</summary>
+[Serializable]
+public struct TradeRoute
+{
+    public string id;
+    public TradeRouteType routeType;
+    public string fromTileId;
+    public string toTileId;
+    public string bodyId;
+    public string[] pathTileIds;
+    public string ownerCorpId;
+    public string[] knownByEntityIds;
+    public TradeRouteActivityStatus status;
+    public float baseEfficiency;
+    public float currentEfficiency;
+    public float portMalusFrom;
+    public float portMalusTo;
+    public int tickCreated;
+    public int knowledgeTransferTicks;
+}
+
+/// <summary>Mirrors Python ExpeditionUnit.</summary>
+[Serializable]
+public struct ExpeditionUnit
+{
+    public string id;
+    public string ownerCorpId;
+    public string fromPortTileId;
+    public string toPortTileId;
+    public string bodyId;
+    public TradeRouteType routeType;
+    public int ticksRemaining;
+    public int totalTicks;
+    public string[] pathTileIds;
+    public ExpeditionStatus status;
+    public bool isPhantom;
+    public CargoEntry[] cargo;
+}
+
+// ── Phase 9.5 — Global Market ───────────────────────────────────────────────
+
+/// <summary>Mirrors Python GlobalMarketState.</summary>
+[Serializable]
+public struct GlobalMarketState
+{
+    public string systemId;
+    public ResourceListing[] listings;
+    public int tick;
+    public int marketCount;
+}
+
+// ── Phase 8.5 — LLM Agent ───────────────────────────────────────────────────
+
+/// <summary>Wrapper for dict in AgentAction.params.</summary>
+[Serializable]
+public struct ActionParamEntry
+{
+    public string key;
+    public string value;  // JSON string for complex values
+}
+
+/// <summary>Mirrors Python AgentAction.</summary>
+[Serializable]
+public struct AgentAction
+{
+    public string entityId;
+    public AgentActionType actionType;
+    public ActionParamEntry[] parameters;
+    public string reasoning;
+}
+
+/// <summary>Wrapper for dict[str, str] in AgentMemory.relationshipNotes.</summary>
+[Serializable]
+public struct RelationshipNote
+{
+    public string entityId;
+    public string note;
+}
+
+/// <summary>Mirrors Python AgentMemory.</summary>
+[Serializable]
+public struct AgentMemory
+{
+    public string entityId;
+    public string entityType;
+    public string[] recentDecisions;
+    public RelationshipNote[] relationshipNotes;
+    public int lastTickActed;
+}
+
+// ── Phase 9 — Space Travel ──────────────────────────────────────────────────
+
+/// <summary>Mirrors Python SpaceTravel.</summary>
+[Serializable]
+public struct SpaceTravel
+{
+    public string travelId;
+    public string factionId;
+    public string fromSystemId;
+    public string toSystemId;
+    public string routeId;
+    public float distanceLy;
+    public int departedAtTick;
+    public int arrivalTick;
+    public TravelStatus status;
+}
+
+// ── Phase 11.2 — Corporation FSM ───────────────────────────────────────────
+
+/// <summary>Mirrors Python CorpProfile.</summary>
+[Serializable]
+public struct CorpProfileData
+{
+    public CorpProfile profile;
+}
+
+/// <summary>Mirrors Python BotFSMState.</summary>
+[Serializable]
+public struct CorpFSMState
+{
+    public BotFSMState state;
 }

@@ -13,11 +13,12 @@
             <ui:Label name="building-workers" text="Workers: -" class="building-card__workers" />
         </ui:VisualElement>
 
-        <!-- Level controls: [−] N [+] -->
+        <!-- Level controls: [−] N [+] [Démolir] -->
         <ui:VisualElement class="building-card__level-row">
             <ui:Button name="btn-downgrade" text="-" class="building-card__level-btn" />
             <ui:Label  name="level-badge"   text="1" class="building-card__level-badge" />
             <ui:Button name="btn-upgrade"   text="+" class="building-card__level-btn" />
+            <ui:Button name="btn-demolish" text="Démolir" class="building-card__demolish-btn" />
         </ui:VisualElement>
 
     </ui:VisualElement>

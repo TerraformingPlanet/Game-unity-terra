@@ -894,7 +894,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 152124120}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1e8ee17a1aa0635429e0566ca1ad40bd, type: 3}
   m_Name: 
@@ -4127,6 +4127,7 @@ GameObject:
   - component: {fileID: 820548244}
   - component: {fileID: 820548243}
   - component: {fileID: 820548242}
+  - component: {fileID: 820548247}
   m_Layer: 0
   m_Name: Managers
   m_TagString: Untagged
@@ -4162,8 +4163,7 @@ MonoBehaviour:
   hexGrid: {fileID: 152124121}
   preferServerCommands: 1
   fallbackToLocalSimulationOnServerFailure: 1
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 15
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
   serverPollingIntervalSeconds: 5
 --- !u!114 &820548244
 MonoBehaviour:
@@ -4211,8 +4211,7 @@ MonoBehaviour:
   directPlanetClickToLocal: 0
   startingView: 1
   preferServerRegionSync: 1
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 15
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
 --- !u!114 &820548245
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4242,6 +4241,20 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &820548247
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 820548241}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0e4bbd642324c5479dbce589e3a42af, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SimulationWebSocketClient
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
+  reconnectDelay: 2
 --- !u!1 &862823197
 GameObject:
   m_ObjectHideFlags: 0
@@ -4747,12 +4760,12 @@ MonoBehaviour:
   lodNearDistance: 20
   lodNearExtraDivisions: 0
   cameraController: {fileID: 0}
+  terrainPalette: {fileID: 0}
   fetchServerTilesOnLoad: 1
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 15
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
   hoverTintColor: {r: 1, g: 1, b: 1, a: 0.35}
   hoverTooltipDelay: 0.6
-  debugLodVerbose: 0
+  debugLodVerbose: 1
 --- !u!64 &905619745
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -5746,8 +5759,7 @@ MonoBehaviour:
   viewManager: {fileID: 0}
   actions: []
   preferServerActionDefinitions: 1
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 15
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
 --- !u!114 &1021400414
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -11011,7 +11023,8 @@ MonoBehaviour:
   maxPlanetRadius: 3
   orbitSegments: 64
   orbitColor: {r: 0.5, g: 0.5, b: 0.5, a: 0.4}
-  simulationServerUrl: http://127.0.0.1:8080
+  terrainPalette: {fileID: 0}
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
   miniGoldbergDivisions: 2
   miniGoldbergHighDivisions: 5
   miniGoldbergHighDetailRadius: 2
@@ -11096,7 +11109,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 64d9ecf3b185e2d408c9e466bb04ce61, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LoginPanel
-  simulationServerUrl: http://localhost:8080
+  config: {fileID: 0}
   usernameField: {fileID: 875461180}
   passwordField: {fileID: 1667926146}
   corpNameField: {fileID: 917554587}
@@ -12353,8 +12366,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c840f6c9f2ef3804ca75a39c8419370f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GalaxyView
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 2
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
   defaultSystemName: SolarSystem
   systemDisplayScale: 10
   starDisplayRadius: 0.6
@@ -13108,18 +13120,23 @@ MonoBehaviour:
   terraformHUD: {fileID: 0}
   planetSphere: {fileID: 0}
   debugHydrologyPanel: {fileID: 0}
-  simulationServerUrl: http://127.0.0.1:8080
-  simulationServerTimeoutSeconds: 15
-  useFontAwesomeBuildingIcons: 1
-  fontAwesomeSolidResourcePath: Fonts/Font Awesome 7 Free-Solid-900
-  topBarTemplate: {fileID: 9197481963319205126, guid: 540ccf9a233efae41a437bc8e45c1976, type: 3}
-  leftPanelTemplate: {fileID: 9197481963319205126, guid: 13d112ba29cca5640ab54838d8f8b38e, type: 3}
-  bottomActionBarTemplate: {fileID: 0}
+  config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
+  tooltipTemplate: {fileID: 9197481963319205126, guid: c52235bc37cbbc04ca9ab87b01383764, type: 3}
+  eventPopupTemplate: {fileID: 9197481963319205126, guid: d8b8b9abf23118e45bb52fe6a3a8fced, type: 3}
+  tileInspectorTemplate: {fileID: 9197481963319205126, guid: 5e296965fc13ad942b7abc317846065b, type: 3}
+  eventFeedTemplate: {fileID: 9197481963319205126, guid: b12202e17cc35b04bb16cc8e2857ae86, type: 3}
+  debugDrawerTemplate: {fileID: 9197481963319205126, guid: 77acf5ba46ce5e9418305f7378b19d64, type: 3}
+  bottomActionBarTemplate: {fileID: 9197481963319205126, guid: cbf3ed290944f0c4688e6c5be558fec5, type: 3}
   variablesStyleSheet: {fileID: 7433441132597879392, guid: 886c0e9d22ed36545b71db46f5cbeee8, type: 3}
   baseStyleSheet: {fileID: 7433441132597879392, guid: 7dfc724221f68d5408b909e592814e28, type: 3}
-  tileInspectorTemplate: {fileID: 9197481963319205126, guid: 5e296965fc13ad942b7abc317846065b, type: 3}
-  buildingCardTemplate: {fileID: 9197481963319205126, guid: 05870ddde1be52845aaefe3eacf2f1b7, type: 3}
-  constructionCardTemplate: {fileID: 9197481963319205126, guid: 7da650e81ce466545ba7a5ac8ee1247b, type: 3}
+  debugDrawerStyleSheet: {fileID: 7433441132597879392, guid: 8fe05b1564df5c84e9887bc14173c394, type: 3}
+  topBarController: {fileID: 0}
+  leftPanelController: {fileID: 0}
+  tileInspectorController: {fileID: 0}
+  eventFeedController: {fileID: 0}
+  debugDrawerController: {fileID: 0}
+  bottomActionBarController: {fileID: 0}
+  timeControlsController: {fileID: 0}
 --- !u!114 &2089395119
 MonoBehaviour:
   m_ObjectHideFlags: 0

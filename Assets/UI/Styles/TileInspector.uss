@@ -14,6 +14,37 @@
     flex-direction: column;
 }
 
+.tile-inspector__badge-btn {
+    min-width: 34px;
+    height: 34px;
+    border-radius: 5px;
+    background-color: rgba(220, 170, 0, 0.85);
+    border-width: 0;
+    color: rgba(0, 0, 0, 0.9);
+    font-size: 11px;
+    -unity-font-style: bold;
+    padding: 0 4px;
+    margin-right: 8px;
+    flex-shrink: 0;
+    cursor: link;
+}
+.tile-inspector__badge-btn:hover {
+    background-color: rgba(255, 210, 30, 1);
+}
+
+/* ── Territory Panel (right side mirror of tile-inspector) ───── */
+.territory-panel {
+    position: Absolute;
+    right: 0;
+    top: var(--topbar-height);
+    width: 260px;
+    bottom: var(--bottom-bar-height);
+    background-color: var(--panel-bg);
+    border-left-width: 1px;
+    border-left-color: var(--panel-border);
+    flex-direction: column;
+}
+
 /* ── Fixed header ─────────────────────────────────────────────────── */
 .tile-inspector__header {
     flex-direction: row;

@@ -36,9 +36,8 @@ public class SimulationWebSocketClient : MonoBehaviour
     // Inspector
     // =========================================================
 
-    [Header("Serveur")]
-    [Tooltip("URL de base du DedicatedServer, ex: http://localhost:8001")]
-    [SerializeField] private string simulationServerUrl = "http://localhost:8001";
+    [Header("Config")]
+    [SerializeField] private GameConfig config;
 
     [Tooltip("Délai de reconnexion en secondes après une déconnexion.")]
     [SerializeField] private float reconnectDelay = 2f;
@@ -92,7 +91,8 @@ public class SimulationWebSocketClient : MonoBehaviour
             while (PlayerSession.Instance == null || !PlayerSession.Instance.IsLoggedIn)
                 yield return new WaitForSeconds(0.5f);
 
-            string url = PlayerSession.Instance.BuildWebSocketUrl(simulationServerUrl);
+            string serverUrl = config != null ? config.simulationServerUrl : "http://localhost:8080";
+            string url = PlayerSession.Instance.BuildWebSocketUrl(serverUrl);
             Debug.Log($"[WS] Connexion à {url}");
 
             _ws = new WebSocket(url);

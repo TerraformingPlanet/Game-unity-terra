@@ -6,3 +6,8 @@
 @import url("unity-theme://default");
 @import url("Styles/variables.uss");
 @import url("Styles/base.uss");
+@import url("Styles/TopBar.uss");
+@import url("Styles/LeftPanel.uss");
+@import url("Styles/BottomActionBar.uss");
+@import url("Styles/TileInspector.uss");
+@import url("Styles/DebugDrawer.uss");

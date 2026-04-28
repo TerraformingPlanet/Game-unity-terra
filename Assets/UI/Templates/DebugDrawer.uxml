@@ -1,0 +1,55 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:uie="UnityEditor.UIElements">
+
+    <!-- DebugDrawer.uxml
+         Panneau de debug ancré en bas, pleine largeur.
+         Toggle via btn-debug (TopBar) et touche F9.
+         F10 → DebugHydrologyPanel.TogglePanel() (géré en C#).
+         Remplace BuildDebugDrawer() procédural de GameHUD.cs.
+         Lié par BuildDebugDrawer / ToggleDebugDrawer / RefreshCorpsForDebug. -->
+
+    <Style src="../Styles/variables.uss" />
+    <Style src="../Styles/base.uss" />
+    <Style src="../Styles/DebugDrawer.uss" />
+
+    <ui:VisualElement name="debug-drawer" class="debug-drawer">
+
+        <!-- Titre -->
+        <ui:Label text="── DEBUG ──" class="debug-drawer__title" />
+
+        <!-- Actions row -->
+        <ui:VisualElement class="debug-drawer__row">
+            <ui:Button name="btn-debug-projection"
+                       text="Debug Projection (F10)"
+                       class="hud-btn debug-drawer__btn" />
+            <ui:Button name="btn-refresh-ownership"
+                       text="Refresh Ownership"
+                       class="hud-btn debug-drawer__btn debug-drawer__btn--green" />
+        </ui:VisualElement>
+
+        <!-- Séparateur -->
+        <ui:VisualElement class="debug-drawer__separator" />
+
+        <!-- Corps header row -->
+        <ui:VisualElement class="debug-drawer__row debug-drawer__corps-header">
+            <ui:Label text="── Corporations ──"
+                      class="debug-drawer__corp-title" />
+            <ui:Button name="btn-refresh-corps"
+                       text="↻ Rafraîchir"
+                       class="hud-btn debug-drawer__btn debug-drawer__btn--small debug-drawer__btn--blue" />
+        </ui:VisualElement>
+
+        <!-- Status label -->
+        <ui:Label name="debug-status" class="debug-drawer__status" />
+
+        <!-- Corp list (scroll) -->
+        <ui:ScrollView name="debug-corp-scroll"
+                       class="debug-drawer__scroll"
+                       vertical-scroller-visibility="Auto"
+                       horizontal-scroller-visibility="Hidden">
+            <ui:VisualElement name="debug-corp-list" class="debug-drawer__list" />
+        </ui:ScrollView>
+
+    </ui:VisualElement>
+
+</ui:UXML>

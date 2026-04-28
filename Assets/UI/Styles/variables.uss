@@ -66,4 +66,13 @@
     /* ── Bottom action bar ───────────────────────────────────────── */
     --bottom-bar-height: 52px;
     --bottom-bar-bg:     rgba(8, 8, 14, 0.92);
+
+    /* ── Time controls ───────────────────────────────────────────── */
+    --time-controls-bg:      rgba(12, 12, 18, 0.92);
+    --time-controls-btn-active: rgb(64, 115, 178);
+    --time-controls-progress-text: rgb(100, 180, 255);
+
+    /* ── Market sparkline ────────────────────────────────────────── */
+    --market-sparkline-color:            rgb(80, 220, 140);
+    --market-sparkline-financial-color:  rgb(80, 160, 255);
 }
