@@ -85,7 +85,7 @@ public class TopBarController : MonoBehaviour
         _lastTick    = tick;
         _lastCredits = credits;
         string credStr = float.IsNaN(credits) ? "—" : credits.ToString("N0") + " ¢";
-        _labelTickCredits.text = $"{GameTime.TickToDateShort(tick)} | {credStr}";
+        _labelTickCredits.text = $"Tick {tick} | {credStr}";
     }
 
     /// <summary>Met à jour uniquement la date/tick sans changer les crédits affichés.</summary>

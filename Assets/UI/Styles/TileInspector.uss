@@ -375,6 +375,18 @@
     background-color: rgba(255, 140, 0, 0.05);
 }
 
+/* Floating variant — detached from left panel, anchored top-right below time controls */
+.territory-queue-section--floating {
+    position: Absolute;
+    right: 12px;
+    top: 104px;
+    width: 260px;
+    background-color: var(--panel-bg);
+    border-width: 1px;
+    border-color: var(--panel-border);
+    border-radius: var(--card-radius);
+}
+
 /* ── Capital row ── */
 .queue-capital-row {
     flex-direction: row;

@@ -15,6 +15,7 @@ public class TileInspectorController : MonoBehaviour
     [SerializeField] private StyleSheet baseStyleSheet;
 
     private VisualElement _tileInspector;
+    private VisualElement _hudRoot;          // root HUD container (for floating panels)
     private GoldbergTileState _currentTile;
     private bool _hasTile;
 
@@ -72,6 +73,7 @@ public class TileInspectorController : MonoBehaviour
     private List<string> _corpIds = new List<string>();
     private CorpItem[]   _cachedCorpItems;           // cached from last corps fetch
     private string _activeBodyId = "";
+    private string _displayedStateId = "";           // stateId whose queue is currently shown
     private GameHUDController _gameHUDController;
 
     public void Initialize(VisualElement root, VisualTreeAsset injectedTemplate = null)
@@ -83,6 +85,7 @@ public class TileInspectorController : MonoBehaviour
 
     private void BuildTileInspector(VisualElement root)
     {
+        _hudRoot = root;
         VisualTreeAsset asset = tileInspectorTemplate
             ?? Resources.Load<VisualTreeAsset>("UI/Templates/TileInspector");
 
@@ -110,7 +113,7 @@ public class TileInspectorController : MonoBehaviour
         _tileStatusLabel         = _tileInspector.Q<Label>("tile-status-label");
         _terrainInfoLabel        = _tileInspector.Q<Label>("terrain-info-label");
 
-        // Territory queue section
+        // Territory queue section — reparented to HUD root as floating right panel
         _queueSection             = _tileInspector.Q<VisualElement>("territory-queue-section");
         _queuePendingContainer    = _tileInspector.Q<VisualElement>("queue-pending-container");
         _queueCorpAllContainer    = _tileInspector.Q<VisualElement>("queue-corp-all-container");
@@ -120,7 +123,33 @@ public class TileInspectorController : MonoBehaviour
         _queueTrackInvestorFill   = _tileInspector.Q<VisualElement>("queue-track-investor-fill");
         _queueTrackEtatName       = _tileInspector.Q<Label>("queue-track-etat-name");
         _queueTrackInvestorName   = _tileInspector.Q<Label>("queue-track-investor-name");
-        if (_queueSection != null) _queueSection.style.display = DisplayStyle.None;
+        if (_queueSection != null)
+        {
+            // Extract from tile-inspector and float on the right side, below time controls
+            _queueSection.RemoveFromHierarchy();
+            _queueSection.AddToClassList("territory-queue-section--floating");
+            // Inline fallback: position absolute, top-right below time-controls-bar
+            _queueSection.style.position         = Position.Absolute;
+            _queueSection.style.right            = new StyleLength(12f);
+            _queueSection.style.top              = new StyleLength(104f);
+            _queueSection.style.width            = new StyleLength(260f);
+            _queueSection.style.backgroundColor  = new StyleColor(new Color(0.031f, 0.031f, 0.055f, 0.92f));
+            var borderCol = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
+            _queueSection.style.borderTopColor    = borderCol;
+            _queueSection.style.borderRightColor  = borderCol;
+            _queueSection.style.borderBottomColor = borderCol;
+            _queueSection.style.borderLeftColor   = borderCol;
+            _queueSection.style.borderTopWidth    = 1f;
+            _queueSection.style.borderRightWidth  = 1f;
+            _queueSection.style.borderBottomWidth = 1f;
+            _queueSection.style.borderLeftWidth   = 1f;
+            _queueSection.style.borderTopLeftRadius     = 4f;
+            _queueSection.style.borderTopRightRadius    = 4f;
+            _queueSection.style.borderBottomLeftRadius  = 4f;
+            _queueSection.style.borderBottomRightRadius = 4f;
+            root.Add(_queueSection);
+            _queueSection.style.display = DisplayStyle.None;
+        }
 
         // New elements for additional sections
         _corpListContainer       = _tileInspector.Q<VisualElement>("corp-list-container");
@@ -242,6 +271,9 @@ public class TileInspectorController : MonoBehaviour
 
     public void ShowTile(GoldbergTileState tile, string bodyId = "")
     {
+        bool sameTerritory = !string.IsNullOrEmpty(tile.stateId)
+                          && tile.stateId == _displayedStateId;
+
         _currentTile = tile;
         _hasTile = true;
         if (!string.IsNullOrEmpty(bodyId))
@@ -249,7 +281,10 @@ public class TileInspectorController : MonoBehaviour
         if (_tileInspector != null)
         {
             _tileInspector.style.display = DisplayStyle.Flex;
-            UpdateTileDisplay();
+            if (sameTerritory)
+                UpdateTileDisplaySameTerritory(); // only header + terrain + ecology, queue stays
+            else
+                UpdateTileDisplay();              // full refresh including queue
         }
     }
 
@@ -257,6 +292,9 @@ public class TileInspectorController : MonoBehaviour
     {
         if (_tileInspector != null)
             _tileInspector.style.display = DisplayStyle.None;
+        if (_queueSection != null)
+            _queueSection.style.display = DisplayStyle.None;
+        _displayedStateId = "";
     }
 
     private void UpdateTileDisplay()
@@ -290,8 +328,40 @@ public class TileInspectorController : MonoBehaviour
         // Update ecology info
         UpdateEcologyDisplay();
 
-        // Refresh corps and state data
+        // Full refresh — state changed
+        _displayedStateId = ""; // reset so coroutine sets it after fetch
         StartCoroutine(RefreshStateRelationForTile());
+    }
+
+    /// <summary>Light refresh for same-territory tile click: updates tile-specific info
+    /// but leaves the territory queue panel untouched.</summary>
+    private void UpdateTileDisplaySameTerritory()
+    {
+        if (!_hasTile || _tileInspector == null) return;
+
+        if (_tileHeaderLabel != null)
+            _tileHeaderLabel.text = $"Tuile {_currentTile.tileId}";
+
+        if (_btnTerritoryBadge != null)
+        {
+            string initials = GetInitials(_currentTile.stateName ?? _currentTile.stateId);
+            _btnTerritoryBadge.text    = initials;
+            _btnTerritoryBadge.tooltip = _currentTile.stateName ?? _currentTile.stateId ?? "Territoire";
+            _btnTerritoryBadge.style.display = string.IsNullOrEmpty(_currentTile.stateId)
+                ? DisplayStyle.None : DisplayStyle.Flex;
+        }
+
+        if (_terrainInfoLabel != null)
+        {
+            string terrainText = $"Terrain: {_currentTile.terrainType}\n";
+            terrainText += $"Température: {_currentTile.temperature:F1}°C\n";
+            terrainText += $"Eau: {_currentTile.waterRatio:F2}\n";
+            terrainText += $"Habitable: {(_currentTile.isHabitable ? "Oui" : "Non")}";
+            _terrainInfoLabel.text = terrainText;
+        }
+
+        UpdateEcologyDisplay();
+        // No StartCoroutine(RefreshStateRelationForTile()) — queue stays as-is
     }
 
     private void UpdateEcologyDisplay()
@@ -503,9 +573,16 @@ public class TileInspectorController : MonoBehaviour
 
         // ── 3b. Refresh territory queue (fixed section, above tabs) ────────
         if (!string.IsNullOrEmpty(_selectedCorpId) && !string.IsNullOrEmpty(_activeBodyId))
+        {
             yield return RefreshTerritoryQueue(_selectedCorpId, _activeBodyId, _currentTile.tileId);
+            // Mark this territory as displayed so subsequent same-territory clicks skip the refresh
+            _displayedStateId = _currentTile.stateId ?? "";
+        }
         else
+        {
             RebuildQueueDisplay(null, null);
+            _displayedStateId = "";
+        }
 
         // ── 4. Refresh buildings for selected corp on this tile ───────────
         if (!string.IsNullOrEmpty(_selectedCorpId))
