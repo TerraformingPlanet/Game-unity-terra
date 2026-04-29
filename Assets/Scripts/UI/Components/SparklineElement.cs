@@ -17,6 +17,11 @@ public class SparklineElement : VisualElement
 
     public new class UxmlTraits : VisualElement.UxmlTraits { }
 
+    public SparklineElement()
+    {
+        generateVisualContent += OnGenerateVisualContent;
+    }
+
     // ── API ─────────────────────────────────────────────────────────────
     public void SetData(float[] values)
     {
@@ -31,7 +36,7 @@ public class SparklineElement : VisualElement
     }
 
     // ── Rendering ───────────────────────────────────────────────────────
-    protected override void GenerateVisualContent(MeshGenerationContext mgc)
+    private void OnGenerateVisualContent(MeshGenerationContext mgc)
     {
         if (_values.Length < 2) return;
 
