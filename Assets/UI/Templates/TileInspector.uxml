@@ -15,7 +15,7 @@
 
         <!-- ── File de construction (fixe, au-dessus des tabs) ── -->
         <ui:VisualElement name="territory-queue-section" class="territory-queue-section">
-            <!-- Capital de la corporation -->
+²            <!-- Capital de la corporation -->
             <ui:VisualElement class="queue-capital-row">
                 <ui:Label text="CAPITAL" class="queue-capital-key" />
                 <ui:Label name="queue-corp-capital-label" text="—" class="queue-capital-value" />
