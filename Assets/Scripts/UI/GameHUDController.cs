@@ -180,7 +180,12 @@ public class GameHUDController : MonoBehaviour
         if (!inPlanet) territoryPanelController?.Hide();
     }
 
-    private void OnTileResolved(GoldbergTileState tile)      => tileInspectorController?.ShowTile(tile);
+    private void OnTileResolved(GoldbergTileState tile)
+    {
+        string bodyId = planetSphere != null ? planetSphere.ActiveBodyId : "";
+        tileInspectorController?.ShowTile(tile, bodyId);
+        bottomActionBarController?.SetSelectedTile(tile);
+    }
     private void OnProgressUpdated(float progress)
     {
         leftPanelController?.SetProgress(progress);
@@ -214,6 +219,7 @@ public class GameHUDController : MonoBehaviour
 
     private void OnWsTickAdvanced(int tick)
     {
+        topBarController?.SetCurrentTick(tick);
         timeControlsController?.SetTickProgress(tick, 0);
         leftPanelController?.RefreshScoreboardNow();
     }

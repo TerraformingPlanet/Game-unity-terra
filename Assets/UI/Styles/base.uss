@@ -333,6 +333,16 @@
     margin-left: var(--gap-sm);
 }
 
+.time-controls__date {
+    color: var(--text-primary);
+    font-size: var(--font-size-caption);
+    -unity-font-style: bold;
+    margin-left: var(--gap-md);
+    padding-left: var(--gap-sm);
+    border-left-width: 1px;
+    border-left-color: rgba(255, 255, 255, 0.15);
+}
+
 /* ── Market sparkline (bio price history) ──────────────────────────────── */
 .market-sparkline {
     color: var(--market-sparkline-color);
@@ -347,6 +357,14 @@
     font-size: var(--font-size-caption);
     -unity-font-style: normal;
     letter-spacing: 1px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+/* ── SparklineElement — vectorial price curve ──────────────────────────── */
+.market-sparkline-curve {
+    height: 32px;
+    flex-grow: 1;
     margin-top: 2px;
     margin-bottom: 2px;
 }

@@ -363,3 +363,142 @@
     transition-duration: 0.4s;
     transition-timing-function: ease-out;
 }
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* Territory Queue Section (fixed, between header and tabs)           */
+/* ══════════════════════════════════════════════════════════════════ */
+.territory-queue-section {
+    flex-direction: column;
+    padding: 8px 12px 6px 12px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--panel-border);
+    background-color: rgba(255, 140, 0, 0.05);
+}
+
+/* Floating variant — detached from left panel, anchored top-right below time controls */
+.territory-queue-section--floating {
+    position: Absolute;
+    right: 12px;
+    top: 104px;
+    width: 260px;
+    background-color: var(--panel-bg);
+    border-width: 1px;
+    border-color: var(--panel-border);
+    border-radius: var(--card-radius);
+}
+
+/* ── Capital row ── */
+.queue-capital-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.queue-capital-key {
+    font-size: 10px;
+    color: var(--text-secondary);
+    -unity-font-style: bold;
+    letter-spacing: 0.8px;
+    width: 56px;
+    flex-shrink: 0;
+}
+
+.queue-capital-value {
+    font-size: 12px;
+    color: var(--energy-yellow);
+    -unity-font-style: bold;
+    flex-grow: 1;
+    -unity-text-align: upper-right;
+}
+
+/* ── Corp-wide InProgress sublabel ── */
+.queue-sublabel {
+    font-size: 9px;
+    color: var(--text-secondary);
+    -unity-font-style: bold;
+    letter-spacing: 0.8px;
+    margin-top: 6px;
+    margin-bottom: 2px;
+}
+
+/* ── Two-track rows (État / Investisseur) ── */
+.queue-track {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.queue-track__label {
+    width: 76px;
+    font-size: 10px;
+    -unity-font-style: bold;
+    letter-spacing: 0.5px;
+}
+
+.queue-track__label--etat {
+    color: var(--queue-etat-color);
+}
+
+.queue-track__label--investor {
+    color: var(--queue-investor-color);
+}
+
+.queue-track__bar-bg {
+    flex-grow: 1;
+    height: 8px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-right: 6px;
+}
+
+.queue-track__bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    width: 0%;
+    transition-property: width;
+    transition-duration: 0.4s;
+    transition-timing-function: ease-out;
+}
+
+.queue-track__bar-fill--etat {
+    background-color: var(--queue-etat-color);
+}
+
+.queue-track__bar-fill--investor {
+    background-color: var(--queue-investor-color);
+}
+
+.queue-track__building-name {
+    width: 62px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    -unity-text-align: upper-right;
+}
+
+.queue-pending-list {
+    margin-top: 3px;
+}
+
+/* ── Pending item row ── */
+.queue-pending-item {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-bottom: 2px;
+}
+
+.queue-item-name {
+    font-size: 11px;
+    color: var(--text-primary);
+    -unity-font-style: bold;
+    flex-grow: 1;
+}
+
+.queue-item-ticks {
+    font-size: 10px;
+    color: var(--text-secondary);
+}

@@ -7,6 +7,9 @@ public enum TerrainType
     Vegetation = 4,
     Metal = 5,
     Foret = 6,
+    Desert = 7,
+    Jungle = 8,
+    ZoneHumide = 9,
 }
 
 public enum TerrainClass

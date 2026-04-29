@@ -76,11 +76,23 @@ public class TopBarController : MonoBehaviour
         if (_labelPlanet != null) _labelPlanet.text = name;
     }
 
+    private int   _lastTick    = 0;
+    private float _lastCredits = float.NaN;
+
     public void SetTickCredits(int tick, float credits)
     {
         if (_labelTickCredits == null) return;
+        _lastTick    = tick;
+        _lastCredits = credits;
         string credStr = float.IsNaN(credits) ? "—" : credits.ToString("N0") + " ¢";
         _labelTickCredits.text = $"Tick {tick} | {credStr}";
+    }
+
+    /// <summary>Met à jour uniquement la date/tick sans changer les crédits affichés.</summary>
+    public void SetCurrentTick(int tick)
+    {
+        _lastTick = tick;
+        SetTickCredits(tick, _lastCredits);
     }
 
     public void SetToggleViewLabel(string label)

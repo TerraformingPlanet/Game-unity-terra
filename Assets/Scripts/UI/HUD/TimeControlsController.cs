@@ -16,6 +16,7 @@ public class TimeControlsController : MonoBehaviour
     private Button _btnSpeed50x;
     private Button _btnSpeed100x;
     private Label _labelTickProgress;
+    private Label _labelDate;
     private int _currentSpeedMultiplier = 1;
 
     private GameHUDController _gameHUDController;
@@ -57,6 +58,11 @@ public class TimeControlsController : MonoBehaviour
         _labelTickProgress = new Label { name = "label-tick-progress", text = "Tick —" };
         _labelTickProgress.AddToClassList("time-controls__progress");
         _timeControlsBar.Add(_labelTickProgress);
+
+        // Date label (1 tick = 1 jour)
+        _labelDate = new Label { name = "label-date", text = "An 1 J1" };
+        _labelDate.AddToClassList("time-controls__date");
+        _timeControlsBar.Add(_labelDate);
 
         // Layout styles
         _timeControlsBar.style.position = Position.Absolute;
@@ -140,6 +146,8 @@ public class TimeControlsController : MonoBehaviour
                 ? $"Tick {currentTick}/{totalTicks}"
                 : $"Tick {currentTick}";
         }
+        if (_labelDate != null)
+            _labelDate.text = GameTime.TickToDateShort(currentTick);
     }
 
     public void SetSpeedMultiplier(int multiplier)
