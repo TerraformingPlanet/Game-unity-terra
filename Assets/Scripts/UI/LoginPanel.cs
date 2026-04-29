@@ -190,7 +190,8 @@ public class LoginPanel : MonoBehaviour
     private IEnumerator CreateCorpCoroutine(string corpName)
     {
         string url  = SimUrl.TrimEnd('/') + "/game/corporations";
-        string json = $"{{\"name\":\"{EscapeJson(corpName)}\",\"is_ai\":false}}";
+        string ownerId = PlayerSession.Instance?.PlayerId ?? "";
+        string json = $"{{\"name\":\"{EscapeJson(corpName)}\",\"is_ai\":false,\"owner_id\":\"{EscapeJson(ownerId)}\"}}";
         byte[] body = Encoding.UTF8.GetBytes(json);
         using (var req = new UnityWebRequest(url, "POST"))
         {

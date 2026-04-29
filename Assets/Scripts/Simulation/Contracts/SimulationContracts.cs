@@ -361,6 +361,15 @@ public struct GoldbergTileState
     // State/territory fields (Phase Colonisation) — enriched client-side after overlay fetch
     public string stateId;             // ID of the state owning this tile (empty if none)
     public string stateName;           // Display name of the state (empty if none)
+    // Hydrological source & river fields (p-hydro-1/2/3)
+    public bool   hasWaterSource;      // natural spring present (fixed at generation)
+    public float  sourceCapacity;      // spring output rate m³/tick
+    public bool   hasRiver;            // river currently flowing through this tile
+    public float  riverFlow;           // current flow rate m³/tick
+    public string riverDirection;      // tileId of the downhill neighbour
+    public string riverSourceTileId;   // tileId of the originating spring
+    public float  lakeVolume;          // water volume accumulated in basin m³
+    public float  lakeCapacity;        // overflow threshold m³
 }
 
 /// <summary>
@@ -449,6 +458,7 @@ public struct PopulationTier
 {
     public SocialClass socialClass;
     public int         count;
+    public float       avgIncome;
 }
 
 /// <summary>
@@ -460,6 +470,50 @@ public struct ClaimedTile
     public string          bodyId;
     public string          tileId;
     public PopulationTier[] population;  // Phase 7.3
+}
+
+/// <summary>
+/// Mirrors Python SubHexFeatureDef model. Environmental feature definition loaded from DB table sub_hex_features.
+/// Use GET /catalog/sub-hex-features to fetch the full list at runtime.
+/// </summary>
+[Serializable]
+public struct SubHexFeatureDef
+{
+    public int      id;
+    public string   name;
+    public string   labelFr;
+    public string   description;
+    public string[] bonusBuildingTypes;
+    public bool     isEnabled;
+}
+
+/// <summary>
+/// Wrapper for JsonUtility array deserialization of SubHexFeatureDef.
+/// </summary>
+[Serializable]
+public class SubHexFeatureDefArray { public SubHexFeatureDef[] items; }
+
+// Built-in feature IDs (stable) — match DB seed rows.
+public static class SubHexFeatureId
+{
+    public const int Empty        = 0;
+    public const int River        = 1;
+    public const int Forest       = 2;
+    public const int Mineral      = 3;
+    public const int WaterSource  = 4;
+    public const int Residential  = 5;
+}
+
+/// <summary>
+/// Mirrors Python SubHex model (Phase slot-v1). One of the 7 sub-hexagonal building slots inside a tile.
+/// </summary>
+[Serializable]
+public struct SubHex
+{
+    public int    index;
+    public int    feature;      // references SubHexFeatureDef.id
+    public bool   buildable;
+    public string buildingId;   // "" = free; item id during construction; building id when complete
 }
 
 /// <summary>
@@ -508,6 +562,20 @@ public struct CorpConstructionItem
 public class CorpConstructionItemArray { public CorpConstructionItem[] items; }
 
 /// <summary>
+/// Mirrors Python TerritoryQueue (Phase 10.5). Returned by GET /game/corporations/{id}/territory-queue.
+/// </summary>
+[Serializable]
+public struct CorpTerritoryQueue
+{
+    public string                   territoryId;
+    public string                   corpId;
+    public string                   bodyId;
+    public CorpConstructionItem[]   items;
+    public float                    constructionCapacity;
+    public bool                     isEBDeFortune;
+}
+
+/// <summary>
 /// Mirrors Python BuildingData (Phase 7.2 / 12). Network contract, distinct from Economy/BuildingData ScriptableObject.
 /// </summary>
 [Serializable]
@@ -520,7 +588,8 @@ public struct CorpBuilding
     public string           corpId;
     public float            workerRatio;
     public int              ticksActive;
-    public int              level;   // Phase 12 — building level [1–5]; production × level, workers × level
+    public int              level;         // Phase 12 — building level [1–5]; production × level, workers × level
+    public int              subHexIndex;   // Phase slot-v1 — sub-hex slot index (-1 = legacy/unassigned)
 }
 
 /// <summary>

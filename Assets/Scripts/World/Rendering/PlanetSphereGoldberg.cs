@@ -228,6 +228,9 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     /// </summary>
     public string LastClickedH3TileId { get; private set; } = "";
 
+    /// <summary>bodyId du corps H3 actuellement chargé (vide avant le premier fetch).</summary>
+    public string ActiveBodyId => _activeBodyId;
+
     /// <summary>Données mesh GP courant (faces, vertexFaceId, mesh).</summary>
     public GoldbergSphereGenerator.GoldbergMeshData SphereData => _sphereData;
 

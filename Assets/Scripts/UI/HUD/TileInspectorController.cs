@@ -21,11 +21,9 @@ public class TileInspectorController : MonoBehaviour
     // UI Elements - Header
     private Label _tileHeaderLabel;
     private Button _btnTerritoryBadge;   // ← badge with state initials in header
-    private VisualElement _corpBadgeEl;
-    private Label _corpOwnerLabelEl;
-    private DropdownField _corpDropdown;
-    private TextField _corpNameInput;
-    private Button _btnCreateCorp;
+
+    // Selected corp for construction (populated from fetched corps list)
+    private string _selectedCorpId = "";
 
     // UI Elements - Status
     private Label _tileStatusLabel;
@@ -39,6 +37,10 @@ public class TileInspectorController : MonoBehaviour
     // UI Elements - Population Tab
     private Label _popSummaryLabel;
     private Label _territoryLabel;
+    private Label _popPoorLabel;
+    private Label _popMiddleLabel;
+    private Label _popRichLabel;
+    private Label _popTotalLabel;
 
     // UI Elements - Building Tab
     private DropdownField _dropdownBuildType;
@@ -46,11 +48,20 @@ public class TileInspectorController : MonoBehaviour
     private VisualElement _buildingListContainer;
     private VisualElement _constructionQueueContainer;
 
+    // UI Elements - Territory Queue Section (fixed, between header and tabs)
+    private VisualElement _queueSection;
+    private VisualElement _queuePendingContainer;
+    private VisualElement _queueCorpAllContainer;
+    private Label         _queueCorpAllTitle;
+    private Label         _queueCorpCapitalLabel;
+    // Two-track progress: État (EB de fortune) / Investisseur (EB formel)
+    private VisualElement _queueTrackEtatFill;
+    private VisualElement _queueTrackInvestorFill;
+    private Label         _queueTrackEtatName;
+    private Label         _queueTrackInvestorName;
+
     // UI Elements - Additional Sections
     private VisualElement _corpListContainer;
-    private Label _nationalisationLabel;
-    private Button _btnCorrupt;
-    private Button _btnCancelNationalisation;
     private Label _ecologyLabel;
     private VisualElement _marketBioContainer;
     private VisualElement _marketFinancialContainer;
@@ -59,6 +70,7 @@ public class TileInspectorController : MonoBehaviour
 
     // Data
     private List<string> _corpIds = new List<string>();
+    private CorpItem[]   _cachedCorpItems;           // cached from last corps fetch
     private string _activeBodyId = "";
     private GameHUDController _gameHUDController;
 
@@ -94,20 +106,24 @@ public class TileInspectorController : MonoBehaviour
         // Grab named elements
         _tileHeaderLabel         = _tileInspector.Q<Label>("tile-header-label");
         _btnTerritoryBadge       = _tileInspector.Q<Button>("btn-territory-badge");
-        _corpBadgeEl             = _tileInspector.Q<VisualElement>("corp-badge");
-        _corpOwnerLabelEl        = _tileInspector.Q<Label>("corp-owner-label");
-        _corpDropdown            = _tileInspector.Q<DropdownField>("corp-dropdown");
-        _corpNameInput           = _tileInspector.Q<TextField>("corp-name-input");
-        _btnCreateCorp           = _tileInspector.Q<Button>("btn-create-corp");
         _buildingListContainer   = _tileInspector.Q<VisualElement>("building-list-container");
         _tileStatusLabel         = _tileInspector.Q<Label>("tile-status-label");
         _terrainInfoLabel        = _tileInspector.Q<Label>("terrain-info-label");
 
+        // Territory queue section
+        _queueSection             = _tileInspector.Q<VisualElement>("territory-queue-section");
+        _queuePendingContainer    = _tileInspector.Q<VisualElement>("queue-pending-container");
+        _queueCorpAllContainer    = _tileInspector.Q<VisualElement>("queue-corp-all-container");
+        _queueCorpAllTitle        = _tileInspector.Q<Label>("queue-corp-all-title");
+        _queueCorpCapitalLabel    = _tileInspector.Q<Label>("queue-corp-capital-label");
+        _queueTrackEtatFill       = _tileInspector.Q<VisualElement>("queue-track-etat-fill");
+        _queueTrackInvestorFill   = _tileInspector.Q<VisualElement>("queue-track-investor-fill");
+        _queueTrackEtatName       = _tileInspector.Q<Label>("queue-track-etat-name");
+        _queueTrackInvestorName   = _tileInspector.Q<Label>("queue-track-investor-name");
+        if (_queueSection != null) _queueSection.style.display = DisplayStyle.None;
+
         // New elements for additional sections
         _corpListContainer       = _tileInspector.Q<VisualElement>("corp-list-container");
-        _nationalisationLabel    = _tileInspector.Q<Label>("nationalisation-label");
-        _btnCorrupt              = _tileInspector.Q<Button>("btn-corrupt");
-        _btnCancelNationalisation = _tileInspector.Q<Button>("btn-cancel-nationalisation");
         _ecologyLabel             = _tileInspector.Q<Label>("ecology-label");
         _marketBioContainer       = _tileInspector.Q<VisualElement>("market-bio-container");
         _marketFinancialContainer = _tileInspector.Q<VisualElement>("market-financial-container");
@@ -135,6 +151,10 @@ public class TileInspectorController : MonoBehaviour
         // Population tab elements
         _popSummaryLabel = _tileInspector.Q<Label>("pop-summary-label");
         _territoryLabel  = _tileInspector.Q<Label>("territory-label");
+        _popPoorLabel    = _tileInspector.Q<Label>("pop-poor-label");
+        _popMiddleLabel  = _tileInspector.Q<Label>("pop-middle-label");
+        _popRichLabel    = _tileInspector.Q<Label>("pop-rich-label");
+        _popTotalLabel   = _tileInspector.Q<Label>("pop-total-label");
 
         // Bâtiment tab elements
         _dropdownBuildType = _tileInspector.Q<DropdownField>("dropdown-build-type");
@@ -160,10 +180,7 @@ public class TileInspectorController : MonoBehaviour
 
         // Wire buttons
         _btnTerritoryBadge?.RegisterCallback<ClickEvent>(_ => OnBadgeClicked());
-        _btnCreateCorp?.RegisterCallback<ClickEvent>(_ => OnInspectorCreateCorpClicked());
         _btnConstruct?.RegisterCallback<ClickEvent>(_ => OnConstructButtonClicked());
-        _btnCorrupt?.RegisterCallback<ClickEvent>(_ => OnCorruptClicked());
-        _btnCancelNationalisation?.RegisterCallback<ClickEvent>(_ => OnCancelNationalisationClicked());
         _tileInspector.Q<Button>("btn-close-inspector")
             ?.RegisterCallback<ClickEvent>(_ => Hide());
 
@@ -223,10 +240,12 @@ public class TileInspectorController : MonoBehaviour
         }
     }
 
-    public void ShowTile(GoldbergTileState tile)
+    public void ShowTile(GoldbergTileState tile, string bodyId = "")
     {
         _currentTile = tile;
         _hasTile = true;
+        if (!string.IsNullOrEmpty(bodyId))
+            _activeBodyId = bodyId;
         if (_tileInspector != null)
         {
             _tileInspector.style.display = DisplayStyle.Flex;
@@ -268,19 +287,87 @@ public class TileInspectorController : MonoBehaviour
             _terrainInfoLabel.text = terrainText;
         }
 
+        // Update ecology info
+        UpdateEcologyDisplay();
+
         // Refresh corps and state data
         StartCoroutine(RefreshStateRelationForTile());
     }
 
+    private void UpdateEcologyDisplay()
+    {
+        if (_ecologyLabel == null) return;
+
+        var sb = new System.Text.StringBuilder();
+
+        // Couverture végétale (≠ présence d'arbres : 0% = sol nu, des arbres peuvent exister quand même)
+        int vegPct = Mathf.RoundToInt(_currentTile.vegetationDensity * 100f);
+        sb.AppendLine($"Couverture végétale : {vegPct}%");
+
+        // Hydrologie locale
+        string waterFeature = null;
+        switch (_currentTile.waterClassification)
+        {
+            case WaterClassification.Coast:       waterFeature = "Côte"; break;
+            case WaterClassification.FrozenWater: waterFeature = "Eau gelée"; break;
+            case WaterClassification.InlandWater:
+                waterFeature = _currentTile.terrainClass switch
+                {
+                    TerrainClass.Channel => "Rivière",
+                    TerrainClass.Source  => "Source",
+                    _                    => "Zone humide"
+                };
+                break;
+        }
+        if (waterFeature != null)
+            sb.AppendLine(waterFeature);
+
+        // Espèces — flore (minVegetation <= 0) puis faune (minVegetation > 0)
+        if (_currentTile.species != null && _currentTile.species.Length > 0)
+        {
+            bool floraHeaderAdded = false;
+            foreach (var sp in _currentTile.species)
+            {
+                if (sp.minVegetation <= 0f && sp.density > 0f)
+                {
+                    if (!floraHeaderAdded) { sb.AppendLine("Flore :"); floraHeaderAdded = true; }
+                    sb.AppendLine($"  {sp.speciesId} : {Mathf.RoundToInt(sp.density * 100f)}%");
+                }
+            }
+
+            bool faunaHeaderAdded = false;
+            foreach (var sp in _currentTile.species)
+            {
+                if (sp.minVegetation > 0f && sp.density > 0f)
+                {
+                    if (!faunaHeaderAdded) { sb.AppendLine("Faune :"); faunaHeaderAdded = true; }
+                    sb.AppendLine($"  {sp.speciesId} : {Mathf.RoundToInt(sp.density * 100f)}%");
+                }
+            }
+        }
+        else if (_currentTile.wildlifeDensity > 0f)
+        {
+            // Fallback si pas encore de données espèces
+            sb.AppendLine($"Faune : {Mathf.RoundToInt(_currentTile.wildlifeDensity * 100f)}%");
+        }
+
+        _ecologyLabel.text = sb.ToString().TrimEnd('\n', '\r');
+    }
+
     private void OnConstructButtonClicked()
     {
-        if (_dropdownBuildType == null || _corpDropdown == null || string.IsNullOrEmpty(_currentTile.tileId)) return;
-
-        string selectedCorpId = _corpIds.Count > 0 && _corpDropdown.index >= 0 ? _corpIds[_corpDropdown.index] : null;
-        if (string.IsNullOrEmpty(selectedCorpId)) return;
+        if (_dropdownBuildType == null || string.IsNullOrEmpty(_selectedCorpId)
+            || string.IsNullOrEmpty(_currentTile.tileId) || string.IsNullOrEmpty(_activeBodyId))
+        {
+            if (_tileStatusLabel != null)
+                _tileStatusLabel.text = string.IsNullOrEmpty(_selectedCorpId)
+                    ? "Sélectionnez une corporation d'abord."
+                    : "Corps céleste non résolu.";
+            return;
+        }
 
         int buildingType = _dropdownBuildType.index;
-        StartCoroutine(ConstructBuilding(selectedCorpId, _currentTile.tileId, buildingType));
+        StartCoroutine(ConstructBuilding(_selectedCorpId, _activeBodyId, _currentTile.tileId, buildingType));
     }
 
     private void OnBadgeClicked()
@@ -302,23 +389,6 @@ public class TileInspectorController : MonoBehaviour
             : name.ToUpperInvariant();
     }
 
-    private void OnInspectorCreateCorpClicked()
-    {
-        // TODO: Implement corp creation
-        Debug.Log("[TileInspector] Create corp clicked");
-    }
-
-    private void OnCorruptClicked()
-    {
-        // TODO: Implement corruption
-        Debug.Log("[TileInspector] Corrupt clicked");
-    }
-
-    private void OnCancelNationalisationClicked()
-    {
-        // TODO: Implement cancel nationalisation
-        Debug.Log("[TileInspector] Cancel nationalisation clicked");
-    }
 
     private IEnumerator RefreshStateRelationForTile()
     {
@@ -339,18 +409,35 @@ public class TileInspectorController : MonoBehaviour
 
                 if (wrapper?.items != null)
                 {
+                    _cachedCorpItems = wrapper.items;   // cache for capital lookup
                     _corpIds.Clear();
-                    var choices = new List<string>();
                     foreach (var c in wrapper.items)
-                    {
                         _corpIds.Add(c.id);
-                        choices.Add(c.name);
-                    }
-                    if (_corpDropdown != null)
+
+                    // Prefer the logged-in player's own corp over the first in the list
+                    string _sessionCorp = PlayerSession.Instance?.CorpId ?? "";
+                    _selectedCorpId = (!string.IsNullOrEmpty(_sessionCorp) && _corpIds.Contains(_sessionCorp))
+                        ? _sessionCorp
+                        : (_corpIds.Count > 0 ? _corpIds[0] : "");
+
+                    // Populate the corporations list in the Résumé tab
+                    if (_corpListContainer != null)
                     {
-                        _corpDropdown.choices = choices;
-                        if (_corpDropdown.index < 0 || _corpDropdown.index >= choices.Count)
-                            _corpDropdown.index = 0;
+                        _corpListContainer.Clear();
+                        foreach (var c in wrapper.items)
+                        {
+                            var row = new VisualElement();
+                            row.AddToClassList("corp-list-row");
+                            row.style.flexDirection  = FlexDirection.Row;
+                            row.style.alignItems     = Align.Center;
+                            row.style.paddingTop     = 3f;
+                            row.style.paddingBottom  = 3f;
+                            var lbl = new Label(c.name);
+                            lbl.AddToClassList("tile-inspector__info-label");
+                            lbl.style.flexGrow = 1f;
+                            row.Add(lbl);
+                            _corpListContainer.Add(row);
+                        }
                     }
                 }
             }
@@ -410,19 +497,86 @@ public class TileInspectorController : MonoBehaviour
             }
         }
 
-        if (_corpOwnerLabelEl != null)
-            _corpOwnerLabelEl.text = !string.IsNullOrEmpty(relationLabel) ? relationLabel : "—";
-        if (_corpBadgeEl != null)
-            _corpBadgeEl.style.backgroundColor = Color.clear;
+        // ── 3. Refresh tile population (tile-centric) ──────────────────────
+        if (!string.IsNullOrEmpty(_activeBodyId))
+            yield return FetchTilePopulation(_activeBodyId, _currentTile.tileId);
 
-        // ── 3. Refresh buildings for selected corp on this tile ───────────
-        string selectedCorpId = _corpIds.Count > 0 && _corpDropdown != null && _corpDropdown.index >= 0
-            ? _corpIds[_corpDropdown.index]
-            : null;
-        if (selectedCorpId != null)
-            yield return RefreshBuildingsForTile(selectedCorpId, _currentTile.tileId);
+        // ── 3b. Refresh territory queue (fixed section, above tabs) ────────
+        if (!string.IsNullOrEmpty(_selectedCorpId) && !string.IsNullOrEmpty(_activeBodyId))
+            yield return RefreshTerritoryQueue(_selectedCorpId, _activeBodyId, _currentTile.tileId);
         else
-            RebuildBuildingList(null, null);
+            RebuildQueueDisplay(null, null);
+
+        // ── 4. Refresh buildings for selected corp on this tile ───────────
+        if (!string.IsNullOrEmpty(_selectedCorpId))
+            yield return RefreshBuildingsForTile(_selectedCorpId, _currentTile.tileId);
+        else
+            RebuildBuildingList(null);
+    }
+
+    [System.Serializable]
+    private class PopulationTierDto
+    {
+        public int   socialClass;  // 0=Poor 1=Middle 2=Rich
+        public int   count;
+        public float avgIncome;
+    }
+
+    private IEnumerator FetchTilePopulation(string bodyId, string tileId)
+    {
+        string url = $"{_gameHUDController.GetSimulationServerUrl().TrimEnd('/')}/bodies/{bodyId}/tiles/{tileId}/population";
+        using (var req = UnityWebRequest.Get(url))
+        {
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(_gameHUDController.GetSimulationServerTimeout()));
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                UpdatePopulationLabels(null);
+                yield break;
+            }
+
+            // JSON array → wrap for JsonUtility
+            string json = "{\"items\":" + req.downloadHandler.text + "}";
+            PopulationTierListWrapper wrapper;
+            try { wrapper = JsonUtility.FromJson<PopulationTierListWrapper>(json); }
+            catch { UpdatePopulationLabels(null); yield break; }
+
+            UpdatePopulationLabels(wrapper.items);
+        }
+    }
+
+    [System.Serializable]
+    private class PopulationTierListWrapper { public PopulationTierDto[] items; }
+
+    private void UpdatePopulationLabels(PopulationTierDto[] tiers)
+    {
+        if (_popPoorLabel == null) return;
+
+        if (tiers == null || tiers.Length == 0)
+        {
+            _popPoorLabel.text   = "Pauvres : –";
+            _popMiddleLabel.text = "Classe moyenne : –";
+            _popRichLabel.text   = "Riches : –";
+            _popTotalLabel.text  = "Total : –";
+            return;
+        }
+
+        int poor = 0, middle = 0, rich = 0;
+        foreach (var t in tiers)
+        {
+            switch (t.socialClass)
+            {
+                case 0: poor   += t.count; break;
+                case 1: middle += t.count; break;
+                case 2: rich   += t.count; break;
+            }
+        }
+        int total = poor + middle + rich;
+        _popPoorLabel.text   = $"Pauvres : {poor.ToString("N0")}";
+        _popMiddleLabel.text = $"Classe moyenne : {middle.ToString("N0")}";
+        _popRichLabel.text   = $"Riches : {rich.ToString("N0")}";
+        _popTotalLabel.text  = $"Total : {total.ToString("N0")}";
     }
 
     private string GetClassDistributionText(string profileKey)
@@ -438,6 +592,172 @@ public class TileInspectorController : MonoBehaviour
         }
     }
 
+    private IEnumerator RefreshTerritoryQueue(string corpId, string bodyId, string tileId)
+    {
+        string url = $"{_gameHUDController.GetSimulationServerUrl().TrimEnd('/')}/game/corporations/{corpId}/territory-queue?body_id={bodyId}&tile_id={tileId}";
+        using (var req = UnityWebRequest.Get(url))
+        {
+            req.timeout = Mathf.Max(1, Mathf.CeilToInt(_gameHUDController.GetSimulationServerTimeout()));
+            yield return req.SendWebRequest();
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                RebuildQueueDisplay(null, null);
+                yield break;
+            }
+
+            TerritoryQueueDto queue;
+            try { queue = JsonUtility.FromJson<TerritoryQueueDto>(req.downloadHandler.text); }
+            catch { RebuildQueueDisplay(null, null); yield break; }
+
+            // Fetch all corp construction items in parallel
+            ConstrItem[] allItems = null;
+            float corpCredits    = float.NaN;
+
+            string allUrl = $"{_gameHUDController.GetSimulationServerUrl().TrimEnd('/')}/game/corporations/{corpId}/construction-queue";
+            using (var reqAll = UnityWebRequest.Get(allUrl))
+            {
+                reqAll.timeout = Mathf.Max(1, Mathf.CeilToInt(_gameHUDController.GetSimulationServerTimeout()));
+                yield return reqAll.SendWebRequest();
+                if (reqAll.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        var wrapper2 = JsonUtility.FromJson<ConstrItemListDto>("{\"items\":" + reqAll.downloadHandler.text + "}");
+                        allItems = wrapper2?.items;
+                    }
+                    catch { allItems = null; }
+                }
+            }
+
+            // Fetch corp credits (name, credits from corp list already loaded)
+            corpCredits = GetCachedCorpCredits(corpId);
+
+            RebuildQueueDisplay(queue, allItems, corpCredits);
+        }
+    }
+
+    // Returns cached credits for a corp from the last fetched corps list (-1 if unknown).
+    private float GetCachedCorpCredits(string corpId)
+    {
+        if (_cachedCorpItems == null) return float.NaN;
+        foreach (var c in _cachedCorpItems)
+            if (c.id == corpId) return c.credits;
+        return float.NaN;
+    }
+
+    private void RebuildQueueDisplay(TerritoryQueueDto queue, ConstrItem[] allCorpItems, float corpCredits = float.NaN)
+    {
+        if (_queueSection == null) return;
+
+        bool hasQueue = queue != null;
+        _queueSection.style.display = hasQueue ? DisplayStyle.Flex : DisplayStyle.None;
+        if (!hasQueue) return;
+
+        // ── Capital ──
+        if (_queueCorpCapitalLabel != null)
+        {
+            _queueCorpCapitalLabel.text = float.IsNaN(corpCredits) ? "—" : $"{corpCredits:N0} ¤";
+        }
+
+        // Find the first InProgress item for this territory (status == 1)
+        ConstrItem activeItem = null;
+        if (queue.items != null)
+            foreach (var it in queue.items)
+                if (it.status == 1) { activeItem = it; break; }
+
+        float activePct = 0f;
+        if (activeItem != null && activeItem.totalCostPts > 0)
+            activePct = Mathf.Clamp01((float)activeItem.pointsAccumulated / activeItem.totalCostPts) * 100f;
+        string activeName = activeItem != null ? GetBuildingTypeName(activeItem.buildingType) : "—";
+
+        // Track État : powered by EB de fortune (population's natural capacity)
+        bool etatActive = queue.isEBDeFortune && activeItem != null;
+        if (_queueTrackEtatFill != null)
+            _queueTrackEtatFill.style.width = new StyleLength(new Length(etatActive ? activePct : 0f, LengthUnit.Percent));
+        if (_queueTrackEtatName != null)
+            _queueTrackEtatName.text = etatActive ? activeName : "—";
+
+        // Track Investisseur : powered by formal EB building (corpo / player)
+        bool investorActive = !queue.isEBDeFortune && queue.constructionCapacity > 0f && activeItem != null;
+        if (_queueTrackInvestorFill != null)
+            _queueTrackInvestorFill.style.width = new StyleLength(new Length(investorActive ? activePct : 0f, LengthUnit.Percent));
+        if (_queueTrackInvestorName != null)
+            _queueTrackInvestorName.text = investorActive ? activeName : "—";
+
+        // ── Pending items (this territory) ──
+        if (_queuePendingContainer != null)
+        {
+            _queuePendingContainer.Clear();
+            if (queue.items != null)
+            {
+                foreach (var item in queue.items)
+                {
+                    if (item.status != 0) continue; // Pending == 0
+                    var row = new VisualElement();
+                    row.AddToClassList("queue-pending-item");
+
+                    var nameLabel = new Label(GetBuildingTypeName(item.buildingType));
+                    nameLabel.AddToClassList("queue-item-name");
+                    row.Add(nameLabel);
+
+                    var costLabel = new Label($"{item.totalCostPts} pts");
+                    costLabel.AddToClassList("queue-item-ticks");
+                    row.Add(costLabel);
+
+                    _queuePendingContainer.Add(row);
+                }
+            }
+        }
+
+        // ── All corp InProgress items ──
+        if (_queueCorpAllContainer != null)
+        {
+            _queueCorpAllContainer.Clear();
+            bool anyCorpItem = false;
+            if (allCorpItems != null)
+            {
+                foreach (var item in allCorpItems)
+                {
+                    if (item.status != 1) continue; // InProgress only
+                    anyCorpItem = true;
+                    var row = new VisualElement();
+                    row.AddToClassList("queue-pending-item");
+
+                    var nameLabel = new Label(GetBuildingTypeName(item.buildingType));
+                    nameLabel.AddToClassList("queue-item-name");
+                    row.Add(nameLabel);
+
+                    // Show tile short id
+                    string shortTile = item.tileId != null && item.tileId.Length > 6
+                        ? item.tileId.Substring(0, 6) + "…"
+                        : (item.tileId ?? "?");
+                    var tileLabel = new Label(shortTile);
+                    tileLabel.AddToClassList("queue-item-ticks");
+                    row.Add(tileLabel);
+
+                    // Progress
+                    float pct = item.totalCostPts > 0
+                        ? Mathf.Clamp01((float)item.pointsAccumulated / item.totalCostPts) * 100f
+                        : 0f;
+                    var barBg = new VisualElement();
+                    barBg.AddToClassList("queue-track__bar-bg");
+                    var barFill = new VisualElement();
+                    barFill.AddToClassList("queue-track__bar-fill");
+                    barFill.AddToClassList("queue-track__bar-fill--investor");
+                    barFill.style.width = new StyleLength(new Length(pct, LengthUnit.Percent));
+                    barBg.Add(barFill);
+                    row.Add(barBg);
+
+                    _queueCorpAllContainer.Add(row);
+                }
+            }
+            if (_queueCorpAllTitle != null)
+                _queueCorpAllTitle.style.display = anyCorpItem ? DisplayStyle.Flex : DisplayStyle.None;
+            _queueCorpAllContainer.style.display = anyCorpItem ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+    }
+
     private IEnumerator RefreshBuildingsForTile(string corpId, string tileId)
     {
         string url = $"{_gameHUDController.GetSimulationServerUrl().TrimEnd('/')}/game/corporations/{corpId}/buildings";
@@ -448,82 +768,44 @@ public class TileInspectorController : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                RebuildBuildingList(null, null);
+                RebuildBuildingList(null);
                 yield break;
             }
 
             BuildingListDto wrapper;
             try { wrapper = JsonUtility.FromJson<BuildingListDto>("{\"items\":" + req.downloadHandler.text + "}"); }
-            catch { RebuildBuildingList(null, null); yield break; }
+            catch { RebuildBuildingList(null); yield break; }
 
             var tileBuildings = new List<BuildingItem>();
             if (wrapper?.items != null)
                 foreach (var b in wrapper.items)
                     if (b.tileId == tileId) tileBuildings.Add(b);
 
-            // Fetch construction queue
-            var qUrl = $"{_gameHUDController.GetSimulationServerUrl().TrimEnd('/')}/game/corporations/{corpId}/construction-queue";
-            var tileConstr = new List<ConstrItem>();
-            using (var qreq = UnityWebRequest.Get(qUrl))
-            {
-                qreq.timeout = Mathf.Max(1, Mathf.CeilToInt(_gameHUDController.GetSimulationServerTimeout()));
-                yield return qreq.SendWebRequest();
-
-                if (qreq.result == UnityWebRequest.Result.Success)
-                {
-                    ConstrListDto qWrapper;
-                    try { qWrapper = JsonUtility.FromJson<ConstrListDto>("{\"items\":" + qreq.downloadHandler.text + "}"); }
-                    catch { qWrapper = null; }
-
-                    if (qWrapper?.items != null)
-                        foreach (var c in qWrapper.items)
-                            if (c.tileId == tileId) tileConstr.Add(c);
-                }
-            }
-
-            RebuildBuildingList(tileBuildings, tileConstr);
+            RebuildBuildingList(tileBuildings);
         }
     }
 
-    private void RebuildBuildingList(List<BuildingItem> buildings, List<ConstrItem> constructions)
+    private void RebuildBuildingList(List<BuildingItem> buildings)
     {
         if (_buildingListContainer == null) return;
 
         _buildingListContainer.Clear();
 
-        // Add buildings
-        if (buildings != null)
+        if (buildings == null) return;
+
+        foreach (var b in buildings)
         {
-            foreach (var b in buildings)
-            {
-                var item = new VisualElement();
-                item.AddToClassList("building-item");
+            var item = new VisualElement();
+            item.AddToClassList("building-item");
 
-                var label = new Label($"{GetBuildingTypeName(b.buildingType)} (Niv.{b.level}) - Prod:{b.production:F1}");
-                item.Add(label);
+            var label = new Label($"{GetBuildingTypeName(b.buildingType)} (Niv.{b.level}) - Prod:{b.production:F1}");
+            item.Add(label);
 
-                var demolishBtn = new Button { text = "Démolir" };
-                demolishBtn.clicked += () => StartCoroutine(DoDemolishBuilding(_corpIds[_corpDropdown.index], b.id));
-                item.Add(demolishBtn);
+            var demolishBtn = new Button { text = "Démolir" };
+            demolishBtn.clicked += () => StartCoroutine(DoDemolishBuilding(_selectedCorpId, b.id));
+            item.Add(demolishBtn);
 
-                _buildingListContainer.Add(item);
-            }
-        }
-
-        // Add construction queue
-        if (constructions != null && _constructionQueueContainer != null)
-        {
-            _constructionQueueContainer.Clear();
-            foreach (var c in constructions)
-            {
-                var item = new VisualElement();
-                item.AddToClassList("construction-item");
-
-                var label = new Label($"{GetBuildingTypeName(c.buildingType)} - {c.remainingTicks} ticks restants");
-                item.Add(label);
-
-                _constructionQueueContainer.Add(item);
-            }
+            _buildingListContainer.Add(item);
         }
     }
 
@@ -543,25 +825,32 @@ public class TileInspectorController : MonoBehaviour
         }
     }
 
-    private IEnumerator ConstructBuilding(string corpId, string tileId, int buildingType)
+    private IEnumerator ConstructBuilding(string corpId, string bodyId, string tileId, int buildingType)
     {
-        string url = $"{_gameHUDController.GetSimulationServerUrl().TrimEnd('/')}/game/corporations/{corpId}/buildings";
-        var form = new WWWForm();
-        form.AddField("building_type", buildingType);
-        form.AddField("tile_id", tileId);
-        using (var req = UnityWebRequest.Post(url, form))
+        // Server expects query params, not form body
+        string base64 = System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("{}"));
+        string url = $"{_gameHUDController.GetSimulationServerUrl().TrimEnd('/')}/game/corporations/{corpId}/buildings"
+                   + $"?body_id={UnityWebRequest.EscapeURL(bodyId)}"
+                   + $"&tile_id={UnityWebRequest.EscapeURL(tileId)}"
+                   + $"&building_type={buildingType}";
+        using (var req = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST))
         {
+            req.uploadHandler   = new UploadHandlerRaw(new byte[0]) { contentType = "application/json" };
+            req.downloadHandler = new DownloadHandlerBuffer();
             req.timeout = Mathf.Max(1, Mathf.CeilToInt(_gameHUDController.GetSimulationServerTimeout()));
             yield return req.SendWebRequest();
 
             if (req.result == UnityWebRequest.Result.Success)
             {
-                if (_tileStatusLabel != null) _tileStatusLabel.text = "Construction enqueued.";
+                if (_tileStatusLabel != null) _tileStatusLabel.text = "Construction planifiée.";
+                // Refresh queue + buildings
+                yield return RefreshTerritoryQueue(corpId, bodyId, tileId);
                 yield return RefreshBuildingsForTile(corpId, tileId);
             }
             else
             {
-                if (_tileStatusLabel != null) _tileStatusLabel.text = $"Erreur construction: {req.error}";
+                string detail = req.downloadHandler?.text ?? req.error;
+                if (_tileStatusLabel != null) _tileStatusLabel.text = $"Erreur: {detail}";
             }
         }
     }
@@ -606,6 +895,12 @@ public class TileInspectorController : MonoBehaviour
     }
 
     [System.Serializable]
+    private class ConstrItemListDto
+    {
+        public ConstrItem[] items;
+    }
+
+    [System.Serializable]
     private class StateDto
     {
         public string id;
@@ -640,13 +935,23 @@ public class TileInspectorController : MonoBehaviour
     {
         public string id;
         public string tileId;
-        public int buildingType;
-        public int remainingTicks;
+        public string bodyId;
+        public string corpId;
+        public int    buildingType;
+        public int    status;           // 0=Pending 1=InProgress 2=Done
+        public int    ticksRemaining;
+        public int    totalCostPts;
+        public int    pointsAccumulated;
     }
 
     [System.Serializable]
-    private class ConstrListDto
+    private class TerritoryQueueDto
     {
+        public string     territoryId;
+        public string     corpId;
+        public string     bodyId;
         public ConstrItem[] items;
+        public float      constructionCapacity;
+        public bool       isEBDeFortune;
     }
 }

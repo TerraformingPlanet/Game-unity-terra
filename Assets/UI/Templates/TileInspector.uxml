@@ -13,6 +13,39 @@
             <ui:Button name="btn-close-inspector" text="✕" class="tile-inspector__close-btn" />
         </ui:VisualElement>
 
+        <!-- ── File de construction (fixe, au-dessus des tabs) ── -->
+        <ui:VisualElement name="territory-queue-section" class="territory-queue-section">
+            <!-- Capital de la corporation -->
+            <ui:VisualElement class="queue-capital-row">
+                <ui:Label text="CAPITAL" class="queue-capital-key" />
+                <ui:Label name="queue-corp-capital-label" text="—" class="queue-capital-value" />
+            </ui:VisualElement>
+
+            <ui:Label text="FILE DE CONSTRUCTION" class="tile-inspector__section-title" />
+            <!-- Track État : capacité EB de fortune (population) -->
+            <ui:VisualElement class="queue-track">
+                <ui:Label text="État" class="queue-track__label queue-track__label--etat" />
+                <ui:VisualElement class="queue-track__bar-bg">
+                    <ui:VisualElement name="queue-track-etat-fill" class="queue-track__bar-fill queue-track__bar-fill--etat" />
+                </ui:VisualElement>
+                <ui:Label name="queue-track-etat-name" text="—" class="queue-track__building-name" />
+            </ui:VisualElement>
+            <!-- Track Investisseur : capacité EB formel (corpo / joueur) -->
+            <ui:VisualElement class="queue-track">
+                <ui:Label text="Investisseur" class="queue-track__label queue-track__label--investor" />
+                <ui:VisualElement class="queue-track__bar-bg">
+                    <ui:VisualElement name="queue-track-investor-fill" class="queue-track__bar-fill queue-track__bar-fill--investor" />
+                </ui:VisualElement>
+                <ui:Label name="queue-track-investor-name" text="—" class="queue-track__building-name" />
+            </ui:VisualElement>
+            <!-- En attente (territoire courant) -->
+            <ui:VisualElement name="queue-pending-container" class="tile-inspector__card-list queue-pending-list" />
+
+            <!-- Toutes les constructions en cours de la corporation -->
+            <ui:Label name="queue-corp-all-title" text="EN COURS — CORPORATION" class="queue-sublabel" />
+            <ui:VisualElement name="queue-corp-all-container" class="tile-inspector__card-list queue-pending-list" />
+        </ui:VisualElement>
+
         <!-- ── Tabs: Résumé / Population / Bâtiment / Marché / Contrats ── -->
         <ui:VisualElement class="tile-inspector__tabs">
             <ui:Button name="tab-resume"     text="Résumé"      class="tile-inspector__tab tile-inspector__tab--active" />
@@ -30,33 +63,10 @@
             <!-- ===== Tab 0 : Résumé ===== -->
             <ui:VisualElement name="tab-content-resume" class="tile-inspector__tab-content">
 
-                <!-- Propriétaire -->
-                <ui:VisualElement class="tile-inspector__section">
-                    <ui:Label text="PROPRIÉTAIRE" class="tile-inspector__section-title" />
-                    <ui:DropdownField name="corp-dropdown" class="tile-inspector__dropdown" />
-                    <ui:VisualElement class="tile-inspector__owner-row">
-                        <ui:VisualElement name="corp-badge" class="tile-inspector__corp-badge" />
-                        <ui:Label name="corp-owner-label" text="Non revendiquée" class="tile-inspector__owner-name" />
-                    </ui:VisualElement>
-                    <ui:Label name="state-label" text="" class="tile-inspector__state-label" />
-                </ui:VisualElement>
-
-                <ui:VisualElement class="hud-separator" />
-
                 <!-- Corporations -->
                 <ui:VisualElement class="tile-inspector__section">
                     <ui:Label text="CORPORATIONS" class="tile-inspector__section-title" />
                     <ui:VisualElement name="corp-list-container" class="tile-inspector__card-list" />
-                </ui:VisualElement>
-
-                <ui:VisualElement class="hud-separator" />
-
-                <!-- Nationalisation -->
-                <ui:VisualElement class="tile-inspector__section">
-                    <ui:Label text="NATIONALISATION" class="tile-inspector__section-title" />
-                    <ui:Label name="nationalisation-label" text="" class="tile-inspector__info-label" />
-                    <ui:Button name="btn-corrupt" text="Corrompre" class="tile-inspector__btn" />
-                    <ui:Button name="btn-cancel-nationalisation" text="Annuler" class="tile-inspector__btn" />
                 </ui:VisualElement>
 
                 <ui:VisualElement class="hud-separator" />
@@ -79,6 +89,16 @@
 
             <!-- ===== Tab 1 : Population ===== -->
             <ui:VisualElement name="tab-content-population" class="tile-inspector__tab-content">
+
+                <ui:VisualElement class="tile-inspector__section">
+                    <ui:Label text="POPULATION TUILE" class="tile-inspector__section-title" />
+                    <ui:Label name="pop-poor-label"   text="Pauvres : –"         class="tile-inspector__info-label" />
+                    <ui:Label name="pop-middle-label" text="Classe moyenne : –"  class="tile-inspector__info-label" />
+                    <ui:Label name="pop-rich-label"   text="Riches : –"          class="tile-inspector__info-label" />
+                    <ui:Label name="pop-total-label"  text="Total : –"           class="tile-inspector__info-label tile-inspector__info-label--accent" />
+                </ui:VisualElement>
+
+                <ui:VisualElement class="hud-separator" />
 
                 <ui:VisualElement class="tile-inspector__section">
                     <ui:Label text="POPULATION" class="tile-inspector__section-title" />
