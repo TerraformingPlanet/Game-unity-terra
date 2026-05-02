@@ -8,13 +8,62 @@ using UnityEngine.Networking;
 public partial class PlanetSphereGoldberg : MonoBehaviour
 {
     // =========================================================
+    // Re-colorisation instantanée (debug, slider niveau mer)
+    // =========================================================
+
+    /// <summary>
+    /// Re-colorise toutes les faces depuis le cache serveur sans re-fetch.
+    /// Utilisé par le slider debug pour ajuster le niveau de la mer en temps réel.
+    /// Sans effet si les tuiles ne sont pas encore chargées.
+    /// </summary>
+    public void RefreshAltitudeColorization(float waterLevel)
+    {
+        if (_cachedServerTiles == null || _cachedServerTiles.Length == 0)
+            return;
+
+        SetWaterLevel(waterLevel);
+
+        // Re-coloriser toutes les LOD disponibles
+        var dataToRefresh = new[]
+        {
+            (enableLod && _sphereDataLo.faces != null) ? _sphereDataLo : _sphereData,
+            _sphereDataHi,
+        };
+
+        foreach (var data in dataToRefresh)
+        {
+            if (data.faces == null || data.mesh == null) continue;
+            if (ActiveLens == PlanetLensMode.Elevation)
+                GoldbergFaceColorizer.ColorizeElevationLens(data.faces, _cachedServerTiles);
+            else
+                GoldbergFaceColorizer.ColorizeFromAltitude(data.faces, _cachedServerTiles, ActiveWaterLevel);
+            ReapplyOverlays(data, _cachedServerTiles);
+            GoldbergSphereGenerator.ApplyFaceColors(data.mesh, data.faces, data.vertexFaceId);
+        }
+
+        // Reconstruire les caps depuis le cache pour que la couverture corresponde
+        // exactement au nouveau seuil (le scale seul ne change pas quelles tiles ont un cap).
+        if (enableTopographicRelief && _cachedFaceAltitudesLo != null)
+        {
+            var loFaces = (enableLod && _sphereDataLo.faces != null) ? _sphereDataLo.faces : _sphereData.faces;
+            if (loFaces != null)
+                CreateWaterCaps(loFaces, _cachedFaceAltitudesLo, ActiveWaterLevel);
+        }
+
+        // Resync snapshot hover
+        if (_sphereData.mesh != null)
+            _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
+        _hoveredFaceId = -1;
+    }
+
+    // =========================================================
     // LOD fetch haute résolution
     // =========================================================
 
     private void TryStartHiLodFetch()
     {
         if (_currentLodLevel != 1 || _lodHiColored || _lodHiFetching) return;
-        if (string.IsNullOrEmpty(_activeBodyId) || _cachedColorByType == null) return;
+        if (string.IsNullOrEmpty(_activeBodyId) || _cachedServerTiles == null) return;
         _lodHiFetching = true;
         StartCoroutine(FetchAndColorizeHiLod());
     }
@@ -145,13 +194,9 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         DebugCoherenceOverride coherenceOverride = DebugCoherenceOverride.None,
         float waterLevelOffset = 0f)
     {
-        // Couleurs terrain : palette Unity (source de vérité), le serveur envoie seulement l'index int.
-        var colorByType = terrainPalette != null
-            ? terrainPalette.ToDictionary()
-            : TerrainColorPalette.DefaultDictionary();
-
-        // 1) Récupérer la liste des corps pour trouver le bodyId
-        string bodyId  = null;
+        // 1) Récupérer la liste des corps pour trouver le bodyId + waterLevel serveur
+        string bodyId    = null;
+        float  serverWaterLevel = 0f;
 
         using (UnityWebRequest req = UnityWebRequest.Get(BaseUrl + "/bodies"))
         {
@@ -164,7 +209,6 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
                 yield break;
             }
 
-            // JsonUtility ne parse pas les tableaux root — wrapping
             string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
             BodyListEntryArray list;
             try   { list = JsonUtility.FromJson<BodyListEntryArray>(wrapped); }
@@ -176,22 +220,27 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
                 {
                     if (entry.name == planetName && entry.surfaceType == "goldberg")
                     {
-                        bodyId = entry.bodyId;
+                        bodyId           = entry.bodyId;
+                        serverWaterLevel = entry.seaLevelAltitude + waterLevelOffset;
                         break;
                     }
                 }
             }
         }
 
-        // Si le serveur n'a pas encore de corps, on attend — le bootstrap est géré côté serveur.
         if (string.IsNullOrEmpty(bodyId))
         {
-            Debug.LogWarning($"[PlanetSphereGoldberg] Corps '{planetName}' introuvable sur le serveur. Le serveur n'est peut-être pas encore prêt.");
+            Debug.LogWarning($"[PlanetSphereGoldberg] Corps '{planetName}' introuvable sur le serveur.");
             yield break;
         }
 
-        // Mémorise le bodyId pour les lookups H3 au clic
         _activeBodyId = bodyId;
+        float seaLevelAltitude = serverWaterLevel;
+        float visualWaterLevel = enableTopographicRelief ? seaLevelAltitude : -1.0f;
+        SetWaterLevel(visualWaterLevel);
+        ServerWaterLevel = seaLevelAltitude;
+        // Seuil de colorisation des faces : sea level = 0 dans l'espace altitude relatif
+        float colorizationWaterLevel = seaLevelAltitude;
 
         // 2) Récupérer TOUTES les tuiles via /tiles/lod?h3_resolution=2 (pagination)
         GoldbergTileState[] tilesArray = null;
@@ -211,29 +260,98 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
             yield break;
         }
 
-        // 3) Recoloriser les faces GP
+        // 2b) Re-fetch /bodies pour récupérer seaLevelAltitude post-génération
+        //     (les tuiles viennent d'être générées côté serveur → seaLevelAltitude est maintenant correct)
+        using (UnityWebRequest req2 = UnityWebRequest.Get(BaseUrl + "/bodies"))
+        {
+            req2.timeout = TimeoutSec;
+            yield return req2.SendWebRequest();
+            if (req2.result == UnityWebRequest.Result.Success)
+            {
+                string wrapped2 = "{\"items\":" + req2.downloadHandler.text + "}";
+                try
+                {
+                    BodyListEntryArray list2 = JsonUtility.FromJson<BodyListEntryArray>(wrapped2);
+                    if (list2?.items != null)
+                    {
+                        foreach (SimulationBodyListEntry entry2 in list2.items)
+                        {
+                            if (entry2.bodyId == bodyId)
+                            {
+                                float updatedSea = entry2.seaLevelAltitude + waterLevelOffset;
+                                if (updatedSea != seaLevelAltitude)
+                                {
+                                    seaLevelAltitude      = updatedSea;
+                                    colorizationWaterLevel = updatedSea;
+                                    SetWaterLevel(enableTopographicRelief ? updatedSea : -1.0f);
+                                    ServerWaterLevel = updatedSea;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch { /* ignore — use previous seaLevelAltitude */ }
+            }
+        }
+
+        // 3) Recoloriser les faces GP — gradient altitude/waterLevel (TerrainType non utilisé visuellement)
         if (enableLod && _sphereDataLo.faces != null)
         {
-            GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataLo.faces, tilesArray, colorByType);
+            GoldbergFaceColorizer.ColorizeFromAltitude(_sphereDataLo.faces, tilesArray, colorizationWaterLevel);
             ReapplyOverlays(_sphereDataLo, tilesArray);
         }
         else
         {
-            GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereData.faces, tilesArray, colorByType);
+            GoldbergFaceColorizer.ColorizeFromAltitude(_sphereData.faces, tilesArray, colorizationWaterLevel);
             ReapplyOverlays(_sphereData, tilesArray);
         }
 
         // Cache pour re-colorisation LOD
         _cachedServerTiles  = tilesArray;
-        _cachedColorByType  = colorByType;
+        // _cachedColorByType maintenu pour les vues Plate/Tangente et ApplyLodLevel héritage
+        _cachedColorByType  = terrainPalette != null ? terrainPalette.ToDictionary() : TerrainColorPalette.DefaultDictionary();
 
         // Coloriser aussi le LOD haut avec les tuiles res=2 en attendant le fetch res=3.
         if (enableLod && _sphereDataHi.faces != null)
         {
-            GoldbergFaceColorizer.ColorizeFromServerTiles(_sphereDataHi.faces, tilesArray, colorByType);
+            GoldbergFaceColorizer.ColorizeFromAltitude(_sphereDataHi.faces, tilesArray, colorizationWaterLevel);
             ReapplyOverlays(_sphereDataHi, tilesArray);
-            _lodHiBaseColored = true;  // couleurs biomes déjà appliquées — ApplyLodLevel n'a pas besoin de refaire
+            _lodHiBaseColored = true;
         }
+
+        // ── Relief topographique ──────────────────────────────────────────────
+        if (enableTopographicRelief)
+        {
+            // ── CPU path : déformation directe des vertices du mesh ─────────────
+            if (enableLod && _sphereDataLo.faces != null)
+            {
+                _cachedFaceAltitudesLo = GoldbergFaceColorizer.BuildFaceAltitudes(_sphereDataLo.faces, tilesArray);
+                GoldbergSphereGenerator.ApplyTopographicDisplacement(
+                    _sphereDataLo.mesh, _sphereDataLo.vertexFaceId, _cachedFaceAltitudesLo,
+                    topographicDisplacementScale, _sphereDataLo.vertexCornerGroup, ActiveWaterLevel);
+            }
+            else
+            {
+                _cachedFaceAltitudesLo = GoldbergFaceColorizer.BuildFaceAltitudes(_sphereData.faces, tilesArray);
+                GoldbergSphereGenerator.ApplyTopographicDisplacement(
+                    _sphereData.mesh, _sphereData.vertexFaceId, _cachedFaceAltitudesLo,
+                    topographicDisplacementScale, _sphereData.vertexCornerGroup, ActiveWaterLevel);
+            }
+            if (enableLod && _sphereDataHi.faces != null)
+            {
+                _cachedFaceAltitudesHi = GoldbergFaceColorizer.BuildFaceAltitudes(_sphereDataHi.faces, tilesArray);
+                GoldbergSphereGenerator.ApplyTopographicDisplacement(
+                    _sphereDataHi.mesh, _sphereDataHi.vertexFaceId, _cachedFaceAltitudesHi,
+                    topographicDisplacementScale, _sphereDataHi.vertexCornerGroup, ActiveWaterLevel);
+            }
+
+            // Water caps : mesh épousant exactement la topologie des tiles ocean
+            var loFaces = enableLod && _sphereDataLo.faces != null ? _sphereDataLo.faces : _sphereData.faces;
+            if (_cachedFaceAltitudesLo != null)
+                CreateWaterCaps(loFaces, _cachedFaceAltitudesLo, ActiveWaterLevel);
+        }
+
 
         if (_sphereData.mesh != null)
             _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone(); // resync snapshot hover
@@ -257,8 +375,8 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         // Si on était déjà en LOD haut avant la fin du fetch, swap maintenant que _cachedServerTiles est prêt
         if (_currentLodLevel == 1) ApplyLodLevel(1);
 
-        // Notifie les autres vues (Flat, Tangent)
-        OnH3TilesReady?.Invoke(tilesArray, colorByType);
+        // Notifie les autres vues (Flat, Tangent) — colorByType conservé pour compatibilité vues 2D
+        OnH3TilesReady?.Invoke(tilesArray, _cachedColorByType);
     }
 
     /// <summary>Aucune projection Mercator après migration H3 — toujours null.</summary>

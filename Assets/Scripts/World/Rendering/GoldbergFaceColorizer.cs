@@ -7,6 +7,178 @@ using UnityEngine;
 /// </summary>
 public static class GoldbergFaceColorizer
 {
+    // ── Gradient altitude ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Colore chaque face selon l'altitude relative à waterLevel (altitude - waterLevel).
+    ///
+    /// relAlt ∈ [-1, 0[  → fond marin (immergé, caché par la WaterSphere)
+    /// relAlt ∈ [0, 0.25] → plaines / côtes
+    /// relAlt ∈ [0.25, 0.6] → collines
+    /// relAlt ∈ [0.6, 1]   → montagnes → neige au sommet
+    ///
+    /// La WaterSphere couvre tout ce qui est en-dessous de waterLevel — les tuiles
+    /// immergées reçoivent quand même une couleur fond marin au cas où la sphère
+    /// deviendrait transparente ou absente.
+    /// </summary>
+    public static void ColorizeFromAltitude(
+        GoldbergSphereGenerator.GoldbergFace[] faces,
+        GoldbergTileState[] serverTiles,
+        float waterLevel = 0f)
+    {
+        if (faces == null || serverTiles == null || serverTiles.Length == 0)
+            return;
+
+        for (int i = 0; i < faces.Length; i++)
+        {
+            int bestIdx = FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles);
+            float relAlt = serverTiles[bestIdx].altitude - waterLevel;  // hauteur par rapport à la mer
+            faces[i].color = AltitudeToColor(relAlt);
+        }
+    }
+
+    /// <summary>
+    /// Gradient altitude → couleur. relAlt = altitude - waterLevel ∈ [-2, 2] (clampé [-1,1]).
+    /// Palette "planète terrestre" — peut être remplacée par une ScriptableObject palette plus tard.
+    /// </summary>
+    public static Color AltitudeToColor(float relAlt)
+    {
+        relAlt = Mathf.Clamp(relAlt, -1f, 1f);
+
+        if (relAlt < 0f)
+        {
+            // Fond marin : abysses (bleu très sombre) → plateau continental (bleu-gris)
+            float t = (relAlt + 1f);  // [0,1] — 0=abysse, 1=juste sous la surface
+            return Color.Lerp(
+                new Color(0.05f, 0.07f, 0.12f),   // abysse
+                new Color(0.12f, 0.16f, 0.22f),   // fond côtier
+                t);
+        }
+
+        // Émergé : 4 bandes
+        if (relAlt < 0.25f)
+        {
+            float t = relAlt / 0.25f;
+            return Color.Lerp(
+                new Color(0.72f, 0.68f, 0.50f),   // sable côtier
+                new Color(0.40f, 0.56f, 0.28f),   // plaines herbeuses
+                t);
+        }
+        if (relAlt < 0.55f)
+        {
+            float t = (relAlt - 0.25f) / 0.30f;
+            return Color.Lerp(
+                new Color(0.40f, 0.56f, 0.28f),   // plaines
+                new Color(0.38f, 0.30f, 0.20f),   // collines rocheuses
+                t);
+        }
+        if (relAlt < 0.80f)
+        {
+            float t = (relAlt - 0.55f) / 0.25f;
+            return Color.Lerp(
+                new Color(0.38f, 0.30f, 0.20f),   // collines
+                new Color(0.55f, 0.52f, 0.50f),   // roche alpine
+                t);
+        }
+        {
+            float t = (relAlt - 0.80f) / 0.20f;
+            return Color.Lerp(
+                new Color(0.55f, 0.52f, 0.50f),   // roche alpine
+                new Color(0.92f, 0.94f, 0.96f),   // neige
+                t);
+        }
+    }
+
+    // ── Lens Élévation (debug) ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Lens dénivelé : colore chaque face selon l'altitude absolue [-1, +1] sans offset waterLevel.
+    /// Palette scientifique type DEM — ignorée par la WaterSphere (elle est cachée dans ce mode).
+    ///
+    ///  -1.0  → bleu abyssal profond
+    ///  -0.5  → bleu océan
+    ///   0.0  → cyan (référence niveau zéro)
+    ///  +0.3  → vert tendre
+    ///  +0.6  → jaune/orange
+    ///  +0.85 → brun rocheux
+    ///  +1.0  → blanc neige
+    /// </summary>
+    public static void ColorizeElevationLens(
+        GoldbergSphereGenerator.GoldbergFace[] faces,
+        GoldbergTileState[] serverTiles)
+    {
+        if (faces == null || serverTiles == null || serverTiles.Length == 0)
+            return;
+
+        for (int i = 0; i < faces.Length; i++)
+        {
+            int   bestIdx = FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles);
+            float alt     = serverTiles[bestIdx].altitude;  // [-1, +1] absolu
+            faces[i].color = ElevationLensColor(alt);
+        }
+    }
+
+    /// <summary>
+    /// Gradient DEM : altitude absolue [-1, +1] → couleur.
+    /// Palette inspirée du standard cartographique SRTM.
+    /// </summary>
+    public static Color ElevationLensColor(float alt)
+    {
+        alt = Mathf.Clamp(alt, -1f, 1f);
+
+        // Zone sous zéro — bleu abyssal → bleu-cyan surface
+        if (alt < -0.5f)
+        {
+            float t = (alt + 1f) / 0.5f;  // [0,1]
+            return Color.Lerp(
+                new Color(0.04f, 0.06f, 0.20f),   // abysse
+                new Color(0.10f, 0.30f, 0.65f),   // bleu profond
+                t);
+        }
+        if (alt < 0f)
+        {
+            float t = (alt + 0.5f) / 0.5f;
+            return Color.Lerp(
+                new Color(0.10f, 0.30f, 0.65f),   // bleu profond
+                new Color(0.30f, 0.70f, 0.85f),   // bleu-cyan (proche surface)
+                t);
+        }
+        // Zone émergée
+        if (alt < 0.3f)
+        {
+            float t = alt / 0.3f;
+            return Color.Lerp(
+                new Color(0.30f, 0.70f, 0.85f),   // cyan (niveau 0)
+                new Color(0.45f, 0.78f, 0.35f),   // vert
+                t);
+        }
+        if (alt < 0.6f)
+        {
+            float t = (alt - 0.3f) / 0.3f;
+            return Color.Lerp(
+                new Color(0.45f, 0.78f, 0.35f),   // vert
+                new Color(0.95f, 0.78f, 0.20f),   // jaune
+                t);
+        }
+        if (alt < 0.85f)
+        {
+            float t = (alt - 0.6f) / 0.25f;
+            return Color.Lerp(
+                new Color(0.95f, 0.78f, 0.20f),   // jaune
+                new Color(0.55f, 0.32f, 0.12f),   // brun
+                t);
+        }
+        {
+            float t = (alt - 0.85f) / 0.15f;
+            return Color.Lerp(
+                new Color(0.55f, 0.32f, 0.12f),   // brun
+                new Color(0.95f, 0.96f, 0.98f),   // blanc neige
+                t);
+        }
+    }
+
+    // ── Legacy (TerrainType palette) ─────────────────────────────────────────
+
     /// <summary>
     /// Recolorise les tuiles GP depuis un tableau de GoldbergTileState serveur.
     /// Nearest-neighbor lat/lon (distance² normalisée, wrap-around longitude).
@@ -22,27 +194,7 @@ public static class GoldbergFaceColorizer
 
         for (int i = 0; i < faces.Length; i++)
         {
-            float fLat = faces[i].latNorm;
-            float fLon = faces[i].lonNorm;
-
-            float bestDist2 = float.MaxValue;
-            int   bestIdx   = 0;
-
-            for (int j = 0; j < serverTiles.Length; j++)
-            {
-                float dLat = fLat - serverTiles[j].latNorm;
-                float dLon = fLon - serverTiles[j].lonNorm;
-                // wrap-around longitude [0,1]
-                if (dLon >  0.5f) dLon -= 1f;
-                if (dLon < -0.5f) dLon += 1f;
-                float dist2 = dLat * dLat + dLon * dLon;
-                if (dist2 < bestDist2)
-                {
-                    bestDist2 = dist2;
-                    bestIdx   = j;
-                }
-            }
-
+            int bestIdx = FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles);
             if (colorByType.TryGetValue(serverTiles[bestIdx].terrainType, out Color c))
                 faces[i].color = c;
         }
@@ -51,7 +203,6 @@ public static class GoldbergFaceColorizer
     /// <summary>
     /// Construit un dictionnaire faceId → GoldbergTileState (nearest-neighbor lat/lon).
     /// Utilisé pour résoudre la tuile serveur d'une face au survol (tooltip).
-    /// Même algorithme que ColorizeFromServerTiles.
     /// </summary>
     public static Dictionary<int, GoldbergTileState> BuildFaceToTileMap(
         GoldbergSphereGenerator.GoldbergFace[] faces,
@@ -62,31 +213,27 @@ public static class GoldbergFaceColorizer
             return map;
 
         for (int i = 0; i < faces.Length; i++)
-        {
-            float fLat = faces[i].latNorm;
-            float fLon = faces[i].lonNorm;
-
-            float bestDist2 = float.MaxValue;
-            int   bestIdx   = 0;
-
-            for (int j = 0; j < serverTiles.Length; j++)
-            {
-                float dLat = fLat - serverTiles[j].latNorm;
-                float dLon = fLon - serverTiles[j].lonNorm;
-                if (dLon >  0.5f) dLon -= 1f;
-                if (dLon < -0.5f) dLon += 1f;
-                float dist2 = dLat * dLat + dLon * dLon;
-                if (dist2 < bestDist2)
-                {
-                    bestDist2 = dist2;
-                    bestIdx   = j;
-                }
-            }
-
-            map[i] = serverTiles[bestIdx];
-        }
+            map[i] = serverTiles[FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles)];
 
         return map;
+    }
+
+    /// <summary>
+    /// Construit un tableau d'altitudes par face GP (nearest-neighbor lat/lon).
+    /// altitudes[i] = GoldbergTileState.altitude de la tuile H3 la plus proche de la face i.
+    /// </summary>
+    public static float[] BuildFaceAltitudes(
+        GoldbergSphereGenerator.GoldbergFace[] faces,
+        GoldbergTileState[] serverTiles)
+    {
+        var altitudes = new float[faces?.Length ?? 0];
+        if (faces == null || serverTiles == null || serverTiles.Length == 0)
+            return altitudes;
+
+        for (int i = 0; i < faces.Length; i++)
+            altitudes[i] = serverTiles[FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles)].altitude;
+
+        return altitudes;
     }
 
     // ── Ownership overlay (Phase 7.1) ────────────────────────────────────────────
@@ -203,6 +350,25 @@ public static class GoldbergFaceColorizer
         }
 
         return result;
+    }
+
+    // ── Shared helpers ────────────────────────────────────────────────────────
+
+    /// <summary>Nearest-neighbor lookup : retourne l'index de la tuile la plus proche (lat/lon, wrap longitude).</summary>
+    private static int FindNearestTile(float fLat, float fLon, GoldbergTileState[] tiles)
+    {
+        float best = float.MaxValue;
+        int   idx  = 0;
+        for (int j = 0; j < tiles.Length; j++)
+        {
+            float dLat = fLat - tiles[j].latNorm;
+            float dLon = fLon - tiles[j].lonNorm;
+            if (dLon >  0.5f) dLon -= 1f;
+            if (dLon < -0.5f) dLon += 1f;
+            float d2 = dLat * dLat + dLon * dLon;
+            if (d2 < best) { best = d2; idx = j; }
+        }
+        return idx;
     }
 
     // Clé canonique d'arête (indépendante de la direction de parcours).

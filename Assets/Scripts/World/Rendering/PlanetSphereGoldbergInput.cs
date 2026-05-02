@@ -86,6 +86,13 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         var sb = new System.Text.StringBuilder();
         sb.Append($"<b>{tile.terrainType}</b>  <size=9>[{shortId}]</size>");
 
+        // Altitude debug : valeur absolue + position relative au sea level
+        float seaLvl   = ServerWaterLevel;
+        float relAlt   = tile.altitude - seaLvl;
+        string relStr  = relAlt >= 0f ? $"+{relAlt:F3}" : $"{relAlt:F3}";
+        string isOcean = tile.altitude < seaLvl ? " 🌊" : "";
+        sb.Append($"\n<size=9>alt={tile.altitude:F3}  sea={seaLvl:F3}  Δ={relStr}{isOcean}</size>");
+
         // Ajouter le nom de la corp si la tuile est revendiquée
         if (_tileToCorpId != null && _tileToCorpId.TryGetValue(tile.tileId, out string corpId))
             sb.Append($"\nCorp: {corpId[..Mathf.Min(8, corpId.Length)]}");
@@ -188,9 +195,9 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
 
         // LOD haut : colorise avec res=2 seulement si les biomes n'ont pas encore été appliqués
         // (_lodHiBaseColored est mis à true dans FetchAndColorizeFromServer dès que les tuiles sont appliquées)
-        if (level == 1 && !_lodHiBaseColored && !_lodHiColored && _cachedServerTiles != null && _cachedColorByType != null)
+        if (level == 1 && !_lodHiBaseColored && !_lodHiColored && _cachedServerTiles != null)
         {
-            GoldbergFaceColorizer.ColorizeFromServerTiles(nextData.faces, _cachedServerTiles, _cachedColorByType);
+            GoldbergFaceColorizer.ColorizeFromAltitude(nextData.faces, _cachedServerTiles, ActiveWaterLevel);
             ReapplyOverlays(nextData, _cachedServerTiles);
             _lodHiBaseColored = true;
         }
@@ -212,6 +219,16 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         _sphereData       = nextData;
         _hoveredFaceId    = -1;
         _cachedMeshColors = (Color[])nextData.mesh.colors.Clone();
+
+        // Relief topographique — réappliquer sur le mesh actif après swap LOD
+        if (enableTopographicRelief)
+        {
+            float[] altitudes = level == 1 ? _cachedFaceAltitudesHi : _cachedFaceAltitudesLo;
+            if (altitudes != null)
+                GoldbergSphereGenerator.ApplyTopographicDisplacement(
+                    nextData.mesh, nextData.vertexFaceId, altitudes,
+                    topographicDisplacementScale, nextData.vertexCornerGroup, ActiveWaterLevel);
+        }
 
         _meshFilter.sharedMesh   = nextData.mesh;
         // Collider toujours sur LOD bas (492 faces → convex OK; 1962 faces → KO)

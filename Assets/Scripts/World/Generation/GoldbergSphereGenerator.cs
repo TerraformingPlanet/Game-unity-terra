@@ -53,6 +53,12 @@ public static class GoldbergSphereGenerator
         public GoldbergFace[] faces;
         /// <summary>vertexFaceId[i] = index de la tuile propriétaire du sommet i.</summary>
         public int[] vertexFaceId;
+        /// <summary>
+        /// vertexCornerGroup[i] = id du coin géométrique partagé entre plusieurs tuiles.
+        /// Tous les sommets au même coin (de tuiles différentes) ont le même id.
+        /// Utilisé par ApplyTopographicDisplacement pour moyenner les altitudes au coin.
+        /// </summary>
+        public int[] vertexCornerGroup;
     }
 
     // =========================================================
@@ -81,23 +87,65 @@ public static class GoldbergSphereGenerator
         var vertices        = new List<Vector3>(tiles.Count * 12);
         var triangles       = new List<int>(tiles.Count * 12);
         var colors          = new List<Color>(tiles.Count * 12);
+        var uvs             = new List<Vector2>(tiles.Count * 12);
+        var uv1s            = new List<Vector2>(tiles.Count * 12);
         var vertexFaceIdList = new List<int>(tiles.Count * 12);
 
+        BuildTileMeshData(tiles, faces, vertices, triangles, colors, uvs, uv1s, vertexFaceIdList);
+
+        // Corner groups : chaque coin géométrique (partagé par 3 tuiles) reçoit un id unique.
+        // Sert à moyenner l'altitude des 3 tuiles au coin → surface qui se déforme naturellement
+        // à chaque bord, sans géométrie de remplissage (skirt).
+        int[] cornerGroups = BuildCornerGroups(vertices);
+
+        Mesh mesh = new Mesh { name = "GoldbergSphere" };
+        mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        mesh.vertices  = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
+        mesh.colors    = colors.ToArray();
+        mesh.SetUVs(0, uvs);
+        mesh.SetUVs(1, uv1s);  // UV centroïde : displacement uniforme par tuile (anti-mesa)
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+
+        return new GoldbergMeshData
+        {
+            mesh              = mesh,
+            faces             = faces,
+            vertexFaceId      = vertexFaceIdList.ToArray(),
+            vertexCornerGroup = cornerGroups
+        };
+    }
+
+    /// <summary>
+    /// Pass 1 : remplit faces[], vertices, triangles, colors, uvs et vertexFaceIdList
+    /// depuis les tuiles de la Hexasphere. Chaque tuile produit des sommets indépendants
+    /// (non partagés) pour permettre une coloration distincte par face.
+    /// </summary>
+    private static void BuildTileMeshData(
+        List<Tile>    tiles,
+        GoldbergFace[] faces,
+        List<Vector3> vertices,
+        List<int>     triangles,
+        List<Color>   colors,
+        List<Vector2> uvs,
+        List<Vector2> uv1s,
+        List<int>     vertexFaceIdList)
+    {
         for (int i = 0; i < tiles.Count; i++)
         {
             Tile tile = tiles[i];
 
-            // ---- Centroïde : moyenne des sommets de la tuile ----
+            // tile.Points[0] = centroïde (ajouté en premier par BuildFaces).
+            // tile.Points[1..N] = coins du polygone (rim vertices).
+            // Calculer la direction depuis les RIM uniquement pour des lat/lon corrects.
             Vector3 centroid = Vector3.zero;
-            foreach (Point pt in tile.Points)
-                centroid += pt.Position;
-            centroid /= tile.Points.Count;
+            for (int k = 1; k < tile.Points.Count; k++) centroid += tile.Points[k].Position;
+            centroid /= (tile.Points.Count - 1);
             Vector3 centroidDir = centroid.normalized;
 
             float latDeg  = Mathf.Asin(Mathf.Clamp(centroidDir.y, -1f, 1f)) * Mathf.Rad2Deg;
             float lonDeg  = Mathf.Atan2(centroidDir.z, centroidDir.x) * Mathf.Rad2Deg;
-            float latNorm = (latDeg + 90f)  / 180f;
-            float lonNorm = (lonDeg + 180f) / 360f;
 
             faces[i] = new GoldbergFace
             {
@@ -105,21 +153,23 @@ public static class GoldbergSphereGenerator
                 centroid3D = centroidDir,
                 latDeg     = latDeg,
                 lonDeg     = lonDeg,
-                latNorm    = latNorm,
-                lonNorm    = lonNorm,
+                latNorm    = (latDeg + 90f)  / 180f,
+                lonNorm    = (lonDeg + 180f) / 360f,
                 color      = Color.gray
             };
 
-            // Sommets du polygone pour le rendu de frontières
-            var bv = new Vector3[tile.Points.Count];
-            for (int k = 0; k < tile.Points.Count; k++)
-                bv[k] = tile.Points[k].Position;
+            // boundaryVertices = coins du polygone seulement (skip centroïde à l'index 0).
+            // Utilisé pour dessiner les frontières d'ownership.
+            var bv = new Vector3[tile.Points.Count - 1];
+            for (int k = 1; k < tile.Points.Count; k++) bv[k - 1] = tile.Points[k].Position;
             faces[i].boundaryVertices = bv;
 
-            // ---- Triangles depuis les faces déjà tessélées de la lib ----
-            // Chaque tileFace.Points a 3 sommets correctement orientés.
-            // On ajoute des sommets indépendants (non partagés entre tuiles)
-            // pour pouvoir leur assigner des couleurs distinctes.
+            // UV1 = UV du centroïde de la tuile (même pour tous les vertices de la tuile).
+            // Utilisé par le shader pour un displacement UNIFORME → pas d'effet mesa.
+            Vector2 centroidUV = new Vector2(
+                Mathf.Atan2(centroidDir.z, centroidDir.x) / (2f * Mathf.PI) + 0.5f,
+                Mathf.Asin(Mathf.Clamp(centroidDir.y, -1f, 1f)) / Mathf.PI + 0.5f);
+
             foreach (Face tileFace in tile.Faces)
             {
                 int startIdx = vertices.Count;
@@ -128,26 +178,47 @@ public static class GoldbergSphereGenerator
                     vertices.Add(pt.Position);
                     colors.Add(Color.gray);
                     vertexFaceIdList.Add(i);
+                    Vector3 d = pt.Position.normalized;
+                    uvs.Add(new Vector2(
+                        Mathf.Atan2(d.z, d.x) / (2f * Mathf.PI) + 0.5f,
+                        Mathf.Asin(Mathf.Clamp(d.y, -1f, 1f)) / Mathf.PI + 0.5f));
+                    uv1s.Add(centroidUV);
                 }
                 triangles.Add(startIdx);
                 triangles.Add(startIdx + 1);
                 triangles.Add(startIdx + 2);
             }
         }
+    }
 
-        Mesh mesh = new Mesh { name = "GoldbergSphere" };
-        mesh.vertices  = vertices.ToArray();
-        mesh.triangles = triangles.ToArray();
-        mesh.colors    = colors.ToArray();
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
+    /// <summary>
+    /// Groupe les sommets par position géométrique : tous les sommets (de tuiles
+    /// différentes) au même coin physique reçoivent le même group id.
+    /// Avec hexSize=1.0, les positions sont exactement identiques entre tuiles voisines
+    /// (ProjectToSphere appelé avec le même point d'entrée), donc un snap 0.001 suffit.
+    /// </summary>
+    private static int[] BuildCornerGroups(List<Vector3> vertices)
+    {
+        const float SnapInv = 1000f; // grille 0.001 unités
+        var keyToGroup = new Dictionary<(int, int, int), int>(vertices.Count);
+        var result     = new int[vertices.Count];
+        int nextGroup  = 0;
 
-        return new GoldbergMeshData
+        for (int i = 0; i < vertices.Count; i++)
         {
-            mesh         = mesh,
-            faces        = faces,
-            vertexFaceId = vertexFaceIdList.ToArray()
-        };
+            var key = (
+                Mathf.RoundToInt(vertices[i].x * SnapInv),
+                Mathf.RoundToInt(vertices[i].y * SnapInv),
+                Mathf.RoundToInt(vertices[i].z * SnapInv)
+            );
+            if (!keyToGroup.TryGetValue(key, out int grp))
+            {
+                grp = nextGroup++;
+                keyToGroup[key] = grp;
+            }
+            result[i] = grp;
+        }
+        return result;
     }
 
     /// <summary>
@@ -164,6 +235,90 @@ public static class GoldbergSphereGenerator
         // N tel que 10·N²+2 ≈ cols×rows
         int n = Mathf.RoundToInt(Mathf.Sqrt(cols * rows / 10f));
         return Mathf.Clamp(n, 2, 15);
+    }
+
+    /// <summary>
+    /// Déplace les sommets du mesh selon les altitudes des faces (relief topographique).
+    /// Avec vertexCornerGroup : chaque coin géométrique (partagé par 3 tuiles) reçoit
+    /// l'altitude moyenne des tuiles qui s'y rejoignent — la surface se déforme aux bords
+    /// sans aucun gap entre tuiles voisines à altitudes différentes.
+    /// L'altitude est utilisée brute (pas de clamp à seaLevel) : les tiles ocean se
+    /// creusent visuellement, les water caps couvrent la surface de l'eau depuis le dessus.
+    /// Sans vertexCornerGroup (null) : comportement plat par tuile (legacy).
+    /// </summary>
+    public static void ApplyTopographicDisplacement(
+        Mesh    mesh,
+        int[]   vertexFaceId,
+        float[] faceAltitudes,
+        float   displacementScale,
+        int[]   vertexCornerGroup = null,
+        float   seaLevelAltitude  = float.NegativeInfinity)
+    {
+        if (mesh == null || vertexFaceId == null || faceAltitudes == null) return;
+
+        Vector3[] verts = mesh.vertices;
+        float[]   vertexAlts;
+
+        if (vertexCornerGroup != null)
+        {
+            // ── Corner averaging ──────────────────────────────────────────────────
+            // Chaque coin géométrique est partagé par 3 tuiles → chaque tuile contribue
+            // max(alt, seaLevel) dans la somme. Le centroïde de chaque tile est dans un
+            // groupe unique (N copies d'une même tile) → alt = max(tileAlt, seaLevel).
+            // Garantit que TOUTES les copies d'un coin ont la MÊME altitude → zéro gap.
+            var groupSum   = new float[verts.Length];
+            var groupCount = new int[verts.Length];
+
+            for (int i = 0; i < verts.Length; i++)
+            {
+                int   fid = vertexFaceId[i];
+                float alt = (fid >= 0 && fid < faceAltitudes.Length) ? faceAltitudes[fid] : seaLevelAltitude;
+                int   grp = vertexCornerGroup[i];
+                groupSum[grp]   += alt;  // altitude brute : ocean se creuse, montagne s'élève
+                groupCount[grp] += 1;
+            }
+
+            vertexAlts = new float[verts.Length];
+            for (int i = 0; i < verts.Length; i++)
+            {
+                int grp = vertexCornerGroup[i];
+                // Même altitude pour TOUTES les copies du même coin → garanti zéro gap.
+                // Pas de 2e clamp par tile : il créait des altitudes différentes entre copies.
+                vertexAlts[i] = groupSum[grp] / groupCount[grp];
+            }
+        }
+        else
+        {
+            // Legacy : altitude plate par tuile
+            vertexAlts = new float[verts.Length];
+            for (int i = 0; i < verts.Length; i++)
+            {
+                int fid = vertexFaceId[i];
+                vertexAlts[i] = (fid >= 0 && fid < faceAltitudes.Length) ? faceAltitudes[fid] : 0f;
+            }
+        }
+
+        for (int i = 0; i < verts.Length; i++)
+            verts[i] = verts[i].normalized * (VisualRadius + vertexAlts[i] * displacementScale);
+
+        mesh.vertices = verts;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+    }
+
+    /// <summary>
+    /// Réinitialise tous les sommets du mesh à leur position de sphère parfaite (radius = VisualRadius).
+    /// Appelé avant de ré-appliquer un déplacement topographique avec un nouveau scale.
+    /// </summary>
+    public static void ResetTopographicDisplacement(Mesh mesh)
+    {
+        if (mesh == null) return;
+        Vector3[] verts = mesh.vertices;
+        for (int i = 0; i < verts.Length; i++)
+            verts[i] = verts[i].normalized * VisualRadius;
+        mesh.vertices = verts;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
     }
 
     /// <summary>

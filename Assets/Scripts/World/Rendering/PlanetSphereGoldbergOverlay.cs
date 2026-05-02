@@ -39,22 +39,50 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
 
         var loops = new System.Collections.Generic.List<(Vector3[], Color)>();
 
+        // Quand le relief topographique est actif, les tiles Eau sont sous la WaterSphere.
+        // Filtrer leurs IDs pour que les bordures s'arrêtent à la côte et ne traversent pas l'océan.
+        HashSet<string> underwaterIds = null;
+        if (enableTopographicRelief)
+        {
+            underwaterIds = new HashSet<string>();
+            foreach (var t in _cachedServerTiles)
+                if (t.terrainType == TerrainType.Eau)
+                    underwaterIds.Add(t.tileId);
+        }
+
         // Corp borders — couleur de la corp (teinte ownership)
         if (_ownershipTints != null && _ownershipTints.Count > 0 && _tileToCorpId != null)
+        {
+            var corpId = underwaterIds != null
+                ? FilterUnderwaterTiles(_tileToCorpId, underwaterIds)
+                : _tileToCorpId;
             loops.AddRange(GoldbergFaceColorizer.GetBoundaryLoops(
-                _sphereData.faces, _cachedServerTiles, _ownershipTints, _tileToCorpId));
+                _sphereData.faces, _cachedServerTiles, _ownershipTints, corpId));
+        }
 
         // State borders (political map) — couleur de l'état (pas de recoloration des tuiles)
         if (_allStateTints != null && _allStateTints.Count > 0 && _tileToStateId != null)
         {
+            var stateId = underwaterIds != null
+                ? FilterUnderwaterTiles(_tileToStateId, underwaterIds)
+                : _tileToStateId;
             var stateLoops = GoldbergFaceColorizer.GetBoundaryLoops(
-                _sphereData.faces, _cachedServerTiles, _allStateTints, _tileToStateId);
-            // Conserver la couleur de l'état retournée par GetBoundaryLoops
+                _sphereData.faces, _cachedServerTiles, _allStateTints, stateId);
             loops.AddRange(stateLoops);
         }
 
         if (loops.Count > 0)
             _borderRenderer?.UpdateBorders(loops);
+    }
+
+    private static Dictionary<string, string> FilterUnderwaterTiles(
+        Dictionary<string, string> source, HashSet<string> underwaterIds)
+    {
+        var result = new Dictionary<string, string>(source.Count);
+        foreach (var kv in source)
+            if (!underwaterIds.Contains(kv.Key))
+                result[kv.Key] = kv.Value;
+        return result;
     }
 
     /// <summary>

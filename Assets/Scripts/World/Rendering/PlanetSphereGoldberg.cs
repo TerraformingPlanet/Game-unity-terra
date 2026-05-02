@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// Sphère de Goldberg interactive en Vue 2 (Vue Planétaire).
@@ -163,6 +164,14 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     [Tooltip("Délai en secondes avant l'apparition du tooltip au survol (LOD 1 seulement).")]
     [SerializeField] private float hoverTooltipDelay = 0.6f;
 
+    [Header("Relief topographique")]
+    [Tooltip("Déforme le mesh sphère selon l'altitude des tuiles H3 (données serveur requises).")]
+    [SerializeField] private bool enableTopographicRelief = false;
+    [Tooltip("Amplitude du déplacement en unités monde (VisualRadius=10). 0.5 = 5% de relief max.")]
+    [SerializeField, Range(0f, 2f)] private float topographicDisplacementScale = 0.5f;
+    [Tooltip("Matériau des water caps (transparent, URP). Appliqué sur le mesh WaterCaps épousant les tiles ocean.")]
+    [SerializeField] private Material waterSphereMaterial;
+
     [Header("Debug")]
     [Tooltip("Active les logs détaillés pour LOD et overlays.")]
     [SerializeField] private bool debugLodVerbose = false;
@@ -188,6 +197,19 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     private OrbitalBody _activeBody;         // référence conservée pour colorByType complet
     private DebugCoherenceOverride _activeCoherenceOverride;  // conservé pour bootstrap auto
     private float _activeWaterLevelOffset;                    // conservé pour bootstrap auto
+    internal float ActiveWaterLevel { get; private set; } = 0f;  // waterLevel serveur [-1,1]
+    internal float ServerWaterLevel { get; private set; } = 0f;  // waterLevel serveur brut (pour colorisation, indépendant du relief)
+
+    internal void SetWaterLevel(float waterLevel)
+    {
+        ActiveWaterLevel = Mathf.Clamp(waterLevel, -1f, 1f);
+        UpdateWaterCapsScale();
+    }
+
+    private float[] _cachedFaceAltitudesLo;  // altitudes par face GP (LOD bas)
+    private float[] _cachedFaceAltitudesHi;  // altitudes par face GP (LOD haut)
+    private GameObject _waterCaps;            // mesh water caps épousant les tiles ocean
+    private float      _waterCapsBuildLevel;  // seaLevel utilisé lors du dernier BuildCaps
 
     // LOD state
     private int           _currentLodLevel = -1;       // -1 = non initialisé, 0 = far, 1 = near
@@ -210,6 +232,62 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     private bool          _lodHiColored      = false;  // tuiles res=3 déjà appliquées au LOD haut
     private bool          _lodHiFetching     = false;  // fetch en cours
     private bool          _lodHiBaseColored  = false;  // couleurs biomes res=2 déjà appliquées au LOD haut (évite re-colorisation dans ApplyLodLevel)
+
+    // =========================================================
+    // Lens (filtres carte debug)
+    // =========================================================
+
+    /// <summary>
+    /// Modes de visualisation en superposition sur la sphère.
+    /// Normal = biomes standard. Elevation = gradient dénivelé [-1,+1], eau cachée.
+    /// </summary>
+    public enum PlanetLensMode { Normal, Elevation }
+
+    /// <summary>Lens actif.</summary>
+    public PlanetLensMode ActiveLens { get; private set; } = PlanetLensMode.Normal;
+
+    /// <summary>
+    /// Active ou désactive un lens de visualisation.
+    /// Recolorise immédiatement tous les meshes depuis le cache.
+    /// Sans effet si les tuiles ne sont pas encore chargées.
+    /// </summary>
+    public void SetLens(PlanetLensMode mode)
+    {
+        ActiveLens = mode;
+        if (_cachedServerTiles == null || _cachedServerTiles.Length == 0) return;
+
+        var meshesToRefresh = new[]
+        {
+            (enableLod && _sphereDataLo.faces != null) ? _sphereDataLo : _sphereData,
+            _sphereDataHi,
+        };
+
+        foreach (var data in meshesToRefresh)
+        {
+            if (data.faces == null || data.mesh == null) continue;
+            if (mode == PlanetLensMode.Elevation)
+                GoldbergFaceColorizer.ColorizeElevationLens(data.faces, _cachedServerTiles);
+            else
+                GoldbergFaceColorizer.ColorizeFromAltitude(data.faces, _cachedServerTiles, ActiveWaterLevel);
+            GoldbergSphereGenerator.ApplyFaceColors(data.mesh, data.faces, data.vertexFaceId);
+        }
+
+        // Lens Elevation : masque les water caps pour lire les profondeurs
+        if (_waterCaps != null)
+            _waterCaps.SetActive(mode != PlanetLensMode.Elevation);
+
+        if (_cachedMeshColors != null && _sphereData.mesh != null)
+            _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
+
+        Debug.Log($"[PlanetSphereGoldberg] Lens → {mode}");
+    }
+
+    /// <summary>Cycle Normal → Elevation → Normal. Retourne le mode actif.</summary>
+    public PlanetLensMode CycleLens()
+    {
+        SetLens(ActiveLens == PlanetLensMode.Normal ? PlanetLensMode.Elevation : PlanetLensMode.Normal);
+        return ActiveLens;
+    }
 
     // =========================================================
     // Propriétés pour PlanetTangentView
@@ -278,10 +356,77 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         _borderRenderer = gameObject.AddComponent<OwnershipBorderRenderer>();
     }
 
-    private void OnDestroy() { }
+    private void OnDestroy()
+    {
+        if (_waterCaps != null) Destroy(_waterCaps);
+    }
+
+    /// <summary>
+    /// Crée (ou recrée) le mesh water caps épousant exactement les tiles ocean du polyèdre.
+    /// Chaque tile ocean génère un fan de triangles plat à waterR = VisualRadius + seaLevel * scale.
+    /// </summary>
+    internal void CreateWaterCaps(
+        GoldbergSphereGenerator.GoldbergFace[] faces,
+        float[] faceAltitudes,
+        float seaLevel)
+    {
+        if (_waterCaps != null) Destroy(_waterCaps);
+        if (faces == null || faceAltitudes == null) return;
+
+        Mesh capsMesh = WaterCapsBuilder.BuildCaps(faces, faceAltitudes, seaLevel, topographicDisplacementScale);
+        if (capsMesh == null) return;
+
+        _waterCapsBuildLevel = seaLevel;
+        _waterCaps = new GameObject("WaterCaps");
+        _waterCaps.transform.SetParent(transform, false);
+        _waterCaps.transform.localPosition = Vector3.zero;
+        _waterCaps.transform.localScale    = Vector3.one;
+        var mf = _waterCaps.AddComponent<MeshFilter>();
+        mf.sharedMesh = capsMesh;
+        var mr = _waterCaps.AddComponent<MeshRenderer>();
+        if (waterSphereMaterial != null) mr.sharedMaterial = waterSphereMaterial;
+    }
+
+    /// <summary>
+    /// Scale uniforme des water caps quand le waterLevel change (slider debug).
+    /// S'il y a un gros delta, reconstruire les caps est préférable — mais pour de
+    /// petits ajustements (~0.05) le scale suffit visuellement.
+    /// </summary>
+    internal void UpdateWaterCapsScale()
+    {
+        if (_waterCaps == null) return;
+        // +0.002f miroir de l'offset dans WaterCapsBuilder.BuildCaps — garder les caps au-dessus du mesh ocean.
+        const float WaterOffset = 0.002f;
+        float buildR = GoldbergSphereGenerator.VisualRadius + _waterCapsBuildLevel * topographicDisplacementScale + WaterOffset;
+        float newR   = GoldbergSphereGenerator.VisualRadius + ActiveWaterLevel    * topographicDisplacementScale + WaterOffset;
+        if (buildR <= 0f) return;
+        float s = newR / buildR;
+        _waterCaps.transform.localScale = new Vector3(s, s, s);
+    }
+
+    /// <summary>Indique si les water caps sont actuellement visibles.</summary>
+    public bool IsWaterSphereVisible => _waterCaps != null && _waterCaps.activeSelf;
+
+    /// <summary>Active ou désactive la visibilité des water caps.</summary>
+    public void SetWaterSphereVisible(bool visible)
+    {
+        if (_waterCaps != null) _waterCaps.SetActive(visible);
+    }
+
+    /// <summary>Toggle la visibilité des water caps. Retourne le nouvel état.</summary>
+    public bool ToggleWaterSphere()
+    {
+        bool next = !IsWaterSphereVisible;
+        SetWaterSphereVisible(next);
+        return next;
+    }
 
     private void Update()
     {
+        // Touche L : cycle lens Normal ↔ Elevation (debug)
+        if (Keyboard.current != null && Keyboard.current.lKey.wasPressedThisFrame)
+            CycleLens();
+
         if (!enableLod) return;
         if (cameraController == null) return;
         // Le swap LOD doit rester possible même avant la réception complète des tuiles H3 serveur.
