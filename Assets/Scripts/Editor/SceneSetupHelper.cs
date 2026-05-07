@@ -127,15 +127,14 @@ public static class SceneSetupHelper
         SetRef  (so, "terraformHUD",             Find("Canvas")?.GetComponent<TerraformHUD>());
         SetRef  (so, "terraformSystem",          managers.GetComponent<TerraformSystem>());
         SetRef  (so, "progressTracker",          managers.GetComponent<TerraformProgressTracker>());
-        SetFloat(so, "solarMinZoom",             8f);
-        SetFloat(so, "solarMaxZoom",             60f);
-        SetFloat(so, "solarStartZoom",           24f);
+        SetFloat(so, "solarOrbitMinDistance",    8f);
+        SetFloat(so, "solarOrbitMaxDistance",   60f);
+        SetFloat(so, "solarOrbitStartDistance", 24f);
         SetFloat(so, "localMinZoom",             6f);
-        SetFloat(so, "localMaxZoom",             1000f);
-        SetFloat(so, "localStartZoom",           360f);
-        SetFloat(so, "planetMinZoom",            18f);
-        SetFloat(so, "planetMaxZoom",            80f);
-        SetFloat(so, "planetStartZoom",          30f);
+        SetFloat(so, "localMaxZoom",          1000f);
+        SetFloat(so, "planetOrbitMinDistance",  18f);
+        SetFloat(so, "planetOrbitMaxDistance",  80f);
+        SetFloat(so, "planetOrbitStartDistance",30f);
         SetBool (so, "directPlanetClickToLocal", true);
         so.ApplyModifiedProperties();
 
