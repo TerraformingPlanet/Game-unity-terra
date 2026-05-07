@@ -281,53 +281,7 @@ public partial class ViewManager : MonoBehaviour, IClientSnapshotSource
         Debug.Log($"[ViewManager] → Vue Planétaire : {body.bodyName} | override={coherenceOverride} | eau={_activeProjectionWaterLevel:+0.00;-0.00;0.00}");
     }
 
-    /// <summary>
-    /// Bascule entre sous-vue Globe (Goldberg 3D) et Flat (Mercator) dans la Vue Planétaire.
-    /// </summary>
-    public void TogglePlanetView()
-    {
-        if (_state != ViewState.Planet) return;
-        _planetSubView = _planetSubView == PlanetSubView.Globe ? PlanetSubView.Flat : PlanetSubView.Globe;
-        ApplyPlanetSubView();
-        Debug.Log($"[ViewManager] Toggle vue planète → {_planetSubView}");
-    }
-
-    private void ApplyPlanetSubView()
-    {
-        bool isGlobe = _planetSubView == PlanetSubView.Globe;
-
-        if (isGlobe)
-        {
-            if (planetSphere      != null) planetSphere.gameObject.SetActive(true);
-            if (planetTangentView != null) planetTangentView.gameObject.SetActive(false);
-            if (planetFlatView    != null) planetFlatView.gameObject.SetActive(false);
-            if (minimapController != null) minimapController.gameObject.SetActive(false);
-
-            Vector3 pivot = planetSphere != null ? planetSphere.transform.position : Vector3.zero;
-            cameraController.SetMode(CameraController.CameraMode.OrbitPerspective,
-                                     planetOrbitMinDistance, planetOrbitMaxDistance, pivot);
-            cameraController.SetOrbitPivot(pivot, planetOrbitStartDistance);
-        }
-        else
-        {
-            if (planetTangentView != null) planetTangentView.gameObject.SetActive(true);
-            if (planetFlatView    != null) planetFlatView.gameObject.SetActive(true);  // minimap
-            if (minimapController != null) minimapController.gameObject.SetActive(true);
-            // La sphère reste active pendant la transition, sera désactivée dans le callback
-
-            Vector3 focus = planetSphere != null
-                ? planetSphere.LastClickedFaceCentroid
-                : Vector3.up * GoldbergSphereGenerator.VisualRadius;
-
-            planetTangentView?.SetFocusAndEnter(focus, onComplete: () =>
-            {
-                if (planetSphere != null) planetSphere.gameObject.SetActive(false);
-            });
-
-            cameraController.SetMode(CameraController.CameraMode.OrthoTopDown, planetH3MinZoom, planetH3MaxZoom);
-            cameraController.FocusOn(Vector3.zero, planetH3StartZoom);
-        }
-    }
+    // ── Sous-vue planétaire (Globe ↔ Flat) : voir ViewManagerPlanetSubView.cs ─────────────
 
     /// <summary>
     /// Notifie le HUD qu'une tuile planétaire a été sélectionnée (Globe ou Flat).
@@ -340,48 +294,7 @@ public partial class ViewManager : MonoBehaviour, IClientSnapshotSource
         Debug.Log($"[ViewManager] Clic globe lat={latitude:F2} lon={longitude:F2} — H3 en résolution...");
     }
 
-    private void OnGlobeRegionClicked(float lat, float lon)
-    {
-        _selectedGlobeLat  = lat;
-        _selectedGlobeLon  = lon;
-        _hasGlobeSelection = true;
-        OpenRegion(lat, lon);
-    }
-
-    // Mise à jour HUD avec données H3 authoritatives (1–2s après le clic)
-    private void OnGlobeH3TileResolved(GoldbergTileState tile)
-    {
-        if (_state == ViewState.Planet && _planetSubView == PlanetSubView.Globe)
-            terraformHUD?.ShowH3TileInfo(tile);
-    }
-
-    // Distribue les tuiles H3 aux vues Plate et Tangente
-    private void OnGlobeH3TilesReady(GoldbergTileState[] tiles, Dictionary<TerrainType, Color> colorByType)
-    {
-        int tileCount = tiles?.Length ?? 0;
-        bool flatAssigned = planetFlatView != null;
-        bool tangentAssigned = planetTangentView != null;
-        bool flatActiveInHierarchy = flatAssigned && planetFlatView.gameObject.activeInHierarchy;
-        bool tangentActiveInHierarchy = tangentAssigned && planetTangentView.gameObject.activeInHierarchy;
-        bool flatLoadedBeforeDispatch = flatAssigned && planetFlatView.IsLoaded;
-        bool tangentLoadedBeforeDispatch = tangentAssigned && planetTangentView.IsLoaded;
-
-        Debug.Log(
-            $"[ViewManager] OnGlobeH3TilesReady | state={_state} | subView={_planetSubView} | tiles={tileCount} | " +
-            $"flat(assigned={flatAssigned}, active={flatActiveInHierarchy}, loaded={flatLoadedBeforeDispatch}) | " +
-            $"tangent(assigned={tangentAssigned}, active={tangentActiveInHierarchy}, loaded={tangentLoadedBeforeDispatch})");
-
-        planetFlatView?.LoadPlanetFromH3(tiles, colorByType);
-        planetTangentView?.RefreshColorsFromH3(tiles, colorByType);
-
-        bool flatLoadedAfterDispatch = flatAssigned && planetFlatView.IsLoaded;
-        bool tangentLoadedAfterDispatch = tangentAssigned && planetTangentView.IsLoaded;
-
-        Debug.Log(
-            $"[ViewManager] OnGlobeH3TilesReady complete | flatLoaded={flatLoadedAfterDispatch} | " +
-            $"tangentLoaded={tangentLoadedAfterDispatch}");
-    }
-    private void OnFlatRegionClicked(float lat, float lon)  => ShowLocalView(lat, lon);
+    // ── Callbacks tuiles H3 : voir ViewManagerTileCallbacks.cs ─────────────────────────────
 
     private void FocusSolarCameraOnPrimaryStar(Vector3 worldPos)
     {
@@ -454,19 +367,7 @@ public partial class ViewManager : MonoBehaviour, IClientSnapshotSource
             active.SetActive(true);
     }
 
-    private void ResetPlanetVisuals()
-    {
-        if (planetSphere != null)      planetSphere.gameObject.SetActive(true);
-        if (planetFlatView != null)    planetFlatView.gameObject.SetActive(false);
-        if (planetTangentView != null) planetTangentView.gameObject.SetActive(false);
-        if (minimapController != null) minimapController.gameObject.SetActive(false);
-
-        if (hexGridRoot != null && _state != ViewState.Local)
-            hexGridRoot.SetActive(false);
-
-        if (planetSphere != null && planetSphere.LastClickedFaceId >= 0)
-            planetSphere.RestoreFaceOnSphere(planetSphere.LastClickedFaceId);
-    }
+    // ── Helpers visuels planète : voir ViewManagerPlanetSubView.cs ──────────────────────────
 
 }
 
