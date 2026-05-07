@@ -135,7 +135,7 @@ public static class SceneSetupHelper
         SetFloat(so, "planetOrbitMinDistance",  18f);
         SetFloat(so, "planetOrbitMaxDistance",  80f);
         SetFloat(so, "planetOrbitStartDistance",30f);
-        SetBool (so, "directPlanetClickToLocal", true);
+        SetBool (so, "directPlanetClickToLocal", false);
         so.ApplyModifiedProperties();
 
         Debug.Log("[SceneSetupHelper] ViewManager ✓");
