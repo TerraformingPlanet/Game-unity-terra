@@ -5,37 +5,54 @@ using UnityEngine.SceneManagement;
 using System.Collections.Generic;
 
 /// <summary>
-/// Script éditeur temporaire — câble toutes les références de la scène Game.
+/// Script éditeur — câble toutes les références de la scène Game via SerializedObject.
 /// Menu : Tools > Terraformation > Wire Scene References
-/// À supprimer après avoir vérifié que tout est OK.
 /// </summary>
 public static class SceneSetupHelper
 {
+    // =========================================================
+    // Helpers SerializedObject (remplacent GetField/SetValue)
+    // =========================================================
+
+    private static SerializedObject SO(Object target) => new SerializedObject(target);
+
+    private static void SetRef(SerializedObject so, string prop, Object value)
+    {
+        var sp = so.FindProperty(prop);
+        if (sp == null) { Debug.LogWarning($"[SceneSetupHelper] Propriété introuvable : {so.targetObject.GetType().Name}.{prop}"); return; }
+        sp.objectReferenceValue = value;
+    }
+
+    private static void SetFloat(SerializedObject so, string prop, float value)
+    {
+        var sp = so.FindProperty(prop);
+        if (sp == null) { Debug.LogWarning($"[SceneSetupHelper] Propriété introuvable : {so.targetObject.GetType().Name}.{prop}"); return; }
+        sp.floatValue = value;
+    }
+
+    private static void SetBool(SerializedObject so, string prop, bool value)
+    {
+        var sp = so.FindProperty(prop);
+        if (sp == null) { Debug.LogWarning($"[SceneSetupHelper] Propriété introuvable : {so.targetObject.GetType().Name}.{prop}"); return; }
+        sp.boolValue = value;
+    }
+
+    // =========================================================
+    // Entrée principale
+    // =========================================================
+
     [MenuItem("Tools/Terraformation/Wire Scene References")]
     public static void WireSceneReferences()
     {
-        var scene = SceneManager.GetActiveScene();
-        var allGOs = new List<GameObject>();
-        foreach (var root in scene.GetRootGameObjects())
-            foreach (var t in root.GetComponentsInChildren<Transform>(true))
-                allGOs.Add(t.gameObject);
-
-        GameObject Find(string n) {
-            foreach (var go in allGOs) if (go.name == n) return go;
-            Debug.LogError($"[SceneSetupHelper] GO introuvable : {n}");
-            return null;
-        }
-
-        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-        var managers  = Find("Managers");
-        var canvas    = Find("Canvas");
-        var hexGridGO = Find("HexGrid");
+        var scene  = SceneManager.GetActiveScene();
+        var allGOs = CollectAllGameObjects(scene);
+        GameObject Find(string n) => FindGO(allGOs, n);
 
         SolarSystemData solarSystem = EnsureSolarSystemAsset();
-        SolarSystemView solarSystemView = WireSolarSystemView(Find, flags, solarSystem);
-        var vm = WireViewManager(Find, flags, managers, canvas, hexGridGO, solarSystemView);
-        WireComponents(Find, flags, managers, canvas, hexGridGO, vm);
-        WireCameraSetup(Find, flags);
+        SolarSystemView ssView      = WireSolarSystemView(Find, solarSystem);
+        var             vm          = WireViewManager(Find, ssView);
+        WireComponents(Find, vm);
+        WireCameraSetup(Find);
 
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
         Debug.Log("[SceneSetupHelper] Scène sauvegardée — toutes les références câblées !");
@@ -75,92 +92,136 @@ public static class SceneSetupHelper
         return solarSystem;
     }
 
-    private static SolarSystemView WireSolarSystemView(System.Func<string, GameObject> Find, System.Reflection.BindingFlags flags, SolarSystemData solarSystem)
+    private static SolarSystemView WireSolarSystemView(System.Func<string, GameObject> Find, SolarSystemData solarSystem)
     {
-        var solarSystemView = Find("SolarSystemRoot")?.GetComponent<SolarSystemView>();
-        if (solarSystemView != null)
-        {
-            var t = typeof(SolarSystemView);
-            t.GetField("solarSystem", flags).SetValue(solarSystemView, solarSystem);
-            t.GetField("orbitScale", flags).SetValue(solarSystemView, 12f);
-            t.GetField("defaultPlanetRadius", flags).SetValue(solarSystemView, 1f);
-            t.GetField("planetRadiusScale", flags).SetValue(solarSystemView, 1.25f);
-            t.GetField("minPlanetRadius", flags).SetValue(solarSystemView, 0.9f);
-            t.GetField("maxPlanetRadius", flags).SetValue(solarSystemView, 3f);
-            EditorUtility.SetDirty(Find("SolarSystemRoot"));
-            Debug.Log("[SceneSetupHelper] SolarSystemView câblé");
-        }
-        return solarSystemView;
+        var ssv = Find("SolarSystemRoot")?.GetComponent<SolarSystemView>();
+        if (ssv == null) return null;
+
+        var so = SO(ssv);
+        SetRef  (so, "solarSystem",        solarSystem);
+        SetFloat(so, "orbitScale",          12f);
+        SetFloat(so, "defaultPlanetRadius", 1f);
+        SetFloat(so, "planetRadiusScale",   1.25f);
+        SetFloat(so, "minPlanetRadius",     0.9f);
+        SetFloat(so, "maxPlanetRadius",     3f);
+        so.ApplyModifiedProperties();
+
+        Debug.Log("[SceneSetupHelper] SolarSystemView ✓");
+        return ssv;
     }
 
-    private static ViewManager WireViewManager(System.Func<string, GameObject> Find, System.Reflection.BindingFlags flags, GameObject managers, GameObject canvas, GameObject hexGridGO, SolarSystemView solarSystemView)
+    private static ViewManager WireViewManager(System.Func<string, GameObject> Find, SolarSystemView ssView)
     {
-        var vm = managers.GetComponent<ViewManager>();
-        if (vm == null) return null;
-        var vmType = typeof(ViewManager);
-        vmType.GetField("solarSystemRoot",  flags).SetValue(vm, Find("SolarSystemRoot"));
-        vmType.GetField("planetRoot",        flags).SetValue(vm, Find("PlanetRoot"));
-        vmType.GetField("hexGridRoot",       flags).SetValue(vm, Find("HexGridRoot"));
-        vmType.GetField("cameraController",  flags).SetValue(vm, Find("Main Camera")?.GetComponent<CameraController>());
-        vmType.GetField("solarSystemView",   flags).SetValue(vm, solarSystemView);
-        vmType.GetField("planetSphere",      flags).SetValue(vm, Find("PlanetSphere")?.GetComponent<PlanetSphere>());
-        vmType.GetField("hexGrid",           flags).SetValue(vm, hexGridGO?.GetComponent<HexGrid>());
-        vmType.GetField("terraformHUD",      flags).SetValue(vm, canvas?.GetComponent<TerraformHUD>());
-        vmType.GetField("terraformSystem",   flags).SetValue(vm, managers.GetComponent<TerraformSystem>());
-        vmType.GetField("progressTracker",   flags).SetValue(vm, managers.GetComponent<TerraformProgressTracker>());
-        vmType.GetField("solarMinZoom",      flags).SetValue(vm, 8f);   vmType.GetField("solarMaxZoom",  flags).SetValue(vm, 60f);  vmType.GetField("solarStartZoom",  flags).SetValue(vm, 24f);
-        vmType.GetField("localMinZoom",      flags).SetValue(vm, 6f);   vmType.GetField("localMaxZoom",  flags).SetValue(vm, 1000f); vmType.GetField("localStartZoom", flags).SetValue(vm, 360f);
-        vmType.GetField("planetMinZoom",     flags).SetValue(vm, 18f);  vmType.GetField("planetMaxZoom", flags).SetValue(vm, 80f);  vmType.GetField("planetStartZoom", flags).SetValue(vm, 30f);
-        vmType.GetField("directPlanetClickToLocal", flags).SetValue(vm, true);
-        EditorUtility.SetDirty(managers);
+        var managers = Find("Managers");
+        var vm = managers?.GetComponent<ViewManager>();
+        if (vm == null) { Debug.LogError("[SceneSetupHelper] ViewManager introuvable sur Managers."); return null; }
+
+        var so = SO(vm);
+        SetRef  (so, "solarSystemRoot",          Find("SolarSystemRoot"));
+        SetRef  (so, "planetRoot",               Find("PlanetRoot"));
+        SetRef  (so, "hexGridRoot",              Find("HexGridRoot"));
+        SetRef  (so, "cameraController",         Find("Main Camera")?.GetComponent<CameraController>());
+        SetRef  (so, "solarSystemView",          ssView);
+        SetRef  (so, "planetSphere",             Find("PlanetSphere")?.GetComponent<PlanetSphere>());
+        SetRef  (so, "hexGrid",                  Find("HexGrid")?.GetComponent<HexGrid>());
+        SetRef  (so, "terraformHUD",             Find("Canvas")?.GetComponent<TerraformHUD>());
+        SetRef  (so, "terraformSystem",          managers.GetComponent<TerraformSystem>());
+        SetRef  (so, "progressTracker",          managers.GetComponent<TerraformProgressTracker>());
+        SetFloat(so, "solarMinZoom",             8f);
+        SetFloat(so, "solarMaxZoom",             60f);
+        SetFloat(so, "solarStartZoom",           24f);
+        SetFloat(so, "localMinZoom",             6f);
+        SetFloat(so, "localMaxZoom",             1000f);
+        SetFloat(so, "localStartZoom",           360f);
+        SetFloat(so, "planetMinZoom",            18f);
+        SetFloat(so, "planetMaxZoom",            80f);
+        SetFloat(so, "planetStartZoom",          30f);
+        SetBool (so, "directPlanetClickToLocal", true);
+        so.ApplyModifiedProperties();
+
         Debug.Log("[SceneSetupHelper] ViewManager ✓");
         return vm;
     }
 
-    private static void WireComponents(System.Func<string, GameObject> Find, System.Reflection.BindingFlags flags, GameObject managers, GameObject canvas, GameObject hexGridGO, ViewManager vm)
+    private static void WireComponents(System.Func<string, GameObject> Find, ViewManager vm)
     {
-        var ts = managers.GetComponent<TerraformSystem>();
-        if (ts != null) { typeof(TerraformSystem).GetField("hexGrid", flags).SetValue(ts, hexGridGO?.GetComponent<HexGrid>()); EditorUtility.SetDirty(managers); Debug.Log("[SceneSetupHelper] TerraformSystem ✓"); }
-        var tracker = managers.GetComponent<TerraformProgressTracker>();
-        if (tracker != null) { typeof(TerraformProgressTracker).GetField("hexGrid", flags).SetValue(tracker, hexGridGO?.GetComponent<HexGrid>()); EditorUtility.SetDirty(managers); Debug.Log("[SceneSetupHelper] TerraformProgressTracker ✓"); }
+        var managers = Find("Managers");
+        var canvas   = Find("Canvas");
+        var hexGrid  = Find("HexGrid")?.GetComponent<HexGrid>();
+
+        var ts = managers?.GetComponent<TerraformSystem>();
+        if (ts != null)
+        {
+            var so = SO(ts);
+            SetRef(so, "hexGrid", hexGrid);
+            so.ApplyModifiedProperties();
+            Debug.Log("[SceneSetupHelper] TerraformSystem ✓");
+        }
+
+        var tracker = managers?.GetComponent<TerraformProgressTracker>();
+        if (tracker != null)
+        {
+            var so = SO(tracker);
+            SetRef(so, "hexGrid", hexGrid);
+            so.ApplyModifiedProperties();
+            Debug.Log("[SceneSetupHelper] TerraformProgressTracker ✓");
+        }
+
         var hexInput = Find("Main Camera")?.GetComponent<HexInput>();
-        if (hexInput != null) { typeof(HexInput).GetField("viewManager", flags).SetValue(hexInput, vm); EditorUtility.SetDirty(Find("Main Camera")); Debug.Log("[SceneSetupHelper] HexInput.viewManager ✓"); }
+        if (hexInput != null)
+        {
+            var so = SO(hexInput);
+            SetRef(so, "viewManager", vm);
+            so.ApplyModifiedProperties();
+            Debug.Log("[SceneSetupHelper] HexInput.viewManager ✓");
+        }
+
         var hud = canvas?.GetComponent<TerraformHUD>();
         if (hud != null)
         {
-            var hudType = typeof(TerraformHUD);
-            hudType.GetField("progressSlider",   flags).SetValue(hud, Find("ProgressSlider")?.GetComponent<UnityEngine.UI.Slider>());
-            hudType.GetField("progressLabel",    flags).SetValue(hud, Find("ProgressLabel")?.GetComponent<TMPro.TextMeshProUGUI>());
-            hudType.GetField("selectedHexPanel", flags).SetValue(hud, Find("SelectedHexPanel"));
-            hudType.GetField("hexInfoLabel",     flags).SetValue(hud, Find("HexInfoLabel")?.GetComponent<TMPro.TextMeshProUGUI>());
-            hudType.GetField("progressTracker",  flags).SetValue(hud, tracker);
-            hudType.GetField("terraformSystem",  flags).SetValue(hud, ts);
-            EditorUtility.SetDirty(canvas); Debug.Log("[SceneSetupHelper] TerraformHUD ✓");
+            var so = SO(hud);
+            SetRef(so, "progressSlider",   Find("ProgressSlider")?.GetComponent<UnityEngine.UI.Slider>());
+            SetRef(so, "progressLabel",    Find("ProgressLabel")?.GetComponent<TMPro.TextMeshProUGUI>());
+            SetRef(so, "selectedHexPanel", Find("SelectedHexPanel"));
+            SetRef(so, "hexInfoLabel",     Find("HexInfoLabel")?.GetComponent<TMPro.TextMeshProUGUI>());
+            SetRef(so, "progressTracker",  tracker);
+            SetRef(so, "terraformSystem",  ts);
+            so.ApplyModifiedProperties();
+            Debug.Log("[SceneSetupHelper] TerraformHUD ✓");
         }
     }
 
-    private static void WireCameraSetup(System.Func<string, GameObject> Find, System.Reflection.BindingFlags flags)
+    private static void WireCameraSetup(System.Func<string, GameObject> Find)
     {
         var camGO = Find("Main Camera");
         if (camGO == null) return;
-        var cameraController = camGO.GetComponent<CameraController>();
-        if (cameraController != null)
+
+        var cc = camGO.GetComponent<CameraController>();
+        if (cc != null)
         {
-            var camType = typeof(CameraController);
-            camType.GetField("zoomSpeed", flags).SetValue(cameraController, 10f);
-            camType.GetField("zoomScaleFactor", flags).SetValue(cameraController, 0.45f);
-            camType.GetField("orbitSensitivity", flags).SetValue(cameraController, 0.3f);
-            camType.GetField("orbitMinDistance", flags).SetValue(cameraController, 8f);
-            camType.GetField("orbitMaxDistance", flags).SetValue(cameraController, 40f);
-            camType.GetField("orbitScrollSpeed", flags).SetValue(cameraController, 12f);
-            EditorUtility.SetDirty(cameraController);
+            var so = SO(cc);
+            SetFloat(so, "zoomSpeed",        10f);
+            SetFloat(so, "zoomScaleFactor",  0.45f);
+            SetFloat(so, "orbitSensitivity", 0.3f);
+            SetFloat(so, "orbitMinDistance", 8f);
+            SetFloat(so, "orbitMaxDistance", 40f);
+            SetFloat(so, "orbitScrollSpeed", 12f);
+            so.ApplyModifiedProperties();
         }
+
         var camera = camGO.GetComponent<Camera>();
-        if (camera != null) { camera.orthographic = true; camera.orthographicSize = 24f; EditorUtility.SetDirty(camera); }
+        if (camera != null)
+        {
+            var so = SO(camera);
+            SetBool (so, "orthographic",     true);
+            SetFloat(so, "orthographicSize", 24f);
+            so.ApplyModifiedProperties();
+        }
+
         camGO.transform.position = new Vector3(0f, 50f, 0f);
         camGO.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-        EditorUtility.SetDirty(camGO);
-        Debug.Log("[SceneSetupHelper] Caméra positionnée pour vue solaire");
+        EditorUtility.SetDirty(camGO.transform);
+        Debug.Log("[SceneSetupHelper] Caméra positionnée pour vue solaire ✓");
     }
 
     [MenuItem("Tools/Terraformation/Clean Old Canvas UI")]
@@ -168,17 +229,12 @@ public static class SceneSetupHelper
     {
         if (EditorApplication.isPlaying) { EditorUtility.DisplayDialog("Play Mode actif", "Arrête le Play Mode avant de nettoyer la scène.", "OK"); return; }
 
-        var scene = SceneManager.GetActiveScene();
-        var allGOs = new List<GameObject>();
-        foreach (var root in scene.GetRootGameObjects())
-            foreach (var t in root.GetComponentsInChildren<Transform>(true))
-                allGOs.Add(t.gameObject);
-        GameObject Find(string n) { foreach (var go in allGOs) if (go.name == n) return go; return null; }
+        var scene  = SceneManager.GetActiveScene();
+        var allGOs = CollectAllGameObjects(scene);
+        GameObject Find(string n) => FindGO(allGOs, n);
 
-        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-        var canvas = Find("Canvas");
         int disabled = DisableLegacyObjects(Find);
-        NullifyLegacyHudRefs(canvas, flags);
+        NullifyLegacyHudRefs(Find("Canvas")?.GetComponent<TerraformHUD>());
 
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
@@ -203,18 +259,17 @@ public static class SceneSetupHelper
         return disabled;
     }
 
-    private static void NullifyLegacyHudRefs(GameObject canvas, System.Reflection.BindingFlags flags)
+    private static void NullifyLegacyHudRefs(TerraformHUD hud)
     {
-        var hud = canvas?.GetComponent<TerraformHUD>();
         if (hud == null) return;
-        var hudType = typeof(TerraformHUD);
-        hudType.GetField("progressSlider",   flags).SetValue(hud, null);
-        hudType.GetField("progressLabel",    flags).SetValue(hud, null);
-        hudType.GetField("selectedHexPanel", flags).SetValue(hud, null);
-        hudType.GetField("hexInfoLabel",     flags).SetValue(hud, null);
-        hudType.GetField("openLocalButton",  flags).SetValue(hud, null);
-        hudType.GetField("closeLocalButton", flags).SetValue(hud, null);
-        EditorUtility.SetDirty(canvas);
+        var so = SO(hud);
+        SetRef(so, "progressSlider",   null);
+        SetRef(so, "progressLabel",    null);
+        SetRef(so, "selectedHexPanel", null);
+        SetRef(so, "hexInfoLabel",     null);
+        SetRef(so, "openLocalButton",  null);
+        SetRef(so, "closeLocalButton", null);
+        so.ApplyModifiedProperties();
         Debug.Log("[SceneSetupHelper] TerraformHUD : refs UI legacy nullifiées ✓");
     }
 
@@ -250,6 +305,27 @@ public static class SceneSetupHelper
             "GameObject 'GameHUDController' créé avec UIDocument + GameHUDController.\n" +
             "Assigne les UXML templates et StyleSheets dans l'Inspector.",
             "OK");
+    }
+
+    // =========================================================
+    // Utilitaires de scène
+    // =========================================================
+
+    private static List<GameObject> CollectAllGameObjects(Scene scene)
+    {
+        var list = new List<GameObject>();
+        foreach (var root in scene.GetRootGameObjects())
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                list.Add(t.gameObject);
+        return list;
+    }
+
+    private static GameObject FindGO(List<GameObject> all, string name)
+    {
+        foreach (var go in all)
+            if (go.name == name) return go;
+        Debug.LogError($"[SceneSetupHelper] GameObject introuvable : '{name}'");
+        return null;
     }
 }
 #endif
