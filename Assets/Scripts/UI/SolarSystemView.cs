@@ -252,70 +252,76 @@ public partial class SolarSystemView : MonoBehaviour
     private GameObject CreatePlanetObject(OrbitalSlot slot, Vector3 worldPos, int depth)
     {
         float displayRadius = ComputeDisplayRadius(slot.body, depth);
-        GameObject go;
         int goldbergDivisions = ResolveMiniGoldbergDivisions(displayRadius, slot.body);
 
         bool useMiniGoldberg = goldbergMaterial != null
                                && _miniMeshes.Count < maxMiniGoldbergBodies
                                && goldbergDivisions > 0;
 
-        if (useMiniGoldberg)
-        {
-            // Mini mesh Goldberg low-poly colorisé par biome
-            go = new GameObject(slot.body.bodyName);
-            go.transform.SetParent(transform, false);
-            go.transform.localPosition = worldPos;
-            // Le mesh Goldberg est généré avec un rayon monde fixe = VisualRadius (10 unités).
-            // On le renormalise pour obtenir le même rayon visuel cible que l'ancienne sphere Unity.
-            float goldbergScale = displayRadius / GoldbergSphereGenerator.VisualRadius;
-            go.transform.localScale = Vector3.one * goldbergScale;
+        GameObject go = useMiniGoldberg
+            ? CreateGoldbergPlanetObject(slot, worldPos, displayRadius, goldbergDivisions)
+            : CreateSphereFallbackObject(slot, worldPos, displayRadius);
 
-            MeshFilter   mf = go.AddComponent<MeshFilter>();
-            MeshRenderer mr = go.AddComponent<MeshRenderer>();
-            MeshCollider mc = go.AddComponent<MeshCollider>();
-
-            GoldbergSphereGenerator.GoldbergMeshData md =
-                GoldbergSphereGenerator.GenerateWithDivisions(goldbergDivisions);
-
-            // Couleur uniforme displayColor en fallback immédiat (remplacée async par biomes serveur)
-            for (int i = 0; i < md.faces.Length; i++)
-                md.faces[i].color = slot.body.displayColor;
-            GoldbergSphereGenerator.ApplyFaceColors(md.mesh, md.faces, md.vertexFaceId);
-
-            mf.sharedMesh = md.mesh;
-            mr.material   = goldbergMaterial;
-            mc.sharedMesh = md.mesh;
-
-            _miniMeshes[slot.body.bodyName] = md;
-
-            Debug.Log($"[SolarSystemView] Mini Goldberg {slot.body.bodyName} | radius={displayRadius:F2} | div={goldbergDivisions} | faces={md.faces.Length}");
-        }
-        else
-        {
-            // Sphère Unity standard (fallback si matériau non assigné)
-            go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.name = slot.body.bodyName;
-            go.transform.SetParent(transform, false);
-            go.transform.localPosition = worldPos;
-            go.transform.localScale    = Vector3.one * (displayRadius * 2f);
-
-            Renderer rend = go.GetComponent<Renderer>();
-            if (rend != null)
-            {
-                rend.material = new Material(rend.sharedMaterial);
-                rend.material.color = slot.body.displayColor;
-            }
-
-            Debug.Log($"[SolarSystemView] Sphere fallback {slot.body.bodyName} | radius={displayRadius:F2}");
-        }
-
-        // Composant de clic
         PlanetClickHandler handler = go.AddComponent<PlanetClickHandler>();
         handler.Init(slot.body, worldPos, OnPlanetClicked);
 
-        // Label débug
         CreateDebugLabel(slot.body, go.transform.position, displayRadius + 1.2f);
 
+        return go;
+    }
+
+    private GameObject CreateGoldbergPlanetObject(OrbitalSlot slot, Vector3 worldPos, float displayRadius, int goldbergDivisions)
+    {
+        GameObject go = new GameObject(slot.body.bodyName);
+        go.transform.SetParent(transform, false);
+        go.transform.localPosition = worldPos;
+        float goldbergScale = displayRadius / GoldbergSphereGenerator.VisualRadius;
+        go.transform.localScale = Vector3.one * goldbergScale;
+
+        MeshFilter   mf = go.AddComponent<MeshFilter>();
+        MeshRenderer mr = go.AddComponent<MeshRenderer>();
+        MeshCollider mc = go.AddComponent<MeshCollider>();
+
+        GoldbergSphereGenerator.GoldbergMeshData md =
+            GoldbergSphereGenerator.GenerateWithDivisions(goldbergDivisions);
+
+        for (int i = 0; i < md.faces.Length; i++)
+            md.faces[i].color = slot.body.displayColor;
+        GoldbergSphereGenerator.ApplyFaceColors(md.mesh, md.faces, md.vertexFaceId);
+
+        mf.sharedMesh = md.mesh;
+        mr.material   = goldbergMaterial;
+        mc.sharedMesh = md.mesh;
+
+        _miniMeshes[slot.body.bodyName] = md;
+
+        Debug.Log($"[SolarSystemView] Mini Goldberg {slot.body.bodyName} | radius={displayRadius:F2} | div={goldbergDivisions} | faces={md.faces.Length}");
+        return go;
+    }
+
+    private GameObject CreateSphereFallbackObject(OrbitalSlot slot, Vector3 worldPos, float displayRadius)
+    {
+        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        go.name = slot.body.bodyName;
+        go.transform.SetParent(transform, false);
+        go.transform.localPosition = worldPos;
+        go.transform.localScale    = Vector3.one * (displayRadius * 2f);
+
+        MeshCollider fallbackMc = go.GetComponent<MeshCollider>();
+        if (fallbackMc != null)
+        {
+            DestroyImmediate(fallbackMc);
+            go.AddComponent<SphereCollider>();
+        }
+
+        Renderer rend = go.GetComponent<Renderer>();
+        if (rend != null)
+        {
+            rend.material = new Material(rend.sharedMaterial);
+            rend.material.color = slot.body.displayColor;
+        }
+
+        Debug.Log($"[SolarSystemView] Sphere fallback {slot.body.bodyName} | radius={displayRadius:F2}");
         return go;
     }
 

@@ -39,7 +39,6 @@ public partial class SolarSystemView
         string baseUrl = SimUrl.TrimEnd('/');
         var meshEntries = new List<KeyValuePair<string, GoldbergSphereGenerator.GoldbergMeshData>>(_miniMeshes);
 
-        // 1) Résoudre name → bodyId
         Dictionary<string, string> nameToId = new Dictionary<string, string>();
         using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/bodies"))
         {
@@ -60,15 +59,12 @@ public partial class SolarSystemView
 
         if (nameToId.Count == 0)
         {
-            Debug.LogWarning("[SolarSystemView] Aucun bodyId résolu depuis le serveur.");
+            Debug.LogWarning("[SolarSystemView] Aucun bodyId r\u00e9solu depuis le serveur.");
             yield break;
         }
 
-        Dictionary<TerrainType, Color> colorByType = terrainPalette != null
-            ? terrainPalette.ToDictionary()
-            : TerrainColorPalette.DefaultDictionary();
+        var colorByType = terrainPalette != null ? terrainPalette.ToDictionary() : TerrainColorPalette.DefaultDictionary();
 
-        // 2) Fetcher les tuiles de chaque planète et coloriser son mini-mesh
         foreach (KeyValuePair<string, GoldbergSphereGenerator.GoldbergMeshData> kv in meshEntries)
         {
             if (revision != _miniMeshRevision || !isActiveAndEnabled)
@@ -79,45 +75,39 @@ public partial class SolarSystemView
 
             if (!nameToId.TryGetValue(bodyName, out string bodyId)) continue;
 
-            var allTiles = new List<GoldbergTileState>();
-            int page = 0;
-            const int pageSize = 200;
-
-            while (true)
-            {
-                string url = $"{baseUrl}/bodies/{bodyId}/tiles?page={page}&size={pageSize}";
-                using UnityWebRequest req = UnityWebRequest.Get(url);
-                req.timeout = 15;
-                yield return req.SendWebRequest();
-                if (revision != _miniMeshRevision || !isActiveAndEnabled)
-                    yield break;
-
-                if (req.result != UnityWebRequest.Result.Success) break;
-
-                MiniTileList batch;
-                try   { batch = JsonUtility.FromJson<MiniTileList>("{\"items\":" + req.downloadHandler.text + "}"); }
-                catch { break; }
-                if (batch.items == null || batch.items.Length == 0) break;
-                allTiles.AddRange(batch.items);
-                if (batch.items.Length < pageSize) break;
-                page++;
-            }
-
-            if (allTiles.Count == 0) continue;
-
-            if (!_miniMeshes.TryGetValue(bodyName, out GoldbergSphereGenerator.GoldbergMeshData currentMesh) || !ReferenceEquals(currentMesh.mesh, md.mesh))
-                continue;
-
-            GoldbergFaceColorizer.ColorizeFromServerTiles(currentMesh.faces, allTiles.ToArray(), colorByType);
-            GoldbergSphereGenerator.ApplyFaceColors(currentMesh.mesh, currentMesh.faces, currentMesh.vertexFaceId);
-
-            Debug.Log($"[SolarSystemView] {bodyName} : {allTiles.Count} tuiles → {currentMesh.faces.Length} faces colorisées.");
-
-            // Étale légèrement le travail sur plusieurs frames pour éviter les pics au lancement.
+            yield return StartCoroutine(FetchAndColorizeOneMiniPlanet(bodyId, bodyName, md, baseUrl, revision, 200, colorByType));
             yield return null;
         }
 
         if (revision == _miniMeshRevision)
             _miniPlanetColorizeCoroutine = null;
+    }
+
+    private IEnumerator FetchAndColorizeOneMiniPlanet(string bodyId, string bodyName, GoldbergSphereGenerator.GoldbergMeshData origMd, string baseUrl, int expectedRevision, int pageSize, Dictionary<TerrainType, Color> colorByType)
+    {
+        var allTiles = new List<GoldbergTileState>();
+        int page = 0;
+        while (true)
+        {
+            string url = $"{baseUrl}/bodies/{bodyId}/tiles?page={page}&size={pageSize}";
+            using UnityWebRequest req = UnityWebRequest.Get(url);
+            req.timeout = 15;
+            yield return req.SendWebRequest();
+            if (expectedRevision != _miniMeshRevision || !isActiveAndEnabled) yield break;
+            if (req.result != UnityWebRequest.Result.Success) break;
+            MiniTileList batch;
+            try   { batch = JsonUtility.FromJson<MiniTileList>("{\"items\":" + req.downloadHandler.text + "}"); }
+            catch { break; }
+            if (batch.items == null || batch.items.Length == 0) break;
+            allTiles.AddRange(batch.items);
+            if (batch.items.Length < pageSize) break;
+            page++;
+        }
+        if (allTiles.Count == 0) yield break;
+        if (!_miniMeshes.TryGetValue(bodyName, out GoldbergSphereGenerator.GoldbergMeshData currentMesh) || !ReferenceEquals(currentMesh.mesh, origMd.mesh))
+            yield break;
+        GoldbergFaceColorizer.ColorizeFromServerTiles(currentMesh.faces, allTiles.ToArray(), colorByType);
+        GoldbergSphereGenerator.ApplyFaceColors(currentMesh.mesh, currentMesh.faces, currentMesh.vertexFaceId);
+        Debug.Log($"[SolarSystemView] {bodyName} : {allTiles.Count} tuiles \u2192 {currentMesh.faces.Length} faces coloris\u00e9es.");
     }
 }

@@ -28,8 +28,7 @@
                 <ui:VisualElement class="queue-track__bar-bg">
                     <ui:VisualElement name="queue-track-etat-fill" class="queue-track__bar-fill queue-track__bar-fill--etat" />
                 </ui:VisualElement>
-                <!-- Valeur de construction utilisé / valeur de construction total -->
-                <ui:Label text="X/Y" class="" />
+                <ui:Label name="queue-track-etat-slots" text="—" class="queue-track__slots" />
                 <ui:Label name="queue-track-etat-name" text="—" class="queue-track__building-name" />
             </ui:VisualElement>
             <!-- Track Investisseur : capacité EB formel (corpo / joueur) -->
@@ -38,8 +37,7 @@
                 <ui:VisualElement class="queue-track__bar-bg">
                     <ui:VisualElement name="queue-track-investor-fill" class="queue-track__bar-fill queue-track__bar-fill--investor" />
                 </ui:VisualElement>
-                <!-- Valeur de construction utilisé / valeur de construction total -->
-                <ui:Label text="X/Y" class="" />
+                <ui:Label name="queue-track-investor-slots" text="—" class="queue-track__slots" />
                 <ui:Label name="queue-track-investor-name" text="—" class="queue-track__building-name" />
             </ui:VisualElement>
             <!-- En attente (territoire courant) -->

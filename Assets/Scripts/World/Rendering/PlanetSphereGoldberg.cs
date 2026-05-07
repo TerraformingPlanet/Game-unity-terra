@@ -153,6 +153,9 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     [Header("Serveur")]
     [Tooltip("Recolorise les tuiles GP depuis GET /bodies/{id}/tiles après LoadPlanet.")]
     [SerializeField] private bool fetchServerTilesOnLoad = true;
+    [Tooltip("Utilise GET /tiles/adaptive (hémisphère visible res=2, hémisphère caché res=1) "
+           + "au lieu de GET /tiles/lod?h3_resolution=2. Réduit le nombre de tuiles d'environ 40 %.")]
+    [SerializeField] private bool useAdaptiveFetch = true;
     [SerializeField] private GameConfig config;
 
     // =========================================================
@@ -169,8 +172,14 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     [SerializeField] private bool enableTopographicRelief = false;
     [Tooltip("Amplitude du déplacement en unités monde (VisualRadius=10). 0.5 = 5% de relief max.")]
     [SerializeField, Range(0f, 2f)] private float topographicDisplacementScale = 0.5f;
-    [Tooltip("Matériau des water caps (transparent, URP). Appliqué sur le mesh WaterCaps épousant les tiles ocean.")]
-    [SerializeField] private Material waterSphereMaterial;
+    [Tooltip("Affiche les murs latéraux des prismes océaniques : comble l'espace entre le fond et la surface d'eau, avec la couleur de chaque tile.")]
+    [SerializeField] private bool enableWaterPrisms = true;
+    [Tooltip("Intensité du gradient de rim entre tuiles adjacentes. 0 = tuiles plates, 1 = fusion totale.")]
+    [SerializeField, Range(0f, 1f)] public float rimBlendStrength = 0.40f;
+    [Tooltip("Distance RGB max pour qu'un voisin participe au blend. 0 = illimité. 0.45 = bloque eau↔terre, autorise terre↔terre.")]
+    [SerializeField, Range(0f, 2f)] public float rimBlendMaxDelta = 0.45f;
+    [Tooltip("Delta altitude (land - seaLevel) au-dessus duquel une arête côtière devient une falaise. Espace [-1,+1].")]
+    [SerializeField, Range(0f, 1f)] private float cliffThreshold = 0.15f;
 
     [Header("Debug")]
     [Tooltip("Active les logs détaillés pour LOD et overlays.")]
@@ -188,6 +197,10 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
 
     // Tooltip hover state
     private Dictionary<int, GoldbergTileState> _faceToTile;
+
+    // H3-exact mapping (populated after H3SphereBuilder.Build — replaces nearest-neighbour).
+    private H3SphereBuilder.H3BuildResult        _h3Result;      // face↔tile exact mapping
+    private Dictionary<string, GoldbergTileState> _cachedTileById; // tileId → tile for O(1) click lookup
     private int   _hoverFaceCandidate = -1;
     private float _hoverStartTime     = -1f;
     private bool  _hoverTooltipFired  = false;
@@ -203,13 +216,17 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     internal void SetWaterLevel(float waterLevel)
     {
         ActiveWaterLevel = Mathf.Clamp(waterLevel, -1f, 1f);
-        UpdateWaterCapsScale();
     }
 
-    private float[] _cachedFaceAltitudesLo;  // altitudes par face GP (LOD bas)
-    private float[] _cachedFaceAltitudesHi;  // altitudes par face GP (LOD haut)
-    private GameObject _waterCaps;            // mesh water caps épousant les tiles ocean
-    private float      _waterCapsBuildLevel;  // seaLevel utilisé lors du dernier BuildCaps
+    private float[] _cachedFaceAltitudesLo;          // altitudes par face GP (LOD bas)
+    private float[] _cachedFaceAltitudesHi;          // altitudes par face GP (LOD haut)
+    private bool[]  _cachedFaceIsOceanLo;            // masque terrainType ocean (LOD bas)
+    private bool[]  _cachedFaceIsInlandWaterLo;      // masque InlandWater / lacs (LOD bas)
+    private bool[]  _cachedFaceIsOceanHi;            // masque terrainType ocean (LOD haut)
+    private bool[]  _cachedFaceIsInlandWaterHi;      // masque InlandWater / lacs (LOD haut)
+    private GameObject    _tilePrisms;               // mesh faces latérales des prismes hexagonaux (terres)
+    private GameObject _lakeCaps;                 // mesh water caps pour les lacs intérieurs
+    private GameObject _waterPrisms;              // mesh faces latérales des prismes océaniques (profondeur)
 
     // LOD state
     private int           _currentLodLevel = -1;       // -1 = non initialisé, 0 = far, 1 = near
@@ -233,6 +250,15 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     private bool          _lodHiFetching     = false;  // fetch en cours
     private bool          _lodHiBaseColored  = false;  // couleurs biomes res=2 déjà appliquées au LOD haut (évite re-colorisation dans ApplyLodLevel)
 
+    // Sea-level server sync — debounce coroutine
+    private Coroutine _waterLevelSyncCoroutine;
+
+    // Zone overlay — multi-dimensional lens (6 dimensions)
+    private Dictionary<string, Color>  _zoneTints;      // tileId → zone color for active dimension
+    private Dictionary<string, string> _tileToZoneId;   // tileId → zoneId for active dimension
+    private string                     _activeDimension; // "bio"|"admin"|"eco"|"military"|"cultural"|"scientific"
+    private bool                       _zoneOverlayFetched;
+
     // =========================================================
     // Lens (filtres carte debug)
     // =========================================================
@@ -240,8 +266,31 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     /// <summary>
     /// Modes de visualisation en superposition sur la sphère.
     /// Normal = biomes standard. Elevation = gradient dénivelé [-1,+1], eau cachée.
+    /// Zone* = overlay coloration par dimension de zone (multi-dimensionnel).
     /// </summary>
-    public enum PlanetLensMode { Normal, Elevation }
+    public enum PlanetLensMode { Normal, Elevation, ZoneBio, ZoneAdmin, ZoneEco, ZoneMilitary, ZoneCultural, ZoneScientific }
+
+    // Maps lens mode → API dimension string
+    private static readonly Dictionary<PlanetLensMode, string> _lensToDimension = new()
+    {
+        { PlanetLensMode.ZoneBio,        "bio"        },
+        { PlanetLensMode.ZoneAdmin,       "admin"      },
+        { PlanetLensMode.ZoneEco,         "eco"        },
+        { PlanetLensMode.ZoneMilitary,    "military"   },
+        { PlanetLensMode.ZoneCultural,    "cultural"   },
+        { PlanetLensMode.ZoneScientific,  "scientific" },
+    };
+
+    // Palette de couleurs canoniques par dimension (teinte de base + saturation)
+    private static readonly Dictionary<string, Color> _dimensionBaseColor = new()
+    {
+        { "bio",        new Color(0.20f, 0.75f, 0.25f, 1f) }, // vert
+        { "admin",      new Color(0.25f, 0.50f, 0.90f, 1f) }, // bleu
+        { "eco",        new Color(0.95f, 0.80f, 0.10f, 1f) }, // jaune
+        { "military",   new Color(0.85f, 0.20f, 0.20f, 1f) }, // rouge
+        { "cultural",   new Color(0.65f, 0.20f, 0.85f, 1f) }, // violet
+        { "scientific", new Color(0.15f, 0.85f, 0.90f, 1f) }, // cyan
+    };
 
     /// <summary>Lens actif.</summary>
     public PlanetLensMode ActiveLens { get; private set; } = PlanetLensMode.Normal;
@@ -250,11 +299,28 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     /// Active ou désactive un lens de visualisation.
     /// Recolorise immédiatement tous les meshes depuis le cache.
     /// Sans effet si les tuiles ne sont pas encore chargées.
+    /// Pour les modes Zone*, fetche les données serveur si nécessaire.
     /// </summary>
     public void SetLens(PlanetLensMode mode)
     {
         ActiveLens = mode;
         if (_cachedServerTiles == null || _cachedServerTiles.Length == 0) return;
+
+        // Si c'est un lens de dimension zone, lancer le fetch (ou réutiliser le cache)
+        if (_lensToDimension.TryGetValue(mode, out string dimension))
+        {
+            SetZoneLens(dimension);
+            return;
+        }
+
+        // Pour Normal/Elevation : effacer le zone overlay
+        if (mode == PlanetLensMode.Normal || mode == PlanetLensMode.Elevation)
+        {
+            _zoneTints = null;
+            _tileToZoneId = null;
+            _activeDimension = null;
+            _zoneOverlayFetched = false;
+        }
 
         var meshesToRefresh = new[]
         {
@@ -265,21 +331,38 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         foreach (var data in meshesToRefresh)
         {
             if (data.faces == null || data.mesh == null) continue;
-            if (mode == PlanetLensMode.Elevation)
-                GoldbergFaceColorizer.ColorizeElevationLens(data.faces, _cachedServerTiles);
-            else
-                GoldbergFaceColorizer.ColorizeFromAltitude(data.faces, _cachedServerTiles, ActiveWaterLevel);
-            GoldbergSphereGenerator.ApplyFaceColors(data.mesh, data.faces, data.vertexFaceId);
+            ReapplyOverlays(data, _cachedServerTiles);
         }
 
-        // Lens Elevation : masque les water caps pour lire les profondeurs
-        if (_waterCaps != null)
-            _waterCaps.SetActive(mode != PlanetLensMode.Elevation);
+        // Lens Elevation : masque les prismes océaniques pour lire les profondeurs
+        if (_tilePrisms   != null) _tilePrisms.SetActive(mode != PlanetLensMode.Elevation);
+        if (_waterPrisms  != null) _waterPrisms.SetActive(mode != PlanetLensMode.Elevation);
 
         if (_cachedMeshColors != null && _sphereData.mesh != null)
             _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
 
         Debug.Log($"[PlanetSphereGoldberg] Lens → {mode}");
+    }
+
+    /// <summary>
+    /// Active un lens de dimension de zone. Fetche la data depuis le serveur si nécessaire,
+    /// puis recolorise les tuiles par zoneId (même zone = même teinte).
+    /// dimension: "bio"|"admin"|"eco"|"military"|"cultural"|"scientific"
+    /// </summary>
+    public void SetZoneLens(string dimension)
+    {
+        if (string.IsNullOrEmpty(_activeBodyId)) return;
+        if (_activeDimension == dimension && _zoneOverlayFetched)
+        {
+            // Déjà chargé — juste réappliquer
+            ApplyZoneOverlayToMeshes();
+            return;
+        }
+        _activeDimension = dimension;
+        _zoneOverlayFetched = false;
+        _zoneTints = null;
+        _tileToZoneId = null;
+        StartCoroutine(FetchZoneOverlay(dimension));
     }
 
     /// <summary>Cycle Normal → Elevation → Normal. Retourne le mode actif.</summary>
@@ -313,151 +396,13 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     public GoldbergSphereGenerator.GoldbergMeshData SphereData => _sphereData;
 
     // =========================================================
-    // Unity lifecycle
-    // =========================================================
-
-    private void Awake()
-    {
-        _meshFilter   = GetComponent<MeshFilter>();
-        _meshRenderer = GetComponent<MeshRenderer>();
-
-        // Ajoute MeshCollider si absent (nécessaire pour OnMouseDown)
-        _meshCollider = GetComponent<MeshCollider>();
-        if (_meshCollider == null)
-        {
-            Collider existing = GetComponent<Collider>();
-            if (existing != null) Destroy(existing);
-            _meshCollider = gameObject.AddComponent<MeshCollider>();
-        }
-        _meshCollider.convex = false;
-
-        // CameraController auto-détection
-        if (cameraController == null)
-            cameraController = FindAnyObjectByType<CameraController>();
-
-        // Matériau vertex color
-        if (sphereMaterial != null)
-        {
-            _meshRenderer.sharedMaterial = sphereMaterial;
-        }
-        else
-        {
-            Shader s = Shader.Find("Terraformation/HexVertexColor");
-            if (s != null)
-                _meshRenderer.material = new Material(s);
-            else
-                Debug.LogWarning("[PlanetSphereGoldberg] Shader 'Terraformation/HexVertexColor' introuvable. "
-                               + "Assigner un matériau en Inspector.");
-        }
-
-        if (cloudLayer == null)
-            cloudLayer = EnsureCloudLayer();
-
-        _borderRenderer = gameObject.AddComponent<OwnershipBorderRenderer>();
-    }
-
-    private void OnDestroy()
-    {
-        if (_waterCaps != null) Destroy(_waterCaps);
-    }
-
-    /// <summary>
-    /// Crée (ou recrée) le mesh water caps épousant exactement les tiles ocean du polyèdre.
-    /// Chaque tile ocean génère un fan de triangles plat à waterR = VisualRadius + seaLevel * scale.
-    /// </summary>
-    internal void CreateWaterCaps(
-        GoldbergSphereGenerator.GoldbergFace[] faces,
-        float[] faceAltitudes,
-        float seaLevel)
-    {
-        if (_waterCaps != null) Destroy(_waterCaps);
-        if (faces == null || faceAltitudes == null) return;
-
-        Mesh capsMesh = WaterCapsBuilder.BuildCaps(faces, faceAltitudes, seaLevel, topographicDisplacementScale);
-        if (capsMesh == null) return;
-
-        _waterCapsBuildLevel = seaLevel;
-        _waterCaps = new GameObject("WaterCaps");
-        _waterCaps.transform.SetParent(transform, false);
-        _waterCaps.transform.localPosition = Vector3.zero;
-        _waterCaps.transform.localScale    = Vector3.one;
-        var mf = _waterCaps.AddComponent<MeshFilter>();
-        mf.sharedMesh = capsMesh;
-        var mr = _waterCaps.AddComponent<MeshRenderer>();
-        if (waterSphereMaterial != null) mr.sharedMaterial = waterSphereMaterial;
-    }
-
-    /// <summary>
-    /// Scale uniforme des water caps quand le waterLevel change (slider debug).
-    /// S'il y a un gros delta, reconstruire les caps est préférable — mais pour de
-    /// petits ajustements (~0.05) le scale suffit visuellement.
-    /// </summary>
-    internal void UpdateWaterCapsScale()
-    {
-        if (_waterCaps == null) return;
-        // +0.002f miroir de l'offset dans WaterCapsBuilder.BuildCaps — garder les caps au-dessus du mesh ocean.
-        const float WaterOffset = 0.002f;
-        float buildR = GoldbergSphereGenerator.VisualRadius + _waterCapsBuildLevel * topographicDisplacementScale + WaterOffset;
-        float newR   = GoldbergSphereGenerator.VisualRadius + ActiveWaterLevel    * topographicDisplacementScale + WaterOffset;
-        if (buildR <= 0f) return;
-        float s = newR / buildR;
-        _waterCaps.transform.localScale = new Vector3(s, s, s);
-    }
-
-    /// <summary>Indique si les water caps sont actuellement visibles.</summary>
-    public bool IsWaterSphereVisible => _waterCaps != null && _waterCaps.activeSelf;
-
-    /// <summary>Active ou désactive la visibilité des water caps.</summary>
-    public void SetWaterSphereVisible(bool visible)
-    {
-        if (_waterCaps != null) _waterCaps.SetActive(visible);
-    }
-
-    /// <summary>Toggle la visibilité des water caps. Retourne le nouvel état.</summary>
-    public bool ToggleWaterSphere()
-    {
-        bool next = !IsWaterSphereVisible;
-        SetWaterSphereVisible(next);
-        return next;
-    }
-
-    private void Update()
-    {
-        // Touche L : cycle lens Normal ↔ Elevation (debug)
-        if (Keyboard.current != null && Keyboard.current.lKey.wasPressedThisFrame)
-            CycleLens();
-
-        if (!enableLod) return;
-        if (cameraController == null) return;
-        // Le swap LOD doit rester possible même avant la réception complète des tuiles H3 serveur.
-        if (_sphereDataLo.faces == null || _sphereDataHi.faces == null) return;
-
-        float dist = cameraController.OrbitDistance;
-
-        // Hysteresis : deux seuils pour éviter le flickering
-        int targetLod;
-        if (_currentLodLevel <= 0)
-            targetLod = dist < lodNearDistance ? 1 : 0;
-        else
-            targetLod = dist > lodFarDistance  ? 0 : 1;
-
-        if (targetLod != _currentLodLevel)
-        {
-            _currentLodLevel = targetLod;
-            ApplyLodLevel(_currentLodLevel);
-        }
-
-        // Tooltip timer (LOD 1 seulement)
-        if (!_hoverTooltipFired && _hoverFaceCandidate >= 0 && _currentLodLevel == 1
-            && Time.time - _hoverStartTime >= hoverTooltipDelay)
-        {
-            FireTileTooltip(_hoverFaceCandidate);
-        }
-    }
-
-    // =========================================================
     // API publique — même interface que PlanetSphere
     // =========================================================
+
+    // (Awake, OnDestroy → PlanetSphereGoldbergSetup.cs)
+    // (CreateWaterCaps, depth prism visibility → PlanetSphereGoldbergWater.cs)
+    // (Update, GetFaceRadius, HideFaceOnSphere, RestoreFaceOnSphere → PlanetSphereGoldbergInput.cs)
+    // (EnsureCloudLayer, ClearSphereCache → PlanetSphereGoldbergSetup.cs)
 
     /// <summary>
     /// Charge et affiche la planète sous forme de sphère Goldberg colorée par biomes.
@@ -472,7 +417,6 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
             return;
         }
 
-        // Reset state overlay flag (nouveau LoadPlanet)
         _stateOverlayFetched = false;
         _ownershipOverlayFetched = false;
 
@@ -480,83 +424,17 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         CacheKey cacheKey = new CacheKey(body.GetInstanceID(), coherenceOverride, 0);
 #pragma warning restore CS0618
 
-        if (cacheGeneratedProjections && SphereCache.TryGetValue(cacheKey, out CachedSphere cached))
-        {
-            _sphereData = cached.SphereData;
-            Debug.Log($"[PlanetSphereGoldberg] Cache GP : {body.bodyName} | {_sphereData.faces.Length} tuiles");
-        }
-        else
-        {
-            _sphereData = GoldbergSphereGenerator.Generate(body);
+        BuildOrFetchSphereData(body, cacheKey);
 
-            // Coloration initiale depuis les biomes du corps (avant réception des tuiles H3)
-            Color baseColor = body.displayColor;
-            if (_activeBody?.layers != null)
-            {
-                foreach (LayerZone layer in _activeBody.layers)
-                    if (layer?.biomes != null && layer.biomes.Length > 0 && layer.biomes[0] != null)
-                    { baseColor = layer.biomes[0].color; break; }
-            }
-            for (int _fi = 0; _fi < _sphereData.faces.Length; _fi++)
-                _sphereData.faces[_fi].color = baseColor;
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereData.mesh, _sphereData.faces, _sphereData.vertexFaceId);
-
-            if (cacheGeneratedProjections)
-                SphereCache[cacheKey] = new CachedSphere(_sphereData);
-
-            Debug.Log($"[PlanetSphereGoldberg] Généré GP : {body.bodyName} | {_sphereData.faces.Length} tuiles");
-        }
-
-        Color baseColorForLod = body.displayColor;
-        if (body.layers != null)
-        {
-            foreach (LayerZone layer in body.layers)
-                if (layer?.biomes != null && layer.biomes.Length > 0 && layer.biomes[0] != null)
-                { baseColorForLod = layer.biomes[0].color; break; }
-        }
-
-        // ── LOD : mesh BAS (492 faces) et mesh HAUT (1962 faces) ───────────
-        // Les deux sont colorisés avec les données res=2 (5882 tuiles H3).
-        // LOD haut donne des hexagones visuellement ~2x plus petits au zoom.
+        Color baseColorForLod = ExtractBaseColor(body);
         if (enableLod)
-        {
-            _lodLoDivisions = GoldbergSphereGenerator.ComputeDivisions(body.radius);
-            _lodHiDivisions = lodNearExtraDivisions > 0
-                ? _lodLoDivisions + lodNearExtraDivisions
-                : Mathf.Min(_lodLoDivisions * 2, 15);
+            InitializeLodMeshes(body, baseColorForLod);
 
-            _sphereDataLo = _sphereData;  // LOD bas  = mesh déjà généré (ex: 492 faces)
-            _sphereDataHi = GoldbergSphereGenerator.GenerateWithDivisions(_lodHiDivisions);  // ex: 1962 faces
-            _currentLodLevel = -1;
-            _lodHiColored     = false;
-            _lodHiFetching    = false;
-            _lodHiBaseColored = false;
+        ApplyMeshToRenderer();
 
-            for (int faceIndex = 0; faceIndex < _sphereDataHi.faces.Length; faceIndex++)
-                _sphereDataHi.faces[faceIndex].color = baseColorForLod;
-            GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
-
-            Debug.Log($"[PlanetSphereGoldberg] LOD : bas={_lodLoDivisions} ({_sphereDataLo.faces.Length} faces) | haut={_lodHiDivisions} ({_sphereDataHi.faces.Length} faces)");
-        }
-
-        if (enableLod && startAtMaxResolution)
-        {
-            _currentLodLevel = 1;
-            _sphereData = _sphereDataHi;
-            _meshFilter.sharedMesh = _sphereDataHi.mesh;
-            _meshCollider.sharedMesh = _sphereDataLo.mesh;
-        }
-        else
-        {
-            _meshFilter.sharedMesh   = _sphereData.mesh;
-            _meshCollider.sharedMesh = _sphereData.mesh;
-        }
-
-        // Snapshot des couleurs de base (avant hover)
         _cachedMeshColors = (Color[])_sphereData.mesh.colors.Clone();
         _hoveredFaceId    = -1;
 
-        // Atmosphère
         atmosphere?.ApplyBodyData(body);
         cloudLayer?.ApplyBodyData(body);
 
@@ -565,91 +443,96 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         transform.localScale    = Vector3.one;
 
         _activeBody = body;
-        _activeCoherenceOverride  = coherenceOverride;
-        _activeWaterLevelOffset   = waterLevelOffset;
+        _activeCoherenceOverride = coherenceOverride;
+        _activeWaterLevelOffset  = waterLevelOffset;
         if (fetchServerTilesOnLoad)
             StartCoroutine(FetchAndColorizeFromServer(body.bodyName, coherenceOverride, waterLevelOffset));
     }
 
-    private PlanetCloudLayer EnsureCloudLayer()
+    private void BuildOrFetchSphereData(OrbitalBody body, CacheKey cacheKey)
     {
-        Transform existing = transform.Find("CloudLayer");
-        if (existing != null)
+        if (cacheGeneratedProjections && SphereCache.TryGetValue(cacheKey, out CachedSphere cached))
         {
-            PlanetCloudLayer existingLayer = existing.GetComponent<PlanetCloudLayer>();
-            if (existingLayer != null)
-                return existingLayer;
+            _sphereData = cached.SphereData;
+            Debug.Log($"[PlanetSphereGoldberg] Cache GP : {body.bodyName} | {_sphereData.faces.Length} tuiles");
+            return;
         }
 
-        GameObject cloudObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        cloudObject.name = "CloudLayer";
-        cloudObject.transform.SetParent(transform, false);
-        cloudObject.transform.localPosition = Vector3.zero;
-        cloudObject.transform.localRotation = Quaternion.identity;
-        cloudObject.transform.localScale = Vector3.one * 1.045f;
+        _sphereData = GoldbergSphereGenerator.Generate(body);
 
-        Collider collider = cloudObject.GetComponent<Collider>();
-        if (collider != null)
-            Destroy(collider);
+        Color baseColor = ExtractBaseColor(_activeBody ?? body);
+        for (int fi = 0; fi < _sphereData.faces.Length; fi++)
+            _sphereData.faces[fi].color = baseColor;
+        GoldbergSphereGenerator.ApplyFaceColors(_sphereData.mesh, _sphereData.faces, _sphereData.vertexFaceId);
 
-        return cloudObject.AddComponent<PlanetCloudLayer>();
+        if (cacheGeneratedProjections)
+            SphereCache[cacheKey] = new CachedSphere(_sphereData);
+
+        Debug.Log($"[PlanetSphereGoldberg] Généré GP : {body.bodyName} | {_sphereData.faces.Length} tuiles");
     }
 
-    // =========================================================
-    // Cleanup
-    // =========================================================
-
-    private static void ClearSphereCache()
+    private static Color ExtractBaseColor(OrbitalBody body)
     {
-        foreach (CachedSphere cached in SphereCache.Values)
+        if (body == null) return Color.white;
+        Color c = body.displayColor;
+        if (body.layers != null)
         {
-            if (cached?.SphereData.mesh != null)
-                Destroy(cached.SphereData.mesh);
+            foreach (LayerZone layer in body.layers)
+                if (layer?.biomes != null && layer.biomes.Length > 0 && layer.biomes[0] != null)
+                { c = layer.biomes[0].color; break; }
         }
-        SphereCache.Clear();
-        Debug.Log("[PlanetSphereGoldberg] Cache sphères vidé.");
+        return c;
     }
 
-
-    /// <summary>Retourne le rayon de la face GP (distance max centroïde→vertex, espace monde).</summary>
-    public float GetFaceRadius(int faceId)
+    private void InitializeLodMeshes(OrbitalBody body, Color baseColor)
     {
-        if (faceId < 0 || faceId >= _sphereData.faces.Length || _sphereData.mesh == null) return 1f;
-        Vector3 centroidWorld = transform.TransformPoint(_sphereData.faces[faceId].centroid3D * GoldbergSphereGenerator.VisualRadius);
-        Vector3[] verts = _sphereData.mesh.vertices;
-        float maxDist = 0f;
-        for (int i = 0; i < _sphereData.vertexFaceId.Length; i++)
+        _lodLoDivisions = GoldbergSphereGenerator.ComputeDivisions(body.radius);
+        _lodHiDivisions = lodNearExtraDivisions > 0
+            ? _lodLoDivisions + lodNearExtraDivisions
+            : Mathf.Min(_lodLoDivisions * 2, 15);
+
+        _sphereDataLo = _sphereData;
+        _sphereDataHi = GoldbergSphereGenerator.GenerateWithDivisions(_lodHiDivisions);
+        _currentLodLevel = -1;
+        _lodHiColored     = false;
+        _lodHiFetching    = false;
+        _lodHiBaseColored = false;
+
+        for (int fi = 0; fi < _sphereDataHi.faces.Length; fi++)
+            _sphereDataHi.faces[fi].color = baseColor;
+        GoldbergSphereGenerator.ApplyFaceColors(_sphereDataHi.mesh, _sphereDataHi.faces, _sphereDataHi.vertexFaceId);
+
+        Debug.Log($"[PlanetSphereGoldberg] LOD : bas={_lodLoDivisions} ({_sphereDataLo.faces.Length} faces) | haut={_lodHiDivisions} ({_sphereDataHi.faces.Length} faces)");
+    }
+
+    private void ApplyMeshToRenderer()
+    {
+        if (enableLod && startAtMaxResolution)
         {
-            if (_sphereData.vertexFaceId[i] == faceId)
-            {
-                float d = Vector3.Distance(centroidWorld, transform.TransformPoint(verts[i]));
-                if (d > maxDist) maxDist = d;
-            }
+            _currentLodLevel = 1;
+            _sphereData = _sphereDataHi;
+            _meshFilter.sharedMesh   = _sphereDataHi.mesh;
+            _meshCollider.sharedMesh = _sphereDataHi.mesh;
         }
-        return maxDist > 0.0001f ? maxDist : 1f;
-    }
-
-    /// <summary>Masque une face GP (alpha=0) pour la remplacer visuellement par la grille hex.</summary>
-    public void HideFaceOnSphere(int faceId)
-    {
-        if (faceId < 0 || faceId >= _sphereData.faces.Length || _sphereData.mesh == null) return;
-        Color[] meshColors = _sphereData.mesh.colors;
-        for (int i = 0; i < _sphereData.vertexFaceId.Length; i++)
+        else
         {
-            if (_sphereData.vertexFaceId[i] == faceId)
-            {
-                Color c = meshColors[i]; c.a = 0f; meshColors[i] = c;
-            }
+            _meshFilter.sharedMesh   = _sphereData.mesh;
+            _meshCollider.sharedMesh = _sphereData.mesh;
         }
-        _sphereData.mesh.colors = meshColors;
     }
 
-    /// <summary>Restaure les couleurs originales d'une face GP après fermeture de la vue locale.</summary>
-    public void RestoreFaceOnSphere(int faceId)
+    /// <summary>
+    /// Ré-interroge le serveur pour mettre à jour les altitudes, la colorisation et les water caps.
+    /// À appeler quand la simulation a modifié des altitudes côté serveur (tick terraforming,
+    /// changement de niveau de mer, etc.).
+    /// Sans effet si aucune planète n'est chargée.
+    /// </summary>
+    public void RefreshTilesFromServer()
     {
-        if (faceId < 0 || _cachedMeshColors == null || _sphereData.mesh == null) return;
-        Color[] meshColors = _sphereData.mesh.colors;
-        RestoreFace(meshColors, faceId);
-        _sphereData.mesh.colors = meshColors;
+        if (_activeBody == null) return;
+        StartCoroutine(FetchAndColorizeFromServer(
+            _activeBody.bodyName,
+            _activeCoherenceOverride,
+            _activeWaterLevelOffset));
     }
 }

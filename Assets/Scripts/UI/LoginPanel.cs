@@ -87,16 +87,13 @@ public class LoginPanel : MonoBehaviour
         string password = passwordField != null ? passwordField.text : "";
 
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-        {
-            SetStatus("<color=red>Nom d'utilisateur et mot de passe requis.</color>");
-            yield break;
-        }
+        { SetStatus("<color=red>Nom d'utilisateur et mot de passe requis.</color>"); yield break; }
 
         SetStatus("Connexion…");
         SetButtonsInteractable(false);
 
         string url  = SimUrl.TrimEnd('/') + endpoint;
-        string json = $"{{\"username\":\"{EscapeJson(username)}\",\"password\":\"{EscapeJson(password)}\"}}";
+        string json = JsonUtility.ToJson(new _LoginRequest { username = username, password = password });
         byte[] body = Encoding.UTF8.GetBytes(json);
 
         using (var req = new UnityWebRequest(url, "POST"))
@@ -105,51 +102,15 @@ public class LoginPanel : MonoBehaviour
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
             req.timeout = 10;
-
             yield return req.SendWebRequest();
 
             if (req.result == UnityWebRequest.Result.Success)
             {
                 var resp = JsonUtility.FromJson<_AuthResponse>(req.downloadHandler.text);
                 if (resp != null && !string.IsNullOrEmpty(resp.token))
-                {
-                    // Stocker la session
-                    var session = PlayerSession.Instance;
-                    if (session == null)
-                    {
-                        var go = new GameObject("PlayerSession");
-                        go.AddComponent<PlayerSession>();
-                        session = PlayerSession.Instance;
-                    }
-                    session.Token    = resp.token;
-                    session.PlayerId = resp.playerId;
-                    session.Username = resp.username;
-                    session.CorpId   = resp.corpId ?? "";
-
-                    // Si c'est un register avec un nom de corporation, créer la corpo
-                    if (isRegister && string.IsNullOrEmpty(session.CorpId))
-                    {
-                        string corpName = corpNameField != null ? corpNameField.text.Trim() : "";
-                        if (!string.IsNullOrEmpty(corpName))
-                        {
-                            SetStatus("Création de la corporation…");
-                            yield return CreateCorpCoroutine(corpName);
-                        }
-                    }
-
-                    SetStatus($"<color=green>Connecté en tant que {resp.username}</color>");
-
-                    // Restaurer les objets masqués
-                    foreach (var obj in hideUntilLogin)
-                        if (obj != null) obj.SetActive(true);
-
-                    gameObject.SetActive(false);
-                    OnLoginSuccess?.Invoke();
-                }
+                    yield return OnAuthSuccess(resp, isRegister);
                 else
-                {
                     SetStatus("<color=red>Réponse invalide du serveur.</color>");
-                }
             }
             else
             {
@@ -159,6 +120,27 @@ public class LoginPanel : MonoBehaviour
         }
 
         SetButtonsInteractable(true);
+    }
+
+    private IEnumerator OnAuthSuccess(_AuthResponse resp, bool isRegister)
+    {
+        var session = PlayerSession.Instance;
+        if (session == null) { var go = new GameObject("PlayerSession"); go.AddComponent<PlayerSession>(); session = PlayerSession.Instance; }
+        session.Token    = resp.token;
+        session.PlayerId = resp.playerId;
+        session.Username = resp.username;
+        session.CorpId   = resp.corpId ?? "";
+
+        if (isRegister && string.IsNullOrEmpty(session.CorpId))
+        {
+            string corpName = corpNameField != null ? corpNameField.text.Trim() : "";
+            if (!string.IsNullOrEmpty(corpName)) { SetStatus("Création de la corporation…"); yield return CreateCorpCoroutine(corpName); }
+        }
+
+        SetStatus($"<color=green>Connecté en tant que {resp.username}</color>");
+        foreach (var obj in hideUntilLogin) if (obj != null) obj.SetActive(true);
+        gameObject.SetActive(false);
+        OnLoginSuccess?.Invoke();
     }
 
     // =========================================================
@@ -177,8 +159,8 @@ public class LoginPanel : MonoBehaviour
         if (registerButton != null) registerButton.interactable = value;
     }
 
-    private static string EscapeJson(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    [System.Serializable] private class _LoginRequest  { public string username; public string password; }
+    [System.Serializable] private class _CreateCorpRequest { public string name; public bool is_ai; public string owner_id; }
 
     private static string TryExtractDetail(string json)
     {
@@ -191,7 +173,7 @@ public class LoginPanel : MonoBehaviour
     {
         string url  = SimUrl.TrimEnd('/') + "/game/corporations";
         string ownerId = PlayerSession.Instance?.PlayerId ?? "";
-        string json = $"{{\"name\":\"{EscapeJson(corpName)}\",\"is_ai\":false,\"owner_id\":\"{EscapeJson(ownerId)}\"}}";
+        string json = JsonUtility.ToJson(new _CreateCorpRequest { name = corpName, is_ai = false, owner_id = ownerId });
         byte[] body = Encoding.UTF8.GetBytes(json);
         using (var req = new UnityWebRequest(url, "POST"))
         {

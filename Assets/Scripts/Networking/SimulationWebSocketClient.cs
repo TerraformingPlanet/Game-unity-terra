@@ -39,15 +39,16 @@ public class SimulationWebSocketClient : MonoBehaviour
     [Header("Config")]
     [SerializeField] private GameConfig config;
 
-    [Tooltip("Délai de reconnexion en secondes après une déconnexion.")]
-    [SerializeField] private float reconnectDelay = 2f;
-
     // =========================================================
     // État interne
     // =========================================================
 
     private WebSocket _ws;
     private bool      _shouldRun = true;
+    private int       _reconnectAttempts = 0;
+
+    private const float ReconnectBaseDelay = 2f;
+    private const float ReconnectMaxDelay  = 30f;
 
     // =========================================================
     // Unity lifecycle
@@ -108,8 +109,10 @@ public class SimulationWebSocketClient : MonoBehaviour
             while (_ws.State == WebSocketState.Open)
                 yield return null;
 
-            Debug.Log("[WS] Connexion fermée — reconnexion dans " + reconnectDelay + "s");
-            yield return new WaitForSeconds(reconnectDelay);
+            float delay = Mathf.Min(ReconnectBaseDelay * Mathf.Pow(2f, _reconnectAttempts), ReconnectMaxDelay);
+            _reconnectAttempts++;
+            Debug.Log($"[WS] Connexion fermée — reconnexion dans {delay:F0}s (tentative {_reconnectAttempts})");
+            yield return new WaitForSeconds(delay);
         }
     }
 
@@ -119,6 +122,7 @@ public class SimulationWebSocketClient : MonoBehaviour
 
     private void OnWsOpen()
     {
+        _reconnectAttempts = 0;
         Debug.Log("[WS] Connexion établie.");
     }
 

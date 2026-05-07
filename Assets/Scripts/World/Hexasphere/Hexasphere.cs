@@ -22,10 +22,16 @@ namespace Code.Hexasphere
     {
         private readonly float         _radius;
         private readonly int           _divisions;
-        private readonly MeshDetails   _meshDetails;
+        private          MeshDetails   _meshDetails;
+        private          bool          _meshDetailsBuilt;
         private readonly List<Tile>    _tiles;
         private readonly List<Point>   _points;
         private readonly List<Face>    _icosahedronFaces;
+        // Snap-grid cache for O(1) point deduplication during subdivision.
+        // Resolution matches Point.PointComparisonAccuracy (0.0001 units → snap = 10 000).
+        private const    float                              SnapFactor   = 10000f;
+        private readonly Dictionary<(int, int, int), Point> _pointLookup =
+            new Dictionary<(int, int, int), Point>();
 
         public Hexasphere(float radius, int divisions, float hexSize)
         {
@@ -37,11 +43,17 @@ namespace Code.Hexasphere
             _icosahedronFaces = ConstructIcosahedron();
             SubdivideIcosahedron();
             ConstructTiles(hexSize);
-            _meshDetails = StoreMeshDetails();
         }
 
         public List<Tile>  Tiles       => _tiles;
-        public MeshDetails MeshDetails => _meshDetails;
+        public MeshDetails MeshDetails
+        {
+            get
+            {
+                if (!_meshDetailsBuilt) { _meshDetails = StoreMeshDetails(); _meshDetailsBuilt = true; }
+                return _meshDetails;
+            }
+        }
 
         // =====================================================================
         // Construction de l'icosaèdre
@@ -129,7 +141,10 @@ namespace Code.Hexasphere
         private void ConstructTiles(float hexSize)
         {
             _points.ForEach(pt => _tiles.Add(new Tile(pt, _radius, hexSize)));
-            _tiles.ForEach(t  => t.ResolveNeighbourTiles(_tiles));
+            // Build lookup once O(n) so each tile's ResolveNeighbourTiles is O(k) not O(n).
+            var tileLookup = new Dictionary<string, Tile>(_tiles.Count);
+            foreach (var t in _tiles) tileLookup[t.CenterId] = t;
+            _tiles.ForEach(t => t.ResolveNeighbourTiles(tileLookup));
         }
 
         // =====================================================================
@@ -158,9 +173,13 @@ namespace Code.Hexasphere
 
         private Point CachePoint(Point point)
         {
-            Point existing = _points.FirstOrDefault(p => Point.IsOverlapping(p, point));
-            if (existing != null) return existing;
+            var key = (
+                Mathf.RoundToInt(point.Position.x * SnapFactor),
+                Mathf.RoundToInt(point.Position.y * SnapFactor),
+                Mathf.RoundToInt(point.Position.z * SnapFactor));
+            if (_pointLookup.TryGetValue(key, out Point existing)) return existing;
             _points.Add(point);
+            _pointLookup[key] = point;
             return point;
         }
     }

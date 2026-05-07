@@ -183,15 +183,22 @@ public class TestLaunchMenu : MonoBehaviour
     {
         RectTransform rootRect = menuRoot != null ? menuRoot.GetComponent<RectTransform>() : null;
         if (rootRect != null)
-            rootRect.sizeDelta = new Vector2(420f, _hasDirectPresetButtons ? 360f : 320f);
+            rootRect.sizeDelta = new Vector2(420f, _hasDirectPresetButtons ? 420f : 380f);
 
         if (_hasDirectPresetButtons && presetDropdown != null)
             presetDropdown.gameObject.SetActive(false);
 
         SetRectTransform("LatitudeInput", new Vector2(16f, -126f), new Vector2(180f, 30f));
         SetRectTransform("LongitudeInput", new Vector2(208f, -126f), new Vector2(180f, 30f));
-        SetRectTransform("DescriptionLabel", new Vector2(16f, -166f), new Vector2(372f, 120f));
-        SetRectTransform("LaunchPresetButton", new Vector2(16f, -300f), new Vector2(372f, 30f));
+        SetRectTransform("DescriptionLabel", new Vector2(16f, -166f), new Vector2(372f, 180f));
+        SetRectTransform("LaunchPresetButton", new Vector2(16f, -356f), new Vector2(372f, 30f));
+
+        // Force TMP overflow mode so text doesn't bleed over the Launch button
+        if (descriptionLabel != null)
+        {
+            descriptionLabel.overflowMode = TMPro.TextOverflowModes.Ellipsis;
+            descriptionLabel.enableWordWrapping = true;
+        }
     }
 
     private TestScenarioPreset GetSelectedPreset()

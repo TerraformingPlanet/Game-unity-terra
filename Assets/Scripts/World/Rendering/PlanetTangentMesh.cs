@@ -77,30 +77,51 @@ public class PlanetTangentMesh : MonoBehaviour
 
         _mesh.Clear();
 
+        if (!ProcessVisibleTriangles(sphereData, proj,
+                out var sphereVerts, out var flatVerts, out var colors, out var tris, out var triToFace))
+        {
+            Debug.LogWarning("[PlanetTangentMesh] Aucun triangle visible.");
+            return;
+        }
+
+        _sphereVerts = sphereVerts;
+        _flatVerts   = flatVerts;
+        _baseColors  = colors;
+        _triToFaceId = triToFace;
+
+        _mesh.SetVertices(_sphereVerts);
+        _mesh.SetTriangles(tris, 0);
+        _mesh.SetColors(_baseColors);
+        _mesh.RecalculateNormals();
+        _mesh.RecalculateBounds();
+    }
+
+    private bool ProcessVisibleTriangles(
+        GoldbergSphereGenerator.GoldbergMeshData sphereData,
+        LocalProjection proj,
+        out Vector3[] sphereVerts,
+        out Vector3[] flatVerts,
+        out Color[] colors,
+        out int[] tris,
+        out int[] triToFace)
+    {
         Vector3[] srcVerts = sphereData.mesh.vertices;
         int[]     srcTris  = sphereData.mesh.triangles;
 
-        // Listes temporaires (taille inconnue a priori)
         var sphereVertList = new List<Vector3>(srcTris.Length);
         var flatVertList   = new List<Vector3>(srcTris.Length);
         var colorList      = new List<Color>(srcTris.Length);
         var triList        = new List<int>(srcTris.Length);
         var triToFaceList  = new List<int>(srcTris.Length / 3);
-
         int outIdx = 0;
 
         for (int t = 0; t < srcTris.Length; t += 3)
         {
             int v0     = srcTris[t];
             int faceId = sphereData.vertexFaceId[v0];
-
-            // Filtre : on n'affiche que les faces dans le cône de visibilité
-            if (!proj.IsVisible(sphereData.faces[faceId].centroid3D, dotThreshold))
-                continue;
+            if (!proj.IsVisible(sphereData.faces[faceId].centroid3D, dotThreshold)) continue;
 
             Color faceColor = sphereData.faces[faceId].color;
-
-            // 3 sommets pour ce triangle
             for (int k = 0; k < 3; k++)
             {
                 int vi = srcTris[t + k];
@@ -109,27 +130,15 @@ public class PlanetTangentMesh : MonoBehaviour
                 colorList.Add(faceColor);
                 triList.Add(outIdx++);
             }
-
             triToFaceList.Add(faceId);
         }
 
-        if (sphereVertList.Count == 0)
-        {
-            Debug.LogWarning("[PlanetTangentMesh] Aucun triangle visible.");
-            return;
-        }
-
-        _sphereVerts = sphereVertList.ToArray();
-        _flatVerts   = flatVertList.ToArray();
-        _baseColors  = colorList.ToArray();
-        _triToFaceId = triToFaceList.ToArray();
-
-        // Upload mesh initial (position sphère, t = 0)
-        _mesh.SetVertices(_sphereVerts);
-        _mesh.SetTriangles(triList.ToArray(), 0);
-        _mesh.SetColors(_baseColors);
-        _mesh.RecalculateNormals();
-        _mesh.RecalculateBounds();
+        sphereVerts = sphereVertList.ToArray();
+        flatVerts   = flatVertList.ToArray();
+        colors      = colorList.ToArray();
+        tris        = triList.ToArray();
+        triToFace   = triToFaceList.ToArray();
+        return sphereVertList.Count > 0;
     }
 
     /// <summary>

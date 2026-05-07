@@ -35,14 +35,19 @@ namespace Code.Hexasphere
         public List<Point> Points     => _points;
         public List<Face>  Faces      => _faces;
         public List<Tile>  Neighbours => _neighbours;
+        public string      CenterId   => _center.ID;
 
         /// <summary>Position 3D du centre de la tuile (sur l'icosaèdre non projeté).</summary>
         public Vector3 CenterPosition => _center.Position;
 
-        public void ResolveNeighbourTiles(List<Tile> allTiles)
+        public void ResolveNeighbourTiles(Dictionary<string, Tile> tileLookup)
         {
-            List<string> neighbourIds = _neighbourCenters.Select(c => c.ID).ToList();
-            _neighbours = allTiles.Where(t => neighbourIds.Contains(t._center.ID)).ToList();
+            _neighbours = new List<Tile>(_neighbourCenters.Count);
+            foreach (var nc in _neighbourCenters)
+            {
+                if (tileLookup.TryGetValue(nc.ID, out Tile t))
+                    _neighbours.Add(t);
+            }
         }
 
         public string ToJson() =>
@@ -69,13 +74,23 @@ namespace Code.Hexasphere
                 .Select(f => Vector3.Lerp(_center.Position, f.GetCenter().Position, _size))
                 .ToList();
 
+            // Centroïde réel de la tuile (milieu géométrique de tous les coins).
+            // Utilisé comme apex du fan de triangles → chaque tile a un vertex "centre"
+            // qui reçoit l'altitude complète de la tile lors du déplacement topographique.
+            // Les vertices aux coins reçoivent la moyenne des tiles voisines (corner averaging).
+            Vector3 centroid = Vector3.zero;
+            foreach (var p in polyPoints) centroid += p;
+            centroid /= polyPoints.Count;
+
+            // pts[0] = centroïde de la tile (NON partagé avec les voisins)
+            // pts[1..N] = coins du polygone (partagés géométriquement avec les voisins)
+            _points.Add(new Point(centroid).ProjectToSphere(_radius, 0.5f));
             polyPoints.ForEach(pos => _points.Add(new Point(pos).ProjectToSphere(_radius, 0.5f)));
 
-            _faces.Add(new Face(_points[0], _points[1], _points[2]));
-            _faces.Add(new Face(_points[0], _points[2], _points[3]));
-            _faces.Add(new Face(_points[0], _points[3], _points[4]));
-            if (_points.Count > 5)
-                _faces.Add(new Face(_points[0], _points[4], _points[5]));
+            // Fan depuis le centroïde : (centroid, rim[i], rim[i+1])
+            int rimCount = polyPoints.Count;
+            for (int i = 0; i < rimCount; i++)
+                _faces.Add(new Face(_points[0], _points[1 + i], _points[1 + (i + 1) % rimCount]));
         }
     }
 }

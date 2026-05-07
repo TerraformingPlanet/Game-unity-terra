@@ -63,14 +63,21 @@ namespace Code.Hexasphere
         public List<Face> GetOrderedFaces()
         {
             if (_faces.Count == 0) return _faces;
-            List<Face> ordered  = new List<Face> { _faces[0] };
-            Face       current  = ordered[0];
+            var ordered = new List<Face>(_faces.Count) { _faces[0] };
+            Face current = ordered[0];
+            var seen = new HashSet<string> { current.ID };
             while (ordered.Count < _faces.Count)
             {
-                List<string> existingIds = ordered.Select(f => f.ID).ToList();
-                Face neighbour = _faces.First(f => !existingIds.Contains(f.ID) && f.IsAdjacentToFace(current));
-                current = neighbour;
+                Face next = null;
+                foreach (Face f in _faces)
+                {
+                    if (seen.Contains(f.ID)) continue;
+                    if (f.IsAdjacentToFace(current)) { next = f; break; }
+                }
+                if (next == null) break; // guard: incomplete adjacency graph
+                current = next;
                 ordered.Add(current);
+                seen.Add(current.ID);
             }
             return ordered;
         }

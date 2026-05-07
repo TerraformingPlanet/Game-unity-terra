@@ -132,6 +132,7 @@
 .tile-inspector__scroll {
     flex-grow: 1;
     padding: 0;
+    background-color: rgba(0,0,0,0);
 }
 
 /* ── Sections ─────────────────────────────────────────────────────── */
@@ -467,6 +468,14 @@
 
 .queue-track__bar-fill--investor {
     background-color: var(--queue-investor-color);
+}
+
+.queue-track__slots {
+    width: 48px;
+    font-size: 9px;
+    color: var(--text-muted);
+    -unity-text-align: upper-center;
+    margin-right: 4px;
 }
 
 .queue-track__building-name {

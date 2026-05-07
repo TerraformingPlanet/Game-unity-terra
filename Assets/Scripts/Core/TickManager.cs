@@ -17,6 +17,12 @@ using System.Collections;
 public class TickManager : MonoBehaviour, ITickSource
 {
     // =========================================================
+    // Constantes
+    // =========================================================
+
+    private const float MinTickInterval = 0.1f;
+
+    // =========================================================
     // Singleton
     // =========================================================
 
@@ -37,7 +43,7 @@ public class TickManager : MonoBehaviour, ITickSource
 
     [Header("Timing")]
     [Tooltip("Durée d'un tick en secondes (temps réel).")]
-    [Min(0.1f)]
+    [Min(MinTickInterval)]
     [SerializeField] private float tickInterval = 5f;
 
     [Tooltip("Lancer le tick automatiquement au démarrage.")]
@@ -125,7 +131,7 @@ public class TickManager : MonoBehaviour, ITickSource
     /// <summary>Change l'intervalle de tick sans interrompre le cycle en cours.</summary>
     public void SetInterval(float seconds)
     {
-        tickInterval = Mathf.Max(0.1f, seconds);
+        tickInterval = Mathf.Max(MinTickInterval, seconds);
     }
 
     /// <summary>

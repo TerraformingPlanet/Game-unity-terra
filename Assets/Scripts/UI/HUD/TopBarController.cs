@@ -123,28 +123,37 @@ public class TopBarController : MonoBehaviour
         bar.AddToClassList("top-bar");
 
         _btnBack = new Button { name = "btn-back", text = "← Retour" };
-        _btnBack.AddToClassList("hud-btn");
-        _btnBack.AddToClassList("top-bar__btn");
+        _btnBack.AddToClassList("hud-btn"); _btnBack.AddToClassList("top-bar__btn");
         bar.Add(_btnBack);
 
         _labelPlanet = new Label { name = "label-planet", text = "Planète" };
-        _labelPlanet.AddToClassList("hud-label");
-        _labelPlanet.AddToClassList("hud-label--title");
-        _labelPlanet.AddToClassList("top-bar__planet");
+        _labelPlanet.AddToClassList("hud-label"); _labelPlanet.AddToClassList("hud-label--title"); _labelPlanet.AddToClassList("top-bar__planet");
         bar.Add(_labelPlanet);
 
         _labelTickCredits = new Label { name = "label-tick-credits", text = "Tick —" };
-        _labelTickCredits.AddToClassList("hud-label");
-        _labelTickCredits.AddToClassList("hud-label--secondary");
-        _labelTickCredits.AddToClassList("top-bar__tick");
+        _labelTickCredits.AddToClassList("hud-label"); _labelTickCredits.AddToClassList("hud-label--secondary"); _labelTickCredits.AddToClassList("top-bar__tick");
         bar.Add(_labelTickCredits);
 
-        // ── Terraform progress bar (inline) ───────────────────────────────
+        BuildTerraformBar(bar);
+
+        _btnToggleView = new Button { name = "btn-toggle-view", text = "Vue Carte" };
+        _btnToggleView.AddToClassList("hud-btn"); _btnToggleView.AddToClassList("hud-btn--build"); _btnToggleView.AddToClassList("top-bar__btn");
+        bar.Add(_btnToggleView);
+
+        _btnDebug = new Button { name = "btn-debug", text = "Debug" };
+        _btnDebug.AddToClassList("hud-btn"); _btnDebug.AddToClassList("top-bar__btn");
+        bar.Add(_btnDebug);
+
+        return bar;
+    }
+
+    private void BuildTerraformBar(VisualElement bar)
+    {
         _terraformBar = new VisualElement { name = "terraform-bar" };
-        _terraformBar.style.flexDirection  = FlexDirection.Row;
-        _terraformBar.style.alignItems     = Align.Center;
-        _terraformBar.style.marginLeft     = 8f;
-        _terraformBar.style.marginRight    = 8f;
+        _terraformBar.style.flexDirection = FlexDirection.Row;
+        _terraformBar.style.alignItems    = Align.Center;
+        _terraformBar.style.marginLeft    = 8f;
+        _terraformBar.style.marginRight   = 8f;
 
         var terraLabel = new Label { text = "TERRA" };
         terraLabel.style.color    = new StyleColor(new UnityEngine.Color(0.55f, 0.85f, 0.55f));
@@ -153,17 +162,14 @@ public class TopBarController : MonoBehaviour
         _terraformBar.Add(terraLabel);
 
         var terraTrack = new VisualElement();
-        terraTrack.style.width           = 80f;
-        terraTrack.style.height          = 5f;
+        terraTrack.style.width = 80f; terraTrack.style.height = 5f;
         terraTrack.style.backgroundColor = new StyleColor(new UnityEngine.Color(0.15f, 0.15f, 0.15f));
-        terraTrack.style.borderTopLeftRadius     = 3f;
-        terraTrack.style.borderTopRightRadius    = 3f;
-        terraTrack.style.borderBottomLeftRadius  = 3f;
-        terraTrack.style.borderBottomRightRadius = 3f;
+        terraTrack.style.borderTopLeftRadius = 3f; terraTrack.style.borderTopRightRadius = 3f;
+        terraTrack.style.borderBottomLeftRadius = 3f; terraTrack.style.borderBottomRightRadius = 3f;
         terraTrack.style.overflow = Overflow.Hidden;
         _terraformFill = new VisualElement { name = "terraform-fill" };
-        _terraformFill.style.height          = new StyleLength(Length.Percent(100));
-        _terraformFill.style.width           = new StyleLength(Length.Percent(0));
+        _terraformFill.style.height = new StyleLength(Length.Percent(100));
+        _terraformFill.style.width  = new StyleLength(Length.Percent(0));
         _terraformFill.style.backgroundColor = new StyleColor(new UnityEngine.Color(0.3f, 0.75f, 0.3f));
         terraTrack.Add(_terraformFill);
         _terraformBar.Add(terraTrack);
@@ -173,22 +179,7 @@ public class TopBarController : MonoBehaviour
         _terraformLabel.style.fontSize = 10;
         _terraformLabel.style.marginLeft = 4f;
         _terraformBar.Add(_terraformLabel);
-
         bar.Add(_terraformBar);
-        // ─────────────────────────────────────────────────────────────────────
-
-        _btnToggleView = new Button { name = "btn-toggle-view", text = "Vue Carte" };
-        _btnToggleView.AddToClassList("hud-btn");
-        _btnToggleView.AddToClassList("hud-btn--build");
-        _btnToggleView.AddToClassList("top-bar__btn");
-        bar.Add(_btnToggleView);
-
-        _btnDebug = new Button { name = "btn-debug", text = "Debug" };
-        _btnDebug.AddToClassList("hud-btn");
-        _btnDebug.AddToClassList("top-bar__btn");
-        bar.Add(_btnDebug);
-
-        return bar;
     }
 
     /// <summary>Update terraformation progress in TopBar. Hides bar at 100%.</summary>

@@ -206,95 +206,52 @@ public int Radius => radius;
     public bool TryBuildDebugSummary(out HexGridDebugSummary summary)
     {
         summary = default;
-
-        if (_cells == null || _cells.Length == 0)
-            return false;
-
+        if (_cells == null || _cells.Length == 0) return false;
         float totalWaterRatio = 0f;
         float totalTemperature = 0f;
-
         foreach (HexCell cell in _cells)
-        {
-            HexPhysicalState state = cell.state;
-            summary.totalCells++;
-            totalWaterRatio += state.waterRatio;
-            totalTemperature += state.tempLocale;
-            summary.maxFlowAccumulation = Mathf.Max(summary.maxFlowAccumulation, state.flowAccumulation);
-
-            switch (state.waterClassification)
-            {
-                case WaterClassification.OpenOcean:
-                    summary.openOceanCells++;
-                    break;
-                case WaterClassification.InlandWater:
-                    summary.inlandWaterCells++;
-                    break;
-                case WaterClassification.Coast:
-                    summary.coastCells++;
-                    break;
-                case WaterClassification.FrozenWater:
-                    summary.frozenWaterCells++;
-                    break;
-                default:
-                    summary.dryCells++;
-                    break;
-            }
-
-            switch (state.terrainClass)
-            {
-                case TerrainClass.Ridge:
-                    summary.ridgeCells++;
-                    break;
-                case TerrainClass.Basin:
-                    summary.basinCells++;
-                    break;
-                case TerrainClass.Channel:
-                    summary.channelCells++;
-                    break;
-                case TerrainClass.Source:
-                    summary.sourceCells++;
-                    break;
-            }
-
-            if (state.hasRiver)
-                summary.riverCells++;
-            if (state.hasDownstream)
-                summary.downstreamCells++;
-            if (state.hasOverflowOutlet)
-                summary.overflowCells++;
-
-            if (cell.terrain == null)
-                continue;
-
-            switch (cell.terrain.terrainType)
-            {
-                case TerrainType.Roche:
-                    summary.rockTerrainCells++;
-                    break;
-                case TerrainType.Glace:
-                    summary.iceTerrainCells++;
-                    break;
-                case TerrainType.AtmosphereToxique:
-                    summary.toxicTerrainCells++;
-                    break;
-                case TerrainType.Eau:
-                    summary.waterTerrainCells++;
-                    break;
-                case TerrainType.Vegetation:
-                    summary.vegetationTerrainCells++;
-                    break;
-                case TerrainType.Metal:
-                    summary.metalTerrainCells++;
-                    break;
-                case TerrainType.Foret:
-                    summary.vegetationTerrainCells++;
-                    break;
-            }
-        }
-
+            AccumulateCellIntoSummary(cell, ref summary, ref totalWaterRatio, ref totalTemperature);
         summary.averageWaterRatio = totalWaterRatio / summary.totalCells;
         summary.averageTemperature = totalTemperature / summary.totalCells;
         return true;
+    }
+
+    private static void AccumulateCellIntoSummary(HexCell cell, ref HexGridDebugSummary summary, ref float totalWaterRatio, ref float totalTemperature)
+    {
+        HexPhysicalState state = cell.state;
+        summary.totalCells++;
+        totalWaterRatio += state.waterRatio;
+        totalTemperature += state.tempLocale;
+        summary.maxFlowAccumulation = Mathf.Max(summary.maxFlowAccumulation, state.flowAccumulation);
+        switch (state.waterClassification)
+        {
+            case WaterClassification.OpenOcean:   summary.openOceanCells++;   break;
+            case WaterClassification.InlandWater: summary.inlandWaterCells++; break;
+            case WaterClassification.Coast:       summary.coastCells++;       break;
+            case WaterClassification.FrozenWater: summary.frozenWaterCells++; break;
+            default:                              summary.dryCells++;         break;
+        }
+        switch (state.terrainClass)
+        {
+            case TerrainClass.Ridge:   summary.ridgeCells++;   break;
+            case TerrainClass.Basin:   summary.basinCells++;   break;
+            case TerrainClass.Channel: summary.channelCells++; break;
+            case TerrainClass.Source:  summary.sourceCells++;  break;
+        }
+        if (state.hasRiver)         summary.riverCells++;
+        if (state.hasDownstream)    summary.downstreamCells++;
+        if (state.hasOverflowOutlet) summary.overflowCells++;
+        if (cell.terrain == null)   return;
+        switch (cell.terrain.terrainType)
+        {
+            case TerrainType.Roche:            summary.rockTerrainCells++;       break;
+            case TerrainType.Glace:            summary.iceTerrainCells++;        break;
+            case TerrainType.AtmosphereToxique: summary.toxicTerrainCells++;     break;
+            case TerrainType.Eau:              summary.waterTerrainCells++;      break;
+            case TerrainType.Vegetation:       summary.vegetationTerrainCells++; break;
+            case TerrainType.Metal:            summary.metalTerrainCells++;      break;
+            case TerrainType.Foret:            summary.vegetationTerrainCells++; break;
+        }
     }
 
     public void DebugDumpCellState(HexCell cell)

@@ -59,6 +59,11 @@ public static class GoldbergSphereGenerator
         /// Utilisé par ApplyTopographicDisplacement pour moyenner les altitudes au coin.
         /// </summary>
         public int[] vertexCornerGroup;
+        /// <summary>
+        /// faceVertexIndices[faceId] = indices des sommets appartenant à cette face.
+        /// Permet un accès O(1) aux vertices d'une face sans scanner vertexFaceId[].
+        /// </summary>
+        public int[][] faceVertexIndices;
     }
 
     // =========================================================
@@ -96,7 +101,8 @@ public static class GoldbergSphereGenerator
         // Corner groups : chaque coin géométrique (partagé par 3 tuiles) reçoit un id unique.
         // Sert à moyenner l'altitude des 3 tuiles au coin → surface qui se déforme naturellement
         // à chaque bord, sans géométrie de remplissage (skirt).
-        int[] cornerGroups = BuildCornerGroups(vertices);
+        int[] cornerGroups      = BuildCornerGroups(vertices);
+        int[][] faceVertexIdx   = BuildFaceVertexIndices(tiles.Count, vertexFaceIdList);
 
         Mesh mesh = new Mesh { name = "GoldbergSphere" };
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
@@ -110,10 +116,11 @@ public static class GoldbergSphereGenerator
 
         return new GoldbergMeshData
         {
-            mesh              = mesh,
-            faces             = faces,
-            vertexFaceId      = vertexFaceIdList.ToArray(),
-            vertexCornerGroup = cornerGroups
+            mesh               = mesh,
+            faces              = faces,
+            vertexFaceId       = vertexFaceIdList.ToArray(),
+            vertexCornerGroup  = cornerGroups,
+            faceVertexIndices  = faceVertexIdx
         };
     }
 
@@ -222,6 +229,26 @@ public static class GoldbergSphereGenerator
     }
 
     /// <summary>
+    /// Precompute for each face the list of vertex indices that belong to it.
+    /// Avoids O(vertexCount) scans in TintFace / HideFaceOnSphere by providing
+    /// direct O(1) access to a face’s vertex subset.
+    /// </summary>
+    private static int[][] BuildFaceVertexIndices(int faceCount, List<int> vertexFaceIdList)
+    {
+        var counts = new int[faceCount];
+        foreach (int fid in vertexFaceIdList) counts[fid]++;
+        var result = new int[faceCount][];
+        for (int i = 0; i < faceCount; i++) result[i] = new int[counts[i]];
+        var cursors = new int[faceCount];
+        for (int vi = 0; vi < vertexFaceIdList.Count; vi++)
+        {
+            int fid = vertexFaceIdList[vi];
+            result[fid][cursors[fid]++] = vi;
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Calcule le nombre de subdivisions N tel que 10·N²+2 ≈ cols×rows de la grille
     /// Mercator plate équivalente. Garantit la même résolution visuelle entre les deux vues.
     /// Cap à 15 (2252 tuiles) pour des performances acceptables.
@@ -257,49 +284,16 @@ public static class GoldbergSphereGenerator
         if (mesh == null || vertexFaceId == null || faceAltitudes == null) return;
 
         Vector3[] verts = mesh.vertices;
-        float[]   vertexAlts;
 
-        if (vertexCornerGroup != null)
-        {
-            // ── Corner averaging ──────────────────────────────────────────────────
-            // Chaque coin géométrique est partagé par 3 tuiles → chaque tuile contribue
-            // max(alt, seaLevel) dans la somme. Le centroïde de chaque tile est dans un
-            // groupe unique (N copies d'une même tile) → alt = max(tileAlt, seaLevel).
-            // Garantit que TOUTES les copies d'un coin ont la MÊME altitude → zéro gap.
-            var groupSum   = new float[verts.Length];
-            var groupCount = new int[verts.Length];
-
-            for (int i = 0; i < verts.Length; i++)
-            {
-                int   fid = vertexFaceId[i];
-                float alt = (fid >= 0 && fid < faceAltitudes.Length) ? faceAltitudes[fid] : seaLevelAltitude;
-                int   grp = vertexCornerGroup[i];
-                groupSum[grp]   += alt;  // altitude brute : ocean se creuse, montagne s'élève
-                groupCount[grp] += 1;
-            }
-
-            vertexAlts = new float[verts.Length];
-            for (int i = 0; i < verts.Length; i++)
-            {
-                int grp = vertexCornerGroup[i];
-                // Même altitude pour TOUTES les copies du même coin → garanti zéro gap.
-                // Pas de 2e clamp par tile : il créait des altitudes différentes entre copies.
-                vertexAlts[i] = groupSum[grp] / groupCount[grp];
-            }
-        }
-        else
-        {
-            // Legacy : altitude plate par tuile
-            vertexAlts = new float[verts.Length];
-            for (int i = 0; i < verts.Length; i++)
-            {
-                int fid = vertexFaceId[i];
-                vertexAlts[i] = (fid >= 0 && fid < faceAltitudes.Length) ? faceAltitudes[fid] : 0f;
-            }
-        }
-
+        // Altitude uniforme par tuile (mode prisme) : tous les verts d'une face
+        // déplacés au même rayon → top-face parfaitement plate.
+        // Les faces latérales (TilePrismsBuilder) gèrent la transition verticale.
         for (int i = 0; i < verts.Length; i++)
-            verts[i] = verts[i].normalized * (VisualRadius + vertexAlts[i] * displacementScale);
+        {
+            int   fid = vertexFaceId[i];
+            float alt = (fid >= 0 && fid < faceAltitudes.Length) ? faceAltitudes[fid] : 0f;
+            verts[i] = verts[i].normalized * (VisualRadius + alt * displacementScale);
+        }
 
         mesh.vertices = verts;
         mesh.RecalculateNormals();
@@ -353,6 +347,93 @@ public static class GoldbergSphereGenerator
         Color[] meshColors = new Color[mesh.vertexCount];
         for (int i = 0; i < meshColors.Length; i++)
             meshColors[i] = faces[vertexFaceId[i]].color;
+        mesh.colors = meshColors;
+    }
+
+    /// <summary>
+    /// Applique les vertex colors avec un gradient de rim : les corners physiquement partagés
+    /// entre plusieurs tuiles fondent leur couleur vers la moyenne des voisins.
+    /// Le centroïde de chaque tuile (corner n'appartenant qu'à une seule face) garde
+    /// sa couleur pure — seuls les bords dégradent.
+    /// </summary>
+    /// <param name="rimBlend">[0,1]. 0 = identique à ApplyFaceColors. 0.40 = équilibré. 1 = fusion totale.</param>
+    /// <param name="maxBlendColorDelta">Distance RGB max pour qu'un voisin soit inclus dans la moyenne.
+    /// 0 = illimité. 0.45 = bloque eau↔terre (~0.8), autorise terre↔terre (~0.25).</param>
+    public static void ApplyFaceColorsBlended(
+        Mesh mesh,
+        GoldbergFace[] faces,
+        int[] vertexFaceId,
+        int[] vertexCornerGroup,
+        float rimBlend = 0.40f,
+        float maxBlendColorDelta = 0f)
+    {
+        if (mesh == null) return;
+        if (vertexCornerGroup == null || vertexCornerGroup.Length != vertexFaceId.Length)
+        {
+            ApplyFaceColors(mesh, faces, vertexFaceId);
+            return;
+        }
+
+        // Pré-calcul : groupId → liste des faceIds distincts qui partagent ce coin.
+        // Les centroïdes ont un groupId unique à une seule face.
+        var groupFaces = new Dictionary<int, List<int>>(vertexFaceId.Length / 4);
+        for (int i = 0; i < vertexFaceId.Length; i++)
+        {
+            int gid = vertexCornerGroup[i];
+            int fid = vertexFaceId[i];
+            if (!groupFaces.TryGetValue(gid, out var list))
+            {
+                list = new List<int>(4);
+                groupFaces[gid] = list;
+            }
+            if (!list.Contains(fid)) list.Add(fid);
+        }
+
+        Color[] meshColors = new Color[mesh.vertexCount];
+        for (int i = 0; i < meshColors.Length; i++)
+        {
+            int   fid  = vertexFaceId[i];
+            int   gid  = vertexCornerGroup[i];
+            Color own  = faces[fid].color;
+
+            if (!groupFaces.TryGetValue(gid, out var neighbors) || neighbors.Count < 2)
+            {
+                // Centroïde ou coin isolé → couleur pure.
+                meshColors[i] = own;
+                continue;
+            }
+
+            // Moyenne des faces voisines (excluant la face courante).
+            // maxBlendColorDelta > 0 : les voisins dont la couleur diffère trop sont exclus
+            // (ex. eau bleu foncé vs sable vert : distance ~0.8 >> seuil 0.45 → bloqué).
+            float r = 0f, g = 0f, b = 0f, a = 0f;
+            int   count = 0;
+            float deltaSq = maxBlendColorDelta * maxBlendColorDelta;
+            foreach (int nf in neighbors)
+            {
+                if (nf == fid) continue;
+                Color nc = faces[nf].color;
+                if (maxBlendColorDelta > 0f)
+                {
+                    float dr = nc.r - own.r, dg = nc.g - own.g, db = nc.b - own.b;
+                    if (dr*dr + dg*dg + db*db > deltaSq) continue;
+                }
+                r += nc.r; g += nc.g; b += nc.b; a += nc.a;
+                count++;
+            }
+
+            if (count > 0)
+            {
+                float inv = 1f / count;
+                Color avg = new Color(r * inv, g * inv, b * inv, a * inv);
+                meshColors[i] = Color.Lerp(own, avg, rimBlend);
+            }
+            else
+            {
+                meshColors[i] = own;
+            }
+        }
+
         mesh.colors = meshColors;
     }
 }

@@ -47,23 +47,9 @@ public static class SimulationContractFactory
         };
         state.terraformationProgress = progressTracker != null ? progressTracker.Progress : 0f;
         state.summary = summary;
-        HexCell[] cells = viewManager.ActiveHexGrid.GetCells();
-        if (cells != null && cells.Length > 0)
-        {
-            state.cells = new SimulationCellState[cells.Length];
-            for (int index = 0; index < cells.Length; index++)
-                state.cells[index] = BuildCellState(cells[index]);
-        }
 
-        if (generationContext != null)
-        {
-            state.coherence = BuildCoherenceState(generationContext.coherence);
-            state.weather = BuildWeatherState(generationContext.weather);
-        }
-        else if (currentRegion != null)
-        {
-            state.coherence.projectedWaterRatio = currentRegion.projectedWaterRatio;
-        }
+        FillRegionCells(viewManager, ref state);
+        FillRegionCoherence(generationContext, currentRegion, ref state);
 
         if (selectedCell != null)
         {
@@ -72,6 +58,29 @@ public static class SimulationContractFactory
         }
 
         return true;
+    }
+
+    private static void FillRegionCells(ViewManager viewManager, ref RegionState state)
+    {
+        HexCell[] cells = viewManager.ActiveHexGrid.GetCells();
+        if (cells == null || cells.Length == 0) return;
+
+        state.cells = new SimulationCellState[cells.Length];
+        for (int index = 0; index < cells.Length; index++)
+            state.cells[index] = BuildCellState(cells[index]);
+    }
+
+    private static void FillRegionCoherence(GenerationContext generationContext, MapRegion currentRegion, ref RegionState state)
+    {
+        if (generationContext != null)
+        {
+            state.coherence = BuildCoherenceState(generationContext.coherence);
+            state.weather   = BuildWeatherState(generationContext.weather);
+        }
+        else if (currentRegion != null)
+        {
+            state.coherence.projectedWaterRatio = currentRegion.projectedWaterRatio;
+        }
     }
 
     public static WorldState BuildWorldState(ViewManager viewManager,

@@ -20,6 +20,10 @@ public partial class SolarSystemView
     [Serializable] private class BodyListWrapper   { public BodyDto[] items; }
     [Serializable] private class SystemListWrapper { public SystemDto[] items; }
 
+    // Transfert de résultats entre sous-coroutines
+    private SystemDto _pendingSystem;
+    private BodyDto[] _pendingBodies;
+
     // =========================================================
     // Helpers statiques — conversion DTO → OrbitalBody
     // =========================================================
@@ -90,32 +94,10 @@ public partial class SolarSystemView
         float clampedWater = Mathf.Clamp01(dto.waterLevel);
 
         if (bodyType == ServerBodyType.GasGiant)
-        {
-            return new AtmosphericComposition
-            {
-                density = 1f,
-                n2Ratio = 0.05f,
-                o2Ratio = 0f,
-                co2Ratio = 0.05f,
-                ch4Ratio = 0.12f,
-                toxinRatio = 0.08f,
-            };
-        }
+            return InferAtmosphereGasGiant();
 
         if (bodyType == ServerBodyType.Moon)
-        {
-            return clampedWater >= 0.35f
-                ? AtmosphericComposition.IcyMoon
-                : new AtmosphericComposition
-                {
-                    density = 0.03f,
-                    n2Ratio = 0.82f,
-                    o2Ratio = 0f,
-                    co2Ratio = 0.08f,
-                    ch4Ratio = 0.02f,
-                    toxinRatio = 0f,
-                };
-        }
+            return InferAtmosphereMoon(clampedWater);
 
         if (clampedWater >= 0.45f)
         {
@@ -136,6 +118,34 @@ public partial class SolarSystemView
             ch4Ratio = 0.01f,
             toxinRatio = Mathf.Lerp(0.08f, 0.01f, clampedWater),
         };
+    }
+
+    private static AtmosphericComposition InferAtmosphereGasGiant()
+    {
+        return new AtmosphericComposition
+        {
+            density = 1f,
+            n2Ratio = 0.05f,
+            o2Ratio = 0f,
+            co2Ratio = 0.05f,
+            ch4Ratio = 0.12f,
+            toxinRatio = 0.08f,
+        };
+    }
+
+    private static AtmosphericComposition InferAtmosphereMoon(float clampedWater)
+    {
+        return clampedWater >= 0.35f
+            ? AtmosphericComposition.IcyMoon
+            : new AtmosphericComposition
+            {
+                density = 0.03f,
+                n2Ratio = 0.82f,
+                o2Ratio = 0f,
+                co2Ratio = 0.08f,
+                ch4Ratio = 0.02f,
+                toxinRatio = 0f,
+            };
     }
 
     private static void PopulateOrbitalBodyProfile(OrbitalBody body, BodyDto dto, ServerBodyType bodyType)
@@ -241,72 +251,21 @@ public partial class SolarSystemView
         int requestGeneration = ++_serverLoadGeneration;
         string baseUrl = serverUrl.TrimEnd('/');
         int timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
-        const int maxAttempts = 3;
-        const float retryDelaySeconds = 0.25f;
 
-        SystemDto activeSystem = null;
-        BodyDto[] bodies = null;
+        yield return StartCoroutine(FetchSystemData(baseUrl, timeout, requestGeneration));
 
-        for (int attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            activeSystem = null;
-            bodies = null;
-
-            // 1. Fetch le système actif depuis /galaxy/systems
-            using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/galaxy/systems"))
-            {
-                req.timeout = timeout;
-                yield return req.SendWebRequest();
-                if (req.result == UnityWebRequest.Result.Success)
-                {
-                    string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-                    SystemListWrapper list = JsonUtility.FromJson<SystemListWrapper>(wrapped);
-                    if (list?.items != null && list.items.Length > 0)
-                        activeSystem = list.items[0]; // premier système = système actif
-                }
-            }
-
-            if (requestGeneration != _serverLoadGeneration || !isActiveAndEnabled || !gameObject.activeInHierarchy)
-                yield break;
-
-            // 2. Fetch tous les corps depuis /bodies
-            using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/bodies"))
-            {
-                req.timeout = timeout;
-                yield return req.SendWebRequest();
-                if (req.result == UnityWebRequest.Result.Success)
-                {
-                    string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
-                    BodyListWrapper list = JsonUtility.FromJson<BodyListWrapper>(wrapped);
-                    bodies = list?.items;
-                }
-            }
-
-            if (requestGeneration != _serverLoadGeneration || !isActiveAndEnabled || !gameObject.activeInHierarchy)
-                yield break;
-
-            if (bodies != null && bodies.Length > 0)
-                break;
-
-            if (attempt < maxAttempts)
-                yield return new WaitForSeconds(retryDelaySeconds);
-        }
+        BodyDto[] bodies = _pendingBodies;
+        SystemDto activeSystem = _pendingSystem;
+        _pendingSystem = null;
+        _pendingBodies = null;
 
         if (bodies == null || bodies.Length == 0)
         {
-            Debug.Log($"[SolarSystemView] Chargement serveur ignoré: aucun corps reçu après {maxAttempts} tentatives.");
+            Debug.Log("[SolarSystemView] Chargement serveur ignoré: aucun corps reçu.");
             yield break;
         }
 
-        // Filtrer les corps appartenant au système actif uniquement
-        if (activeSystem?.bodyIds != null && activeSystem.bodyIds.Length > 0)
-        {
-            var idSet = new HashSet<string>(activeSystem.bodyIds);
-            var filtered = new List<BodyDto>();
-            foreach (var b in bodies)
-                if (idSet.Contains(b.bodyId)) filtered.Add(b);
-            bodies = filtered.ToArray();
-        }
+        bodies = FilterBodiesByActiveSystem(bodies, activeSystem);
 
         if (bodies.Length == 0)
         {
@@ -314,11 +273,83 @@ public partial class SolarSystemView
             yield break;
         }
 
-        // 3. Construire SolarSystemData en mémoire
+        BuildAndLoadSolarSystem(activeSystem, bodies);
+    }
+
+    private IEnumerator FetchSystemData(string baseUrl, int timeout, int requestGeneration)
+    {
+        const int maxAttempts = 3;
+        const float retryDelaySeconds = 0.25f;
+        _pendingSystem = null;
+        _pendingBodies = null;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            yield return StartCoroutine(FetchActiveSystem(baseUrl, timeout));
+            if (requestGeneration != _serverLoadGeneration || !isActiveAndEnabled || !gameObject.activeInHierarchy)
+                yield break;
+
+            yield return StartCoroutine(FetchBodiesList(baseUrl, timeout));
+            if (requestGeneration != _serverLoadGeneration || !isActiveAndEnabled || !gameObject.activeInHierarchy)
+                yield break;
+
+            if (_pendingBodies != null && _pendingBodies.Length > 0)
+                yield break;
+
+            if (attempt < maxAttempts)
+                yield return new WaitForSeconds(retryDelaySeconds);
+        }
+    }
+
+    private IEnumerator FetchActiveSystem(string baseUrl, int timeout)
+    {
+        _pendingSystem = null;
+        using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/galaxy/systems"))
+        {
+            req.timeout = timeout;
+            yield return req.SendWebRequest();
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
+                SystemListWrapper list = JsonUtility.FromJson<SystemListWrapper>(wrapped);
+                if (list?.items != null && list.items.Length > 0)
+                    _pendingSystem = list.items[0];
+            }
+        }
+    }
+
+    private IEnumerator FetchBodiesList(string baseUrl, int timeout)
+    {
+        _pendingBodies = null;
+        using (UnityWebRequest req = UnityWebRequest.Get(baseUrl + "/bodies"))
+        {
+            req.timeout = timeout;
+            yield return req.SendWebRequest();
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                string wrapped = "{\"items\":" + req.downloadHandler.text + "}";
+                BodyListWrapper list = JsonUtility.FromJson<BodyListWrapper>(wrapped);
+                _pendingBodies = list?.items;
+            }
+        }
+    }
+
+    private static BodyDto[] FilterBodiesByActiveSystem(BodyDto[] bodies, SystemDto activeSystem)
+    {
+        if (activeSystem?.bodyIds == null || activeSystem.bodyIds.Length == 0)
+            return bodies;
+        var idSet = new HashSet<string>(activeSystem.bodyIds);
+        var filtered = new List<BodyDto>();
+        foreach (var b in bodies)
+            if (idSet.Contains(b.bodyId)) filtered.Add(b);
+        return filtered.ToArray();
+    }
+
+    private void BuildAndLoadSolarSystem(SystemDto activeSystem, BodyDto[] bodies)
+    {
         SolarSystemData data = ScriptableObject.CreateInstance<SolarSystemData>();
         data.systemName = activeSystem?.name ?? "Système";
 
-        // Étoile racine
         BodyDto rootBody = activeSystem != null
             ? System.Array.Find(bodies, b => b.bodyId == activeSystem.rootBodyId)
             : System.Array.Find(bodies, b => b.bodyType == (int)ServerBodyType.Star);
@@ -332,14 +363,11 @@ public partial class SolarSystemView
             data.primaryStar = star;
         }
 
-        // Planètes et lunes: reconstruire la hiérarchie parent → enfant au lieu de tout aplatir.
         var slotsByBodyId = new Dictionary<string, OrbitalSlot>();
         foreach (BodyDto b in bodies)
         {
             if (b.bodyType == (int)ServerBodyType.Star) continue;
-
             OrbitalBody body = BuildOrbitalBodyFromDto(b);
-
             OrbitalParameters orbit = new OrbitalParameters();
             if (b.orbitalParams != null)
             {
@@ -352,10 +380,18 @@ public partial class SolarSystemView
             {
                 orbit.currentOrbitalPosition = StableOrbitalPhase01(b.bodyId, 0f);
             }
-
             slotsByBodyId[b.bodyId] = new OrbitalSlot { body = body, orbit = orbit, moons = new OrbitalSlot[0] };
         }
 
+        OrbitalSlot[] topSlots = PopulateBodyHierarchy(slotsByBodyId, bodies);
+        data.orbitalSlots = topSlots;
+        LoadSystem(data);
+        LogSystemValidation(data);
+        Debug.Log($"[SolarSystemView] Système chargé depuis serveur : {data.systemName} ({topSlots.Length} corps top-level)");
+    }
+
+    private OrbitalSlot[] PopulateBodyHierarchy(Dictionary<string, OrbitalSlot> slotsByBodyId, BodyDto[] bodies)
+    {
         var topLevelSlots = new List<OrbitalSlot>();
         foreach (BodyDto b in bodies)
         {
@@ -375,12 +411,7 @@ public partial class SolarSystemView
                 RegisterDebugInfo(slot.body, b, null);
             }
         }
-
         topLevelSlots.Sort((left, right) => left.orbit.semiMajorAxis.CompareTo(right.orbit.semiMajorAxis));
-        data.orbitalSlots = topLevelSlots.ToArray();
-
-        LoadSystem(data);
-        LogSystemValidation(data);
-        Debug.Log($"[SolarSystemView] Système chargé depuis serveur : {data.systemName} ({topLevelSlots.Count} corps top-level)");
+        return topLevelSlots.ToArray();
     }
 }

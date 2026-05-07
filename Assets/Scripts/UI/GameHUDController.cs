@@ -10,7 +10,7 @@ using UnityEngine.UIElements;
 /// Toute logique metier est deleguee aux sous-controleurs.
 /// </summary>
 [RequireComponent(typeof(UIDocument))]
-public class GameHUDController : MonoBehaviour
+public partial class GameHUDController : MonoBehaviour
 {
     [Header("References")]
     [SerializeField] private ViewManager          viewManager;
@@ -51,14 +51,6 @@ public class GameHUDController : MonoBehaviour
     private UIDocument    _doc;
     private VisualElement _root;
     private ViewManager.ViewState _viewState = ViewManager.ViewState.Galaxy;
-
-    private VisualElement _tooltip;
-    private Label         _tooltipLabel;
-
-    private VisualElement _eventPopup;
-    private Label         _eventPopupTitle;
-    private Label         _eventPopupBody;
-    private Coroutine     _autoHidePopupCoroutine;
 
     private void InitializeHUDControllers()
     {
@@ -165,6 +157,7 @@ public class GameHUDController : MonoBehaviour
     private void Update()
     {
         if (Keyboard.current != null && Keyboard.current.f9Key.wasPressedThisFrame)  ToggleDebugDrawer();
+        if (Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame)  ToggleTestLaunchMenu();
         if (Keyboard.current != null && Keyboard.current.f10Key.wasPressedThisFrame) debugHydrologyPanel?.TogglePanel();
     }
 
@@ -197,25 +190,7 @@ public class GameHUDController : MonoBehaviour
             regionState.isValid ? regionState.atmosphericState : default);
     }
 
-    private void OnTileHoverReady(string text, UnityEngine.Vector2 screenPos)
-    {
-        if (_tooltip == null) return;
-        _tooltipLabel.text = text;
-        _tooltip.style.display = DisplayStyle.Flex;
-        float px = screenPos.x + 16f;
-        float py = UnityEngine.Screen.height - screenPos.y + 16f;
-        if (px + 240f > UnityEngine.Screen.width)  px = screenPos.x - 256f;
-        if (py + 50f  > UnityEngine.Screen.height) py = UnityEngine.Screen.height - screenPos.y - 60f;
-        _tooltip.style.left = px;
-        _tooltip.style.top  = py;
-    }
-
-    private void OnTileHoverCancelled()
-    {
-        if (_tooltip != null) _tooltip.style.display = DisplayStyle.None;
-    }
-
-    // ── WebSocket handlers ────────────────────────────────────────────────────
+// ── WebSocket handlers ────────────────────────────────────────────────────
 
     private void OnWsTickAdvanced(int tick)
     {
@@ -286,85 +261,6 @@ public class GameHUDController : MonoBehaviour
         public int   speedMultiplier;
     }
 
-    private void BuildTooltip()
-    {
-        if (tooltipTemplate != null)
-        {
-            tooltipTemplate.CloneTree(_root);
-            _tooltip      = _root.Q<VisualElement>("hud-tooltip");
-            _tooltipLabel = _root.Q<Label>("hud-tooltip-label");
-        }
-        else
-        {
-            _tooltip = new VisualElement { name = "hud-tooltip" };
-            _tooltip.AddToClassList("hud-tooltip");
-            _tooltipLabel = new Label { name = "hud-tooltip-label" };
-            _tooltipLabel.AddToClassList("hud-tooltip__label");
-            _tooltip.Add(_tooltipLabel);
-            _root.Add(_tooltip);
-        }
-        if (_tooltip != null) { _tooltip.pickingMode = PickingMode.Ignore; _tooltip.style.display = DisplayStyle.None; }
-    }
-
-    private void BuildEventPopup()
-    {
-        if (eventPopupTemplate != null)
-        {
-            eventPopupTemplate.CloneTree(_root);
-            _eventPopup      = _root.Q<VisualElement>("event-popup");
-            _eventPopupTitle = _root.Q<Label>("event-popup-title");
-            _eventPopupBody  = _root.Q<Label>("event-popup-body");
-        }
-        else
-        {
-            _eventPopup = new VisualElement { name = "event-popup" };
-            _eventPopup.AddToClassList("event-popup");
-            _eventPopupTitle = new Label { name = "event-popup-title" };
-            _eventPopupTitle.AddToClassList("event-popup__title");
-            _eventPopupBody  = new Label { name = "event-popup-body" };
-            _eventPopupBody.AddToClassList("event-popup__body");
-            _eventPopup.Add(_eventPopupTitle);
-            _eventPopup.Add(_eventPopupBody);
-            _root.Add(_eventPopup);
-        }
-        if (_eventPopup != null)
-        {
-            _eventPopup.pickingMode      = PickingMode.Ignore;
-            _eventPopup.style.position   = Position.Absolute;
-            _eventPopup.style.top        = new StyleLength(56f);
-            _eventPopup.style.left       = new StyleLength(UnityEngine.UIElements.Length.Percent(50));
-            _eventPopup.style.marginLeft = new StyleLength(-170f);
-            _eventPopup.style.display    = DisplayStyle.None;
-        }
-    }
-
-    public void ShowEventPopup(string title, string body = "", float autoHideSeconds = 4f)
-    {
-        if (_eventPopup == null) return;
-        if (_eventPopupTitle != null) _eventPopupTitle.text = title;
-        if (_eventPopupBody  != null)
-        {
-            _eventPopupBody.text = body;
-            _eventPopupBody.style.display = string.IsNullOrEmpty(body) ? DisplayStyle.None : DisplayStyle.Flex;
-        }
-        _eventPopup.style.display = DisplayStyle.Flex;
-        if (_autoHidePopupCoroutine != null) StopCoroutine(_autoHidePopupCoroutine);
-        _autoHidePopupCoroutine = StartCoroutine(AutoHidePopup(autoHideSeconds));
-    }
-
-    public void HideEventPopup()
-    {
-        if (_autoHidePopupCoroutine != null) { StopCoroutine(_autoHidePopupCoroutine); _autoHidePopupCoroutine = null; }
-        if (_eventPopup != null) _eventPopup.style.display = DisplayStyle.None;
-    }
-
-    private IEnumerator AutoHidePopup(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        if (_eventPopup != null) _eventPopup.style.display = DisplayStyle.None;
-        _autoHidePopupCoroutine = null;
-    }
-
     public string GetSimulationServerUrl()     => config != null ? config.simulationServerUrl     : "http://127.0.0.1:8080";
     public float  GetSimulationServerTimeout() => config != null ? config.simulationServerTimeoutSeconds : 5f;
 
@@ -377,6 +273,10 @@ public class GameHUDController : MonoBehaviour
     public void ToggleDebugDrawer()
     {
         debugDrawerController?.SetVisible(!debugDrawerController.GetVisible());
+    }
+
+    public void ToggleTestLaunchMenu()
+    {
         testLaunchMenu?.ToggleMenu();
     }
     public void SetActiveTab(int tabIndex)              => bottomActionBarController?.SetActiveTab(tabIndex);

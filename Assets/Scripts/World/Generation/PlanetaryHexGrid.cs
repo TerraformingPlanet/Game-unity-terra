@@ -198,58 +198,40 @@ public static class PlanetaryHexGrid
             summary.totalCells++;
             totalWaterRatio += state.waterRatio;
             totalTemperature += state.tempLocale;
-
-            switch (state.waterClassification)
-            {
-                case WaterClassification.OpenOcean:
-                    summary.openOceanCells++;
-                    break;
-                case WaterClassification.InlandWater:
-                    summary.inlandWaterCells++;
-                    break;
-                case WaterClassification.Coast:
-                    summary.coastCells++;
-                    break;
-                case WaterClassification.FrozenWater:
-                    summary.frozenWaterCells++;
-                    break;
-                default:
-                    summary.dryCells++;
-                    break;
-            }
-
-            if (cell.terrain == null)
-                continue;
-
-            switch (cell.terrain.terrainType)
-            {
-                case TerrainType.Roche:
-                    summary.rockTerrainCells++;
-                    break;
-                case TerrainType.Glace:
-                    summary.iceTerrainCells++;
-                    break;
-                case TerrainType.AtmosphereToxique:
-                    summary.toxicTerrainCells++;
-                    break;
-                case TerrainType.Eau:
-                    summary.waterTerrainCells++;
-                    break;
-                case TerrainType.Vegetation:
-                    summary.vegetationTerrainCells++;
-                    break;
-                case TerrainType.Metal:
-                    summary.metalTerrainCells++;
-                    break;
-                case TerrainType.Foret:
-                    summary.vegetationTerrainCells++;
-                    break;
-            }
+            AccumulateWaterClassification(state.waterClassification, ref summary);
+            if (cell.terrain != null)
+                AccumulateTerrainType(cell.terrain.terrainType, ref summary);
         }
 
         summary.averageWaterRatio = totalWaterRatio / summary.totalCells;
         summary.averageTemperature = totalTemperature / summary.totalCells;
         return true;
+    }
+
+    private static void AccumulateWaterClassification(WaterClassification wc, ref ProjectionDebugSummary summary)
+    {
+        switch (wc)
+        {
+            case WaterClassification.OpenOcean:   summary.openOceanCells++;   break;
+            case WaterClassification.InlandWater: summary.inlandWaterCells++; break;
+            case WaterClassification.Coast:       summary.coastCells++;       break;
+            case WaterClassification.FrozenWater: summary.frozenWaterCells++; break;
+            default:                              summary.dryCells++;         break;
+        }
+    }
+
+    private static void AccumulateTerrainType(TerrainType tt, ref ProjectionDebugSummary summary)
+    {
+        switch (tt)
+        {
+            case TerrainType.Roche:             summary.rockTerrainCells++;       break;
+            case TerrainType.Glace:             summary.iceTerrainCells++;        break;
+            case TerrainType.AtmosphereToxique: summary.toxicTerrainCells++;      break;
+            case TerrainType.Eau:               summary.waterTerrainCells++;      break;
+            case TerrainType.Vegetation:        summary.vegetationTerrainCells++; break;
+            case TerrainType.Metal:             summary.metalTerrainCells++;      break;
+            case TerrainType.Foret:             summary.vegetationTerrainCells++; break;
+        }
     }
 
     private static void ApplyProjectionOverride(HexCell[] cells, int cols, int rows, OrbitalBody body, DebugCoherenceOverride coherenceOverride)
@@ -279,105 +261,124 @@ public static class PlanetaryHexGrid
             switch (coherenceOverride)
             {
                 case DebugCoherenceOverride.Ocean:
-                    if (oceanMask >= OceanProjectionThreshold)
-                    {
-                        state.waterRatio = Mathf.Max(state.waterRatio, 0.96f);
-                        state.waterClassification = WaterClassification.OpenOcean;
-                        state.terrainClass = TerrainClass.Basin;
-                        state.tempLocale = Mathf.Max(state.tempLocale, -4f);
-                        cell.terrain = waterTerrain ?? cell.terrain;
-                    }
-                    else
-                    {
-                        state.waterRatio = Mathf.Min(state.waterRatio, 0.28f);
-                        if (state.waterClassification == WaterClassification.OpenOcean)
-                            state.waterClassification = WaterClassification.Dry;
-                        cell.terrain = rockTerrain ?? cell.terrain;
-                    }
+                    ApplyOceanCoherenceCell(cell, ref state, oceanMask, waterTerrain, rockTerrain);
                     break;
-
                 case DebugCoherenceOverride.Arid:
-                    state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.01f, 0.08f, 1f - oceanMask));
-                    state.waterClassification = WaterClassification.Dry;
-
-                    if ((state.tempLocale <= -18f && v <= 0.08f) || v >= 0.92f)
-                    {
-                        state.tempLocale = Mathf.Min(state.tempLocale, -18f);
-                        cell.terrain = iceTerrain ?? rockTerrain ?? cell.terrain;
-                    }
-                    else if (oceanMask >= AridProjectionThreshold)
-                    {
-                        cell.terrain = metalTerrain ?? rockTerrain ?? cell.terrain;
-                    }
-                    else
-                    {
-                        cell.terrain = rockTerrain ?? metalTerrain ?? cell.terrain;
-                    }
+                    ApplyAridCoherenceCell(cell, ref state, oceanMask, v, rockTerrain, metalTerrain, iceTerrain);
                     break;
-
                 case DebugCoherenceOverride.Frozen:
-                    if (oceanMask >= FrozenProjectionThreshold)
-                    {
-                        state.waterRatio = Mathf.Max(state.waterRatio, 0.7f);
-                        state.tempLocale = Mathf.Min(state.tempLocale, -20f);
-                        state.waterClassification = WaterClassification.FrozenWater;
-                        state.terrainClass = TerrainClass.Basin;
-                        cell.terrain = iceTerrain ?? cell.terrain;
-                    }
+                    ApplyFrozenCoherenceCell(cell, ref state, oceanMask, iceTerrain);
                     break;
-
                 case DebugCoherenceOverride.Coast:
-                    if (coastMask >= CoastOceanThreshold)
-                    {
-                        state.waterRatio = Mathf.Max(state.waterRatio, 0.94f);
-                        state.waterClassification = WaterClassification.OpenOcean;
-                        state.terrainClass = TerrainClass.Basin;
-                        cell.terrain = waterTerrain ?? cell.terrain;
-                    }
-                    else if (coastMask >= CoastShoreThreshold)
-                    {
-                        state.waterRatio = Mathf.Max(state.waterRatio, Mathf.Lerp(0.58f, 0.8f, Mathf.InverseLerp(CoastShoreThreshold, CoastOceanThreshold, coastMask)));
-                        state.waterClassification = WaterClassification.Coast;
-                        state.terrainClass = TerrainClass.Channel;
-                        cell.terrain = waterTerrain ?? vegetationTerrain ?? rockTerrain ?? cell.terrain;
-                    }
-                    else
-                    {
-                        state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.12f, 0.35f, coastMask));
-                        if (state.waterClassification == WaterClassification.OpenOcean)
-                            state.waterClassification = WaterClassification.Dry;
-                        state.terrainClass = coastMask >= 0.42f ? TerrainClass.Slope : state.terrainClass;
-                        cell.terrain = vegetationTerrain ?? rockTerrain ?? cell.terrain;
-                    }
+                    ApplyCoastCoherenceCell(cell, ref state, coastMask, waterTerrain, vegetationTerrain, rockTerrain);
                     break;
-
                 case DebugCoherenceOverride.Basin:
-                    if (basinMask >= BasinCoreThreshold)
-                    {
-                        state.waterRatio = Mathf.Max(state.waterRatio, 0.86f);
-                        state.waterClassification = WaterClassification.InlandWater;
-                        state.terrainClass = TerrainClass.Basin;
-                        cell.terrain = waterTerrain ?? cell.terrain;
-                    }
-                    else if (basinMask >= BasinShoreThreshold)
-                    {
-                        state.waterRatio = Mathf.Max(state.waterRatio, Mathf.Lerp(0.5f, 0.72f, Mathf.InverseLerp(BasinShoreThreshold, BasinCoreThreshold, basinMask)));
-                        state.waterClassification = WaterClassification.Coast;
-                        state.terrainClass = TerrainClass.Channel;
-                        cell.terrain = vegetationTerrain ?? waterTerrain ?? rockTerrain ?? cell.terrain;
-                    }
-                    else
-                    {
-                        state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.08f, 0.28f, basinMask));
-                        if (state.waterClassification == WaterClassification.OpenOcean)
-                            state.waterClassification = WaterClassification.Dry;
-                        state.terrainClass = basinMask >= 0.38f ? TerrainClass.Slope : TerrainClass.Ridge;
-                        cell.terrain = rockTerrain ?? vegetationTerrain ?? cell.terrain;
-                    }
+                    ApplyBasinCoherenceCell(cell, ref state, basinMask, waterTerrain, vegetationTerrain, rockTerrain);
                     break;
             }
-
             cell.state = state;
+        }
+    }
+
+    private static void ApplyOceanCoherenceCell(HexCell cell, ref HexPhysicalState state, float oceanMask, TerrainData waterTerrain, TerrainData rockTerrain)
+    {
+        if (oceanMask >= OceanProjectionThreshold)
+        {
+            state.waterRatio = Mathf.Max(state.waterRatio, 0.96f);
+            state.waterClassification = WaterClassification.OpenOcean;
+            state.terrainClass = TerrainClass.Basin;
+            state.tempLocale = Mathf.Max(state.tempLocale, -4f);
+            cell.terrain = waterTerrain ?? cell.terrain;
+        }
+        else
+        {
+            state.waterRatio = Mathf.Min(state.waterRatio, 0.28f);
+            if (state.waterClassification == WaterClassification.OpenOcean)
+                state.waterClassification = WaterClassification.Dry;
+            cell.terrain = rockTerrain ?? cell.terrain;
+        }
+    }
+
+    private static void ApplyAridCoherenceCell(HexCell cell, ref HexPhysicalState state, float oceanMask, float v, TerrainData rockTerrain, TerrainData metalTerrain, TerrainData iceTerrain)
+    {
+        state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.01f, 0.08f, 1f - oceanMask));
+        state.waterClassification = WaterClassification.Dry;
+        if ((state.tempLocale <= -18f && v <= 0.08f) || v >= 0.92f)
+        {
+            state.tempLocale = Mathf.Min(state.tempLocale, -18f);
+            cell.terrain = iceTerrain ?? rockTerrain ?? cell.terrain;
+        }
+        else if (oceanMask >= AridProjectionThreshold)
+        {
+            cell.terrain = metalTerrain ?? rockTerrain ?? cell.terrain;
+        }
+        else
+        {
+            cell.terrain = rockTerrain ?? metalTerrain ?? cell.terrain;
+        }
+    }
+
+    private static void ApplyFrozenCoherenceCell(HexCell cell, ref HexPhysicalState state, float oceanMask, TerrainData iceTerrain)
+    {
+        if (oceanMask >= FrozenProjectionThreshold)
+        {
+            state.waterRatio = Mathf.Max(state.waterRatio, 0.7f);
+            state.tempLocale = Mathf.Min(state.tempLocale, -20f);
+            state.waterClassification = WaterClassification.FrozenWater;
+            state.terrainClass = TerrainClass.Basin;
+            cell.terrain = iceTerrain ?? cell.terrain;
+        }
+    }
+
+    private static void ApplyCoastCoherenceCell(HexCell cell, ref HexPhysicalState state, float coastMask, TerrainData waterTerrain, TerrainData vegetationTerrain, TerrainData rockTerrain)
+    {
+        if (coastMask >= CoastOceanThreshold)
+        {
+            state.waterRatio = Mathf.Max(state.waterRatio, 0.94f);
+            state.waterClassification = WaterClassification.OpenOcean;
+            state.terrainClass = TerrainClass.Basin;
+            cell.terrain = waterTerrain ?? cell.terrain;
+        }
+        else if (coastMask >= CoastShoreThreshold)
+        {
+            state.waterRatio = Mathf.Max(state.waterRatio, Mathf.Lerp(0.58f, 0.8f, Mathf.InverseLerp(CoastShoreThreshold, CoastOceanThreshold, coastMask)));
+            state.waterClassification = WaterClassification.Coast;
+            state.terrainClass = TerrainClass.Channel;
+            cell.terrain = waterTerrain ?? vegetationTerrain ?? rockTerrain ?? cell.terrain;
+        }
+        else
+        {
+            state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.12f, 0.35f, coastMask));
+            if (state.waterClassification == WaterClassification.OpenOcean)
+                state.waterClassification = WaterClassification.Dry;
+            state.terrainClass = coastMask >= 0.42f ? TerrainClass.Slope : state.terrainClass;
+            cell.terrain = vegetationTerrain ?? rockTerrain ?? cell.terrain;
+        }
+    }
+
+    private static void ApplyBasinCoherenceCell(HexCell cell, ref HexPhysicalState state, float basinMask, TerrainData waterTerrain, TerrainData vegetationTerrain, TerrainData rockTerrain)
+    {
+        if (basinMask >= BasinCoreThreshold)
+        {
+            state.waterRatio = Mathf.Max(state.waterRatio, 0.86f);
+            state.waterClassification = WaterClassification.InlandWater;
+            state.terrainClass = TerrainClass.Basin;
+            cell.terrain = waterTerrain ?? cell.terrain;
+        }
+        else if (basinMask >= BasinShoreThreshold)
+        {
+            state.waterRatio = Mathf.Max(state.waterRatio, Mathf.Lerp(0.5f, 0.72f, Mathf.InverseLerp(BasinShoreThreshold, BasinCoreThreshold, basinMask)));
+            state.waterClassification = WaterClassification.Coast;
+            state.terrainClass = TerrainClass.Channel;
+            cell.terrain = vegetationTerrain ?? waterTerrain ?? rockTerrain ?? cell.terrain;
+        }
+        else
+        {
+            state.waterRatio = Mathf.Min(state.waterRatio, Mathf.Lerp(0.08f, 0.28f, basinMask));
+            if (state.waterClassification == WaterClassification.OpenOcean)
+                state.waterClassification = WaterClassification.Dry;
+            state.terrainClass = basinMask >= 0.38f ? TerrainClass.Slope : TerrainClass.Ridge;
+            cell.terrain = rockTerrain ?? vegetationTerrain ?? cell.terrain;
         }
     }
 
@@ -392,51 +393,50 @@ public static class PlanetaryHexGrid
         TerrainData iceTerrain = FindTerrain(body, TerrainType.Glace);
 
         foreach (HexCell cell in cells)
+            ApplyWaterLevelToCell(cell, clampedOffset, waterTerrain, rockTerrain, iceTerrain);
+    }
+
+    private static void ApplyWaterLevelToCell(HexCell cell, float clampedOffset, TerrainData waterTerrain, TerrainData rockTerrain, TerrainData iceTerrain)
+    {
+        HexPhysicalState state = cell.state;
+        float floodScore = (1f - state.altitude) * 0.72f + state.waterRatio * 0.28f;
+        if (clampedOffset > 0f)
         {
-            HexPhysicalState state = cell.state;
-            float floodScore = (1f - state.altitude) * 0.72f + state.waterRatio * 0.28f;
-
-            if (clampedOffset > 0f)
+            float threshold = Mathf.Lerp(0.84f, 0.22f, Mathf.InverseLerp(0f, 0.45f, clampedOffset));
+            if (floodScore >= threshold)
             {
-                float threshold = Mathf.Lerp(0.84f, 0.22f, Mathf.InverseLerp(0f, 0.45f, clampedOffset));
-                if (floodScore >= threshold)
+                float targetWater = Mathf.Lerp(0.72f, 1f, Mathf.InverseLerp(threshold, 1f, floodScore));
+                state.waterRatio = Mathf.Max(state.waterRatio, targetWater);
+                state.terrainClass = TerrainClass.Basin;
+                if (state.tempLocale <= -8f)
                 {
-                    float targetWater = Mathf.Lerp(0.72f, 1f, Mathf.InverseLerp(threshold, 1f, floodScore));
-                    state.waterRatio = Mathf.Max(state.waterRatio, targetWater);
-                    state.terrainClass = TerrainClass.Basin;
-
-                    if (state.tempLocale <= -8f)
-                    {
-                        state.waterClassification = WaterClassification.FrozenWater;
-                        cell.terrain = iceTerrain ?? waterTerrain ?? cell.terrain;
-                    }
-                    else if (targetWater >= 0.9f)
-                    {
-                        state.waterClassification = WaterClassification.OpenOcean;
-                        cell.terrain = waterTerrain ?? cell.terrain;
-                    }
-                    else
-                    {
-                        state.waterClassification = WaterClassification.InlandWater;
-                        cell.terrain = waterTerrain ?? cell.terrain;
-                    }
+                    state.waterClassification = WaterClassification.FrozenWater;
+                    cell.terrain = iceTerrain ?? waterTerrain ?? cell.terrain;
+                }
+                else if (targetWater >= 0.9f)
+                {
+                    state.waterClassification = WaterClassification.OpenOcean;
+                    cell.terrain = waterTerrain ?? cell.terrain;
+                }
+                else
+                {
+                    state.waterClassification = WaterClassification.InlandWater;
+                    cell.terrain = waterTerrain ?? cell.terrain;
                 }
             }
-            else
-            {
-                float dryness = Mathf.InverseLerp(0f, -0.45f, clampedOffset);
-                state.waterRatio = Mathf.Clamp01(state.waterRatio - dryness * 0.55f);
-
-                if (state.waterRatio <= 0.08f)
-                {
-                    state.waterClassification = WaterClassification.Dry;
-                    if (cell.terrain != null && (cell.terrain.terrainType == TerrainType.Eau || cell.terrain.terrainType == TerrainType.Glace))
-                        cell.terrain = rockTerrain ?? cell.terrain;
-                }
-            }
-
-            cell.state = state;
         }
+        else
+        {
+            float dryness = Mathf.InverseLerp(0f, -0.45f, clampedOffset);
+            state.waterRatio = Mathf.Clamp01(state.waterRatio - dryness * 0.55f);
+            if (state.waterRatio <= 0.08f)
+            {
+                state.waterClassification = WaterClassification.Dry;
+                if (cell.terrain != null && (cell.terrain.terrainType == TerrainType.Eau || cell.terrain.terrainType == TerrainType.Glace))
+                    cell.terrain = rockTerrain ?? cell.terrain;
+            }
+        }
+        cell.state = state;
     }
 
     private static TerrainData FindTerrain(OrbitalBody body, TerrainType target)

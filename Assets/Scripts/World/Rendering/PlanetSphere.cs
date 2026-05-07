@@ -179,21 +179,23 @@ public class PlanetSphere : MonoBehaviour
             Debug.Log($"[PlanetSphere] Projection générée : {body.bodyName} | override={coherenceOverride} | eau={waterLevelOffset:+0.00;-0.00;0.00}");
         }
 
-        // Application au matériau (instance, pas l'original partagé)
+        ApplyProjectionToMaterial();
+
+        Debug.Log($"[PlanetSphere] Planète affichée : {body.bodyName} | override={coherenceOverride} | eau={waterLevelOffset:+0.00;-0.00;0.00}");
+    }
+
+    private void ApplyProjectionToMaterial()
+    {
         if (_currentTexture != null)
             _currentTexture.filterMode = FilterMode.Point;
-
         _meshRenderer.material.SetTexture(textureProperty, _currentTexture);
         if (_meshRenderer.material.HasProperty("_BaseColor"))
             _meshRenderer.material.SetColor("_BaseColor", Color.white);
         if (_meshRenderer.material.HasProperty("_Color"))
             _meshRenderer.material.SetColor("_Color", Color.white);
-
         transform.localRotation = Quaternion.identity;
         transform.localPosition = Vector3.zero;
         transform.localScale = Vector3.one;
-
-        Debug.Log($"[PlanetSphere] Planète affichée : {body.bodyName} | override={coherenceOverride} | eau={waterLevelOffset:+0.00;-0.00;0.00}");
     }
 
     public HexCell GetProjectedCell(float latitude, float longitude)
@@ -338,35 +340,38 @@ public class PlanetSphere : MonoBehaviour
 
         int divisions = meridianCount;
         for (int i = 0; i < divisions; i++)
-        {
-            float t = divisions == 1 ? 0.5f : (float)i / (divisions - 1);
-            float x = Mathf.Lerp(-halfWidth, halfWidth, t);
-            bool isPrimeMeridian = Mathf.Abs(t - 0.5f) < 0.0001f;
-
-            GameObject lineObject = new GameObject(isPrimeMeridian ? "PrimeMeridian" : $"Meridian_{i}");
-            lineObject.transform.SetParent(_meridianRoot, false);
-
-            LineRenderer line = lineObject.AddComponent<LineRenderer>();
-            line.useWorldSpace = false;
-            line.loop = false;
-            line.positionCount = 2;
-            line.startWidth = meridianLineWidth;
-            line.endWidth = meridianLineWidth;
-            line.numCapVertices = 2;
-            line.material = _overlayMaterial;
-            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            line.receiveShadows = false;
-            line.textureMode = LineTextureMode.Stretch;
-
-            Color lineColor = isPrimeMeridian ? primeMeridianColor : meridianColor;
-            line.startColor = lineColor;
-            line.endColor = lineColor;
-
-            line.SetPosition(0, new Vector3(x, meridianOverlayHeight, -halfHeight));
-            line.SetPosition(1, new Vector3(x, meridianOverlayHeight, halfHeight));
-        }
+            AddMeridianLine(i, divisions, halfWidth, halfHeight);
 
         BuildParallelOverlay(halfWidth, halfHeight);
+    }
+
+    private void AddMeridianLine(int i, int divisions, float halfWidth, float halfHeight)
+    {
+        float t = divisions == 1 ? 0.5f : (float)i / (divisions - 1);
+        float x = Mathf.Lerp(-halfWidth, halfWidth, t);
+        bool isPrimeMeridian = Mathf.Abs(t - 0.5f) < 0.0001f;
+
+        GameObject lineObject = new GameObject(isPrimeMeridian ? "PrimeMeridian" : $"Meridian_{i}");
+        lineObject.transform.SetParent(_meridianRoot, false);
+
+        LineRenderer line = lineObject.AddComponent<LineRenderer>();
+        line.useWorldSpace = false;
+        line.loop = false;
+        line.positionCount = 2;
+        line.startWidth = meridianLineWidth;
+        line.endWidth = meridianLineWidth;
+        line.numCapVertices = 2;
+        line.material = _overlayMaterial;
+        line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        line.receiveShadows = false;
+        line.textureMode = LineTextureMode.Stretch;
+
+        Color lineColor = isPrimeMeridian ? primeMeridianColor : meridianColor;
+        line.startColor = lineColor;
+        line.endColor = lineColor;
+
+        line.SetPosition(0, new Vector3(x, meridianOverlayHeight, -halfHeight));
+        line.SetPosition(1, new Vector3(x, meridianOverlayHeight, halfHeight));
     }
 
     private void BuildParallelOverlay(float halfWidth, float halfHeight)

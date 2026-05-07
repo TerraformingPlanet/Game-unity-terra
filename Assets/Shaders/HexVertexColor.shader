@@ -3,14 +3,19 @@ Shader "Terraformation/HexVertexColor"
     Properties
     {
         _BaseColor ("Base Color", Color) = (1,1,1,1)
+        [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull Mode", Float) = 2
+        // Polygon offset : -1,-1 pour les faces hexa (anti-bleed eau), 0,0 pour les murs prisme.
+        _OffsetFactor ("Offset Factor", Float) = -1
+        _OffsetUnits  ("Offset Units",  Float) = -1
     }
 
     SubShader
     {
         Tags { "RenderType"="TransparentCutout" "RenderPipeline"="UniversalPipeline" "Queue"="AlphaTest" }
         LOD 100
-        Cull Off
+        Cull [_Cull]
         ZWrite On
+        Offset [_OffsetFactor], [_OffsetUnits]
 
         Pass
         {

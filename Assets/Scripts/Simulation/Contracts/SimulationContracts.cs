@@ -370,6 +370,16 @@ public struct GoldbergTileState
     public string riverSourceTileId;   // tileId of the originating spring
     public float  lakeVolume;          // water volume accumulated in basin m³
     public float  lakeCapacity;        // overflow threshold m³
+    // H3 multi-dimensional zone membership (tile rework — 6 independent hierarchies)
+    public string bioZoneId;           // BioZone parent — biome continuity (read-only, server-driven)
+    public string adminZoneId;         // AdminZone parent — territory claimed by State/Corp
+    public string ecoZoneId;           // EcoZone parent — market zone set by player/AI
+    public string militaryZoneId;      // MilitaryZone parent — controlled by military presence
+    public string culturalZoneId;      // CulturalZone parent — derived from dominant population ethnicity/religion
+    public string scientificZoneId;    // ScientificZone parent — derived from avg IQ / literacy rate
+    // Flat interleaved boundary [lat0, lon0, lat1, lon1, ...] derived from server boundaryLatLons.
+    // JsonUtility-compatible (float[]) — use H3SphereBuilder.LatLonToSphere() to project.
+    public float[] boundaryLatLonFlat;
 }
 
 /// <summary>
@@ -441,6 +451,8 @@ public struct SimulationBodyListEntry
     public string bodyId;
     public string name;
     public string surfaceType;
+    public float  waterLevel;        // fraction of ocean tiles [0, 1] — generation parameter
+    public float  seaLevelAltitude;  // sea surface in absolute altitude space [-1=deepest, +1=highest peak]
 }
 
 // ── Corporation layer (Phase 7.1) ─────────────────────────────────────────
@@ -1027,3 +1039,123 @@ public struct CorpFSMState
 {
     public BotFSMState state;
 }
+
+// ── Phase Tile Rework — H3 Hierarchy ─────────────────────────────────────────
+
+/// <summary>Mirrors Python HydrosphereState enum.</summary>
+public enum HydrosphereState : int
+{
+    Absent = 0,  // no water (Moon, bare rock)
+    Frozen = 1,  // entirely ice / permafrost (Mars, Europa)
+    Liquid = 2,  // stable liquid water (Earth, ocean world)
+    Mixed  = 3,  // polar ice + liquid equatorial ocean
+    Vapor  = 4,  // water in vapour phase only (Venus-like runaway)
+}
+
+/// <summary>
+/// Mirrors Python PlanetDescriptor. Semantic physical description of a planet.
+/// Used when creating a body via POST /galaxy/systems/{id}/bodies.
+/// pressureAtm: surface pressure in atm (1.0 = Earth standard, 91.0 = Venus).
+/// </summary>
+[Serializable]
+public struct PlanetDescriptor
+{
+    public int              tileLevel;           // H3 resolution for finest tiles (0=122, 1=842, 2=5882)
+    public int              seed;
+    public bool             liquidCore;
+    public float            tectonicActivity;    // [0,1] 0=dead (Moon), 1=very active (Io)
+    public float            metalRichness;       // [0,1] surface mineral density
+    public bool             atmospherePresent;
+    public float            o2Fraction;          // oxygen vol fraction (Earth=0.21)
+    public float            co2Fraction;         // CO2 (Earth=0.0004, Mars=0.953, Venus=0.965)
+    public float            n2Fraction;          // nitrogen (inert buffer)
+    public float            pressureAtm;         // surface pressure in atm (1.0=Earth, 0.006=Mars, 91.0=Venus)
+    public bool             toxicGases;          // H2S/SO2 (extreme volcanism)
+    public float            hydrosphereFraction; // fraction of surface covered by water [0,1]
+    public HydrosphereState hydrosphereState;
+    public bool             icePolarCaps;
+    public float            meanSurfaceTempC;
+    public float            solarDistanceAu;
+    public bool             primordialLife;      // pre-existing micro-organisms at landing
+}
+
+/// <summary>Built-in PlanetDescriptor presets matching Python constants.</summary>
+public static class PlanetDescriptorPresets
+{
+    public static readonly PlanetDescriptor Earth = new PlanetDescriptor
+    {
+        tileLevel=2, seed=0, liquidCore=true, tectonicActivity=0.3f, metalRichness=0.3f,
+        atmospherePresent=true, o2Fraction=0.21f, co2Fraction=0.0004f, n2Fraction=0.78f, pressureAtm=1.0f,
+        toxicGases=false, hydrosphereFraction=0.71f, hydrosphereState=HydrosphereState.Liquid,
+        icePolarCaps=true, meanSurfaceTempC=15.0f, solarDistanceAu=1.0f, primordialLife=true,
+    };
+    public static readonly PlanetDescriptor Mars = new PlanetDescriptor
+    {
+        tileLevel=2, seed=0, liquidCore=false, tectonicActivity=0.05f, metalRichness=0.5f,
+        atmospherePresent=true, o2Fraction=0.001f, co2Fraction=0.953f, n2Fraction=0.027f, pressureAtm=0.006f,
+        toxicGases=false, hydrosphereFraction=0.02f, hydrosphereState=HydrosphereState.Frozen,
+        icePolarCaps=true, meanSurfaceTempC=-60.0f, solarDistanceAu=1.52f, primordialLife=false,
+    };
+    public static readonly PlanetDescriptor Moon = new PlanetDescriptor
+    {
+        tileLevel=1, seed=0, liquidCore=false, tectonicActivity=0.0f, metalRichness=0.2f,
+        atmospherePresent=false, o2Fraction=0.0f, co2Fraction=0.0f, n2Fraction=0.0f, pressureAtm=0.0f,
+        toxicGases=false, hydrosphereFraction=0.0f, hydrosphereState=HydrosphereState.Absent,
+        icePolarCaps=false, meanSurfaceTempC=-20.0f, solarDistanceAu=1.0f, primordialLife=false,
+    };
+    public static readonly PlanetDescriptor Barren = new PlanetDescriptor
+    {
+        tileLevel=2, seed=0, liquidCore=false, tectonicActivity=0.0f, metalRichness=0.4f,
+        atmospherePresent=false, o2Fraction=0.0f, co2Fraction=0.0f, n2Fraction=0.0f, pressureAtm=0.0f,
+        toxicGases=false, hydrosphereFraction=0.0f, hydrosphereState=HydrosphereState.Absent,
+        icePolarCaps=false, meanSurfaceTempC=-50.0f, solarDistanceAu=1.5f, primordialLife=false,
+    };
+    public static readonly PlanetDescriptor OceanWorld = new PlanetDescriptor
+    {
+        tileLevel=2, seed=0, liquidCore=true, tectonicActivity=0.2f, metalRichness=0.1f,
+        atmospherePresent=true, o2Fraction=0.15f, co2Fraction=0.001f, n2Fraction=0.80f, pressureAtm=1.2f,
+        toxicGases=false, hydrosphereFraction=0.90f, hydrosphereState=HydrosphereState.Liquid,
+        icePolarCaps=false, meanSurfaceTempC=22.0f, solarDistanceAu=1.0f, primordialLife=true,
+    };
+    public static readonly PlanetDescriptor Venus = new PlanetDescriptor
+    {
+        tileLevel=2, seed=0, liquidCore=true, tectonicActivity=0.6f, metalRichness=0.5f,
+        atmospherePresent=true, o2Fraction=0.0f, co2Fraction=0.965f, n2Fraction=0.035f, pressureAtm=91.0f,
+        toxicGases=true, hydrosphereFraction=0.0f, hydrosphereState=HydrosphereState.Vapor,
+        icePolarCaps=false, meanSurfaceTempC=465.0f, solarDistanceAu=0.72f, primordialLife=false,
+    };
+}
+
+/// <summary>
+/// Mirrors Python LocalityState. ~7 level-1 H3 tiles sharing a common H3 parent (res=1).
+/// sharedMarket=true when all tiles share the same dominant terrain.
+/// Returned by GET /bodies/{id}/localities.
+/// </summary>
+[Serializable]
+public struct LocalityState
+{
+    public string      localityId;       // H3 cell index at res=1 (the parent cell)
+    public string[]    tileIds;          // up to 7 level-1 tile IDs
+    public TerrainType dominantTerrain;
+    public bool        sharedMarket;     // true = all 7 tiles same biome → aggregated eco-market
+}
+
+/// <summary>Wrapper for JsonUtility array deserialization of LocalityState.</summary>
+[Serializable]
+public class LocalityStateArray { public LocalityState[] items; }
+
+/// <summary>
+/// Mirrors Python TerritoryState. ~7 Localities sharing a common H3 parent (res=0).
+/// Province/Region — unit of political control and long-range trade.
+/// Returned by GET /bodies/{id}/territories.
+/// </summary>
+[Serializable]
+public struct H3TerritoryState
+{
+    public string   territoryId;     // H3 cell index at res=0 (max 122 cells per planet)
+    public string[] localityIds;     // up to 7 locality IDs
+}
+
+/// <summary>Wrapper for JsonUtility array deserialization of H3TerritoryState.</summary>
+[Serializable]
+public class H3TerritoryStateArray { public H3TerritoryState[] items; }

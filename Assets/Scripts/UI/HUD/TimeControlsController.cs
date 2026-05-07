@@ -32,10 +32,32 @@ public class TimeControlsController : MonoBehaviour
         _timeControlsBar = new VisualElement { name = "time-controls-bar" };
         _timeControlsBar.AddToClassList("time-controls-bar");
 
-        // Speed buttons
+        AddSpeedButtons();
+
+        _labelTickProgress = new Label { name = "label-tick-progress", text = "Tick —" };
+        _labelTickProgress.AddToClassList("time-controls__progress");
+        _timeControlsBar.Add(_labelTickProgress);
+
+        _labelDate = new Label { name = "label-date", text = "An 1 J1" };
+        _labelDate.AddToClassList("time-controls__date");
+        _timeControlsBar.Add(_labelDate);
+
+        ApplyBarStyles();
+
+        _btnSpeed1x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(1));
+        _btnSpeed2x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(2));
+        _btnSpeed10x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(10));
+        _btnSpeed50x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(50));
+        _btnSpeed100x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(100));
+
+        root.Add(_timeControlsBar);
+    }
+
+    private void AddSpeedButtons()
+    {
         _btnSpeed1x = new Button { name = "btn-speed-1x", text = "1×" };
         _btnSpeed1x.AddToClassList("time-controls__btn");
-        _btnSpeed1x.AddToClassList("time-controls__btn--active"); // default active
+        _btnSpeed1x.AddToClassList("time-controls__btn--active");
         _timeControlsBar.Add(_btnSpeed1x);
 
         _btnSpeed2x = new Button { name = "btn-speed-2x", text = "2×" };
@@ -53,46 +75,29 @@ public class TimeControlsController : MonoBehaviour
         _btnSpeed100x = new Button { name = "btn-speed-100x", text = "100×" };
         _btnSpeed100x.AddToClassList("time-controls__btn");
         _timeControlsBar.Add(_btnSpeed100x);
+    }
 
-        // Progress label
-        _labelTickProgress = new Label { name = "label-tick-progress", text = "Tick —" };
-        _labelTickProgress.AddToClassList("time-controls__progress");
-        _timeControlsBar.Add(_labelTickProgress);
-
-        // Date label (1 tick = 1 jour)
-        _labelDate = new Label { name = "label-date", text = "An 1 J1" };
-        _labelDate.AddToClassList("time-controls__date");
-        _timeControlsBar.Add(_labelDate);
-
-        // Layout styles
-        _timeControlsBar.style.position = Position.Absolute;
-        _timeControlsBar.style.top = new StyleLength(60f); // below TopBar
-        _timeControlsBar.style.right = new StyleLength(12f);
-        _timeControlsBar.style.flexDirection = FlexDirection.Row;
-        _timeControlsBar.style.alignItems = Align.Center;
+    private void ApplyBarStyles()
+    {
+        var borderCol = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
+        _timeControlsBar.style.position        = Position.Absolute;
+        _timeControlsBar.style.top             = new StyleLength(60f);
+        _timeControlsBar.style.right           = new StyleLength(12f);
+        _timeControlsBar.style.flexDirection   = FlexDirection.Row;
+        _timeControlsBar.style.alignItems      = Align.Center;
         _timeControlsBar.style.backgroundColor = new StyleColor(new Color(0.031f, 0.031f, 0.055f, 0.92f));
         _timeControlsBar.style.borderTopWidth    = 1f;
         _timeControlsBar.style.borderRightWidth  = 1f;
         _timeControlsBar.style.borderBottomWidth = 1f;
         _timeControlsBar.style.borderLeftWidth   = 1f;
-        var _borderCol = new StyleColor(new Color(1f, 1, 1f, 0.08f));
-        _timeControlsBar.style.borderTopColor    = _borderCol;
-        _timeControlsBar.style.borderRightColor  = _borderCol;
-        _timeControlsBar.style.borderBottomColor = _borderCol;
-        _timeControlsBar.style.borderLeftColor   = _borderCol;
-        _timeControlsBar.style.paddingLeft = 8f;
-        _timeControlsBar.style.paddingRight = 8f;
-        _timeControlsBar.style.paddingTop = 4f;
+        _timeControlsBar.style.borderTopColor    = borderCol;
+        _timeControlsBar.style.borderRightColor  = borderCol;
+        _timeControlsBar.style.borderBottomColor = borderCol;
+        _timeControlsBar.style.borderLeftColor   = borderCol;
+        _timeControlsBar.style.paddingLeft   = 8f;
+        _timeControlsBar.style.paddingRight  = 8f;
+        _timeControlsBar.style.paddingTop    = 4f;
         _timeControlsBar.style.paddingBottom = 4f;
-
-        // Wire button clicks
-        _btnSpeed1x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(1));
-        _btnSpeed2x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(2));
-        _btnSpeed10x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(10));
-        _btnSpeed50x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(50));
-        _btnSpeed100x.RegisterCallback<ClickEvent>(_ => SetTickSpeed(100));
-
-        root.Add(_timeControlsBar);
     }
 
     private void SetTickSpeed(int multiplier)

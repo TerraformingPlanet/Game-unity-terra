@@ -55,28 +55,7 @@ public class PlanetTangentInput : MonoBehaviour
 
         Ray ray = _cam.ScreenPointToRay(Mouse.current.position.ReadValue());
 
-        // RaycastAll : ignore les autres colliders (sphère GP, flat mesh…) qui pourraient bloquer
-        PlanetTangentMesh tangentMesh = _view.TangentMesh;
-        if (tangentMesh == null)
-        {
-            ClearHover();
-            return;
-        }
-
-        RaycastHit[] hits = Physics.RaycastAll(ray);
-        RaycastHit hit    = default;
-        bool found        = false;
-        foreach (RaycastHit h in hits)
-        {
-            if (h.collider.gameObject == tangentMesh.gameObject)
-            {
-                hit   = h;
-                found = true;
-                break;
-            }
-        }
-
-        if (!found)
+        if (!TryGetTangentHit(ray, out RaycastHit hit))
         {
             ClearHover();
             return;
@@ -89,17 +68,36 @@ public class PlanetTangentInput : MonoBehaviour
             return;
         }
 
-        // Hover
+        HandleFaceInput(face);
+    }
+
+    private bool TryGetTangentHit(Ray ray, out RaycastHit hit)
+    {
+        hit = default;
+        PlanetTangentMesh tangentMesh = _view.TangentMesh;
+        if (tangentMesh == null) return false;
+
+        foreach (RaycastHit h in Physics.RaycastAll(ray))
+        {
+            if (h.collider.gameObject == tangentMesh.gameObject)
+            {
+                hit = h;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void HandleFaceInput(GoldbergSphereGenerator.GoldbergFace face)
+    {
         if (face.faceId != _hoveredFaceId)
         {
             _hoveredFaceId = face.faceId;
-
             HexCell hoveredCell = GetCellForFace(face);
             if (hoveredCell != null)
                 terraformHUD?.ShowHexPanel(hoveredCell);
         }
 
-        // Clic gauche
         if (Mouse.current.leftButton.wasPressedThisFrame)
         {
             Debug.Log($"[PlanetTangentInput] Clic | lat={face.latNorm:F3} lon={face.lonNorm:F3}");

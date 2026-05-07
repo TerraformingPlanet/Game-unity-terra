@@ -5,7 +5,7 @@ using UnityEngine;
 /// Colorise les tuiles d'une sphère Goldberg depuis les données H3 du serveur de simulation.
 /// Appelé après GoldbergSphereGenerator.Generate() et avant GoldbergSphereGenerator.ApplyFaceColors().
 /// </summary>
-public static class GoldbergFaceColorizer
+public static partial class GoldbergFaceColorizer
 {
     // ── Gradient altitude ─────────────────────────────────────────────────────
 
@@ -29,10 +29,17 @@ public static class GoldbergFaceColorizer
         if (faces == null || serverTiles == null || serverTiles.Length == 0)
             return;
 
+        // k=3 altitude average : même k que BuildFaceIsOcean/BuildFaceIsInlandWater.
+        // Évite la désynchronisation entre la couleur terrain et la classification eau
+        // (single NN peut pointer une tile montagne alors que les 2 autres sont ocean).
+        const int kAvg = 3;
+        Vector3[] tileDirs = BuildTileDirs(serverTiles);
         for (int i = 0; i < faces.Length; i++)
         {
-            int bestIdx = FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles);
-            float relAlt = serverTiles[bestIdx].altitude - waterLevel;  // hauteur par rapport à la mer
+            int[] nearest = FindKNearestTiles(faces[i].centroid3D, tileDirs, kAvg);
+            float altSum = 0f;
+            foreach (int ti in nearest) altSum += serverTiles[ti].altitude;
+            float relAlt = (altSum / kAvg) - waterLevel;
             faces[i].color = AltitudeToColor(relAlt);
         }
     }
@@ -47,18 +54,32 @@ public static class GoldbergFaceColorizer
 
         if (relAlt < 0f)
         {
-            // Fond marin : abysses (bleu très sombre) → plateau continental (bleu-gris)
-            float t = (relAlt + 1f);  // [0,1] — 0=abysse, 1=juste sous la surface
+            // Fond marin : couleur terrain naturelle (sable/roche immergée).
+            // La WaterSphere (opaque, ZWrite ON via material instancié dans CreateWaterCaps)
+            // occulte complètement ces faces — leur couleur est invisible en pratique.
+            // Quand seaLevel baisse (terraforming), relAlt redevient > 0 → couleur terrain
+            // apparaît naturellement sans aucun traitement supplémentaire.
+            float t = Mathf.Clamp01(-relAlt * 4f);   // 0=surface, 1=profond (compression rapide)
             return Color.Lerp(
-                new Color(0.05f, 0.07f, 0.12f),   // abysse
-                new Color(0.12f, 0.16f, 0.22f),   // fond côtier
+                new Color(0.72f, 0.65f, 0.45f),   // sable côtier immergé
+                new Color(0.35f, 0.28f, 0.20f),   // roche/argile profonde
                 t);
         }
 
         // Émergé : 4 bandes
+        if (relAlt < 0.025f)
+        {
+            // Plage / côte immédiate : sable humide, légèrement plus foncé que le sable sec.
+            // Zone où la marée arrive et repart (oscillation WaterSphere).
+            float t = relAlt / 0.025f;
+            return Color.Lerp(
+                new Color(0.68f, 0.62f, 0.42f),   // sable humide
+                new Color(0.72f, 0.68f, 0.50f),   // sable sec
+                t);
+        }
         if (relAlt < 0.25f)
         {
-            float t = relAlt / 0.25f;
+            float t = (relAlt - 0.025f) / (0.25f - 0.025f);
             return Color.Lerp(
                 new Color(0.72f, 0.68f, 0.50f),   // sable côtier
                 new Color(0.40f, 0.56f, 0.28f),   // plaines herbeuses
@@ -110,9 +131,10 @@ public static class GoldbergFaceColorizer
         if (faces == null || serverTiles == null || serverTiles.Length == 0)
             return;
 
+        Vector3[] tileDirs = BuildTileDirs(serverTiles);
         for (int i = 0; i < faces.Length; i++)
         {
-            int   bestIdx = FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles);
+            int   bestIdx = FindNearestTile(faces[i].centroid3D, tileDirs);
             float alt     = serverTiles[bestIdx].altitude;  // [-1, +1] absolu
             faces[i].color = ElevationLensColor(alt);
         }
@@ -125,57 +147,23 @@ public static class GoldbergFaceColorizer
     public static Color ElevationLensColor(float alt)
     {
         alt = Mathf.Clamp(alt, -1f, 1f);
-
-        // Zone sous zéro — bleu abyssal → bleu-cyan surface
-        if (alt < -0.5f)
-        {
-            float t = (alt + 1f) / 0.5f;  // [0,1]
-            return Color.Lerp(
-                new Color(0.04f, 0.06f, 0.20f),   // abysse
-                new Color(0.10f, 0.30f, 0.65f),   // bleu profond
-                t);
-        }
-        if (alt < 0f)
-        {
-            float t = (alt + 0.5f) / 0.5f;
-            return Color.Lerp(
-                new Color(0.10f, 0.30f, 0.65f),   // bleu profond
-                new Color(0.30f, 0.70f, 0.85f),   // bleu-cyan (proche surface)
-                t);
-        }
-        // Zone émergée
-        if (alt < 0.3f)
-        {
-            float t = alt / 0.3f;
-            return Color.Lerp(
-                new Color(0.30f, 0.70f, 0.85f),   // cyan (niveau 0)
-                new Color(0.45f, 0.78f, 0.35f),   // vert
-                t);
-        }
-        if (alt < 0.6f)
-        {
-            float t = (alt - 0.3f) / 0.3f;
-            return Color.Lerp(
-                new Color(0.45f, 0.78f, 0.35f),   // vert
-                new Color(0.95f, 0.78f, 0.20f),   // jaune
-                t);
-        }
-        if (alt < 0.85f)
-        {
-            float t = (alt - 0.6f) / 0.25f;
-            return Color.Lerp(
-                new Color(0.95f, 0.78f, 0.20f),   // jaune
-                new Color(0.55f, 0.32f, 0.12f),   // brun
-                t);
-        }
-        {
-            float t = (alt - 0.85f) / 0.15f;
-            return Color.Lerp(
-                new Color(0.55f, 0.32f, 0.12f),   // brun
-                new Color(0.95f, 0.96f, 0.98f),   // blanc neige
-                t);
-        }
+        var abyssal  = new Color(0.04f, 0.06f, 0.20f);
+        var deepBlue = new Color(0.10f, 0.30f, 0.65f);
+        var cyan     = new Color(0.30f, 0.70f, 0.85f);
+        var green    = new Color(0.45f, 0.78f, 0.35f);
+        var yellow   = new Color(0.95f, 0.78f, 0.20f);
+        var brown    = new Color(0.55f, 0.32f, 0.12f);
+        var snow     = new Color(0.95f, 0.96f, 0.98f);
+        if (alt < -0.5f) return _LerpBand(alt, -1.00f, -0.50f, abyssal,  deepBlue);
+        if (alt <  0f)   return _LerpBand(alt, -0.50f,  0.00f, deepBlue, cyan);
+        if (alt <  0.3f) return _LerpBand(alt,  0.00f,  0.30f, cyan,     green);
+        if (alt <  0.6f) return _LerpBand(alt,  0.30f,  0.60f, green,    yellow);
+        if (alt <  0.85f)return _LerpBand(alt,  0.60f,  0.85f, yellow,   brown);
+        return _LerpBand(alt, 0.85f, 1.00f, brown, snow);
     }
+
+    private static Color _LerpBand(float alt, float lo, float hi, Color from, Color to)
+        => Color.Lerp(from, to, (alt - lo) / (hi - lo));
 
     // ── Legacy (TerrainType palette) ─────────────────────────────────────────
 
@@ -192,9 +180,10 @@ public static class GoldbergFaceColorizer
         if (faces == null || serverTiles == null || serverTiles.Length == 0 || colorByType == null)
             return;
 
+        Vector3[] tileDirs = BuildTileDirs(serverTiles);
         for (int i = 0; i < faces.Length; i++)
         {
-            int bestIdx = FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles);
+            int bestIdx = FindNearestTile(faces[i].centroid3D, tileDirs);
             if (colorByType.TryGetValue(serverTiles[bestIdx].terrainType, out Color c))
                 faces[i].color = c;
         }
@@ -212,8 +201,9 @@ public static class GoldbergFaceColorizer
         if (faces == null || serverTiles == null || serverTiles.Length == 0)
             return map;
 
+        Vector3[] tileDirs = BuildTileDirs(serverTiles);
         for (int i = 0; i < faces.Length; i++)
-            map[i] = serverTiles[FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles)];
+            map[i] = serverTiles[FindNearestTile(faces[i].centroid3D, tileDirs)];
 
         return map;
     }
@@ -230,193 +220,192 @@ public static class GoldbergFaceColorizer
         if (faces == null || serverTiles == null || serverTiles.Length == 0)
             return altitudes;
 
+        // k=3 average — même stratégie que BuildFaceIsOcean / ColorizeFromAltitude.
+        // Cohérence : les trois fonctions utilisent les mêmes 3 tiles pour altitude,
+        // couleur et classification. Évite que la couleur (neige) et la classification
+        // (ocean) divergent pour une face à la frontière H3/GP → hexagone blanc.
+        const int kAvg = 3;
+        Vector3[] tileDirs = BuildTileDirs(serverTiles);
         for (int i = 0; i < faces.Length; i++)
-            altitudes[i] = serverTiles[FindNearestTile(faces[i].latNorm, faces[i].lonNorm, serverTiles)].altitude;
+        {
+            int[] nearest = FindKNearestTiles(faces[i].centroid3D, tileDirs, kAvg);
+            float sum = 0f;
+            foreach (int ti in nearest) sum += serverTiles[ti].altitude;
+            altitudes[i] = sum / kAvg;
+        }
 
         return altitudes;
     }
 
-    // ── Ownership overlay (Phase 7.1) ────────────────────────────────────────────
+    /// <summary>
+    /// Construit un masque booléen "est-ce que cette face est océan ?" basé sur le TerrainType
+    /// de la tuile H3 la plus proche, indépendamment du slider sea level.
+    /// <para>
+    /// <summary>
+    /// Construit un masque boléen "est-ce que cette face est océan ?".
+    /// <para>
+    /// Règle de classification (source de vérité : données H3 serveur) :
+    ///   OpenOcean / FrozenWater → océan toujours.
+    ///   TerrainType.Eau + NOT InlandWater + NOT InlandSea → océan (inclut Coast = eaux côtières peu profondes).
+    /// </para>
+    /// <para>
+    /// IMPORTANT — Coast en H3 serveur ≠ Coast en C# local :
+    ///   • H3 Python : Coast = TerrainType.Eau, tuile connectée à l'océan ouvert mais proche d'une côte.
+    ///   • C# local  : Coast = terrain sec adjacent à l'océan (définition du WaterClassificationSystem).
+    /// Ce masque travaille avec les tiles H3 serveur → Coast = eau peu profonde = doit avoir un cap.
+    /// </para>
+    /// </summary>
+    public static bool[] BuildFaceIsOcean(
+        GoldbergSphereGenerator.GoldbergFace[] faces,
+        GoldbergTileState[] serverTiles)
+    {
+        var mask = new bool[faces?.Length ?? 0];
+        if (faces == null || serverTiles == null || serverTiles.Length == 0)
+            return mask;
+
+        // Vote de majorité sur les 3 tiles les plus proches (k=3).
+        // Évite les faux-positifs de classification aux bords GP/H3 :
+        // un centroïde GP qui tombe juste de l'autre côté d'une frontière H3 peut être
+        // mappé sur un tile ocean alors que la face est visuellement sur terre.
+        // Avec k=3, les 2e et 3e voisins (réels voisins GP) corrigent le vote.
+        const int kVote = 3;
+        Vector3[] tileDirs = BuildTileDirs(serverTiles);
+        for (int i = 0; i < faces.Length; i++)
+        {
+            int[] nearest = FindKNearestTiles(faces[i].centroid3D, tileDirs, kVote);
+            int oceanVotes = 0;
+            foreach (int ti in nearest)
+            {
+                var t = serverTiles[ti];
+                if (t.waterClassification == WaterClassification.OpenOcean
+                 || t.waterClassification == WaterClassification.FrozenWater
+                 || (t.terrainType == TerrainType.Eau
+                     && t.waterClassification != WaterClassification.InlandWater
+                     && t.waterClassification != WaterClassification.InlandSea))
+                    oceanVotes++;
+            }
+            // Majorité stricte : au moins 2 tiles sur 3 doivent être ocean.
+            // → un seul tile ocean NN erroné ne suffit pas à créer un cap fantôme.
+            mask[i] = oceanVotes * 2 > kVote;
+        }
+        return mask;
+    }
 
     /// <summary>
-    /// Calcule les boucles de frontière à dessiner pour chaque territoire de corporation.
-    ///
-    /// Algorithme — travaille entièrement en espace Goldberg (jamais en espace H3) :
-    ///   A. Edge map : pour chaque face Goldberg, indexe ses arêtes → (faceId1, faceId2).
-    ///      Sur une sphère fermée, chaque arête est partagée par exactement 2 faces.
-    ///   B. Mappe chaque tuile H3 claimée vers la face Goldberg la plus proche (lat/lon).
-    ///   C. Arête frontière = ses 2 faces n'appartiennent pas au même corp (null = non claimé).
-    ///   D. Chaîne les arêtes frontières en boucles continues par corporation.
-    ///
-    /// Retourne une liste de (vertices, couleur) prête pour OwnershipBorderRenderer.
+    /// Construit un masque booléen "est-ce que cette face est un lac (eau intérieure) ?".
+    /// <para>
+    /// Distinct du masque ocean : InlandWater = bassins fermés non connectés à l'océan.
+    /// Garde altitude : on ne génère un lac que si la face est en-dessous ou très proche
+    /// du niveau de la mer (<c>faceAltitudes[i] &lt; seaLevel + 0.12</c>).
+    /// Évite les artefacts sur les tiles InlandWater mal classifiées en altitude haute
+    /// (ex. bassin montagnard dont le centroïde GP tombe sur un tile voisin plus élevé).
+    /// </para>
     /// </summary>
-    public static List<(Vector3[] pts, Color col)> GetBoundaryLoops(
+    public static bool[] BuildFaceIsInlandWater(
         GoldbergSphereGenerator.GoldbergFace[] faces,
         GoldbergTileState[] serverTiles,
-        Dictionary<string, Color> ownershipTints,
-        Dictionary<string, string> tileToCorpId)
+        float[] faceAltitudes = null,
+        float seaLevel = 0f)
     {
-        var result = new List<(Vector3[], Color)>();
-        if (faces == null || serverTiles == null || ownershipTints == null || tileToCorpId == null
-            || faces.Length == 0 || serverTiles.Length == 0 || ownershipTints.Count == 0)
-            return result;
+        var mask = new bool[faces?.Length ?? 0];
+        if (faces == null || serverTiles == null || serverTiles.Length == 0)
+            return mask;
 
-        // ── A. Edge map : arête canonique → (faceId1, faceId2, va, vb) ────────
-        var edgeMap = new Dictionary<string, (int f1, int f2, Vector3 va, Vector3 vb)>(faces.Length * 7);
-        for (int fi = 0; fi < faces.Length; fi++)
+        // Vote de majorité k=3 identique à BuildFaceIsOcean.
+        const int kVote = 3;
+        Vector3[] tileDirs = BuildTileDirs(serverTiles);
+        for (int i = 0; i < faces.Length; i++)
         {
-            Vector3[] bv = faces[fi].boundaryVertices;
-            if (bv == null || bv.Length < 3) continue;
-            int n = bv.Length;
-            for (int k = 0; k < n; k++)
+            int[] nearest = FindKNearestTiles(faces[i].centroid3D, tileDirs, kVote);
+            int inlandVotes = 0;
+            foreach (int ti in nearest)
             {
-                Vector3 va = bv[k];
-                Vector3 vb = bv[(k + 1) % n];
-                string key = MakeEdgeKey(va, vb);
-                if (edgeMap.TryGetValue(key, out var entry))
-                    edgeMap[key] = (entry.f1, fi, entry.va, entry.vb);
-                else
-                    edgeMap[key] = (fi, -1, va, vb);
+                var t = serverTiles[ti];
+                if ((t.waterClassification == WaterClassification.InlandWater
+                     || t.waterClassification == WaterClassification.InlandSea)
+                    && (faceAltitudes == null || i >= faceAltitudes.Length
+                        || faceAltitudes[i] <= seaLevel + 0.12f))
+                    inlandVotes++;
             }
+            mask[i] = inlandVotes * 2 > kVote;
         }
-
-        // ── B. (inchangé — latLonByTile supprimé, non nécessaire dans le nouvel algo) ──
-
-        // ── C. Marquer les faces Goldberg comme owned ──────────────────────────
-        // Pour chaque face Goldberg, trouve la tuile H3 la plus proche (nearest-neighbor).
-        // Si cette tuile est claimée, la face hérite de la propriété.
-        // Cela garantit que TOUTES les faces d'un territoire sont marquées —
-        // pas seulement les faces correspondant au centroïde d'une tuile H3.
-        var faceOwner = new Dictionary<int, string>(faces.Length);
-        var faceColor = new Dictionary<int, Color>(faces.Length);
-
-        for (int fi = 0; fi < faces.Length; fi++)
-        {
-            float fLat = faces[fi].latNorm;
-            float fLon = faces[fi].lonNorm;
-
-            float bestDist = float.MaxValue;
-            int   bestJ    = 0;
-            for (int j = 0; j < serverTiles.Length; j++)
-            {
-                float dLat = fLat - serverTiles[j].latNorm;
-                float dLon = fLon - serverTiles[j].lonNorm;
-                if (dLon >  0.5f) dLon -= 1f;
-                if (dLon < -0.5f) dLon += 1f;
-                float d = dLat * dLat + dLon * dLon;
-                if (d < bestDist) { bestDist = d; bestJ = j; }
-            }
-
-            string tileId = serverTiles[bestJ].tileId;
-            if (string.IsNullOrEmpty(tileId)) continue;
-            if (!tileToCorpId.TryGetValue(tileId, out string corpId)) continue;
-            if (!ownershipTints.TryGetValue(tileId, out Color col)) continue;
-
-            faceOwner[fi] = corpId;
-            faceColor[fi] = col;
-        }
-
-        // ── D. Arêtes frontières ───────────────────────────────────────────────
-        var edgesByCorp = new Dictionary<string, List<(Vector3, Vector3)>>();
-        var colorByCorp = new Dictionary<string, Color>();
-
-        foreach (var edge in edgeMap.Values)
-        {
-            if (edge.f2 < 0) continue; // bord libre (impossible sur sphère fermée)
-
-            faceOwner.TryGetValue(edge.f1, out string corp1);
-            faceOwner.TryGetValue(edge.f2, out string corp2);
-
-            if (corp1 == corp2) continue; // même corp ou les deux unowned
-
-            if (corp1 != null)
-            {
-                if (!edgesByCorp.ContainsKey(corp1)) { edgesByCorp[corp1] = new List<(Vector3, Vector3)>(); colorByCorp[corp1] = faceColor[edge.f1]; }
-                edgesByCorp[corp1].Add((edge.va, edge.vb));
-            }
-            if (corp2 != null)
-            {
-                if (!edgesByCorp.ContainsKey(corp2)) { edgesByCorp[corp2] = new List<(Vector3, Vector3)>(); colorByCorp[corp2] = faceColor[edge.f2]; }
-                edgesByCorp[corp2].Add((edge.va, edge.vb));
-            }
-        }
-
-        // ── E. Chaîner en boucles continues ───────────────────────────────────
-        foreach (var kvCorp in edgesByCorp)
-        {
-            Color color = colorByCorp[kvCorp.Key];
-            foreach (Vector3[] loop in ChainEdgesIntoLoops(kvCorp.Value))
-                result.Add((loop, color));
-        }
-
-        return result;
+        return mask;
     }
 
     // ── Shared helpers ────────────────────────────────────────────────────────
 
-    /// <summary>Nearest-neighbor lookup : retourne l'index de la tuile la plus proche (lat/lon, wrap longitude).</summary>
-    private static int FindNearestTile(float fLat, float fLon, GoldbergTileState[] tiles)
+    /// <summary>
+    /// Précompute les directions 3D des tuiles H3 (lat/lon normalisé → vecteur unitaire).
+    /// À appeler UNE FOIS avant un lot de FindNearestTile pour éviter O(tiles) trig par face.
+    /// </summary>
+    private static Vector3[] BuildTileDirs(GoldbergTileState[] tiles)
     {
-        float best = float.MaxValue;
-        int   idx  = 0;
+        var dirs = new Vector3[tiles.Length];
         for (int j = 0; j < tiles.Length; j++)
         {
-            float dLat = fLat - tiles[j].latNorm;
-            float dLon = fLon - tiles[j].lonNorm;
-            if (dLon >  0.5f) dLon -= 1f;
-            if (dLon < -0.5f) dLon += 1f;
-            float d2 = dLat * dLat + dLon * dLon;
-            if (d2 < best) { best = d2; idx = j; }
+            float latRad = tiles[j].latNorm * Mathf.PI - Mathf.PI * 0.5f;  // [0,1] → [-π/2, π/2]
+            float lonRad = tiles[j].lonNorm * 2f * Mathf.PI - Mathf.PI;    // [0,1] → [-π, π]
+            float cosLat = Mathf.Cos(latRad);
+            dirs[j] = new Vector3(cosLat * Mathf.Cos(lonRad), Mathf.Sin(latRad), cosLat * Mathf.Sin(lonRad));
+        }
+        return dirs;
+    }
+
+    /// <summary>
+    /// Nearest-neighbor sphérique — distance angulaire (dot product 3D).
+    /// Correct aux pôles et près des sommets de l'icosaèdre (pénagones H3) contrairement
+    /// à la distance Euclidienne 2D en lat/lon normalisé qui se déforme aux hautes latitudes.
+    /// </summary>
+    private static int FindNearestTile(Vector3 faceDir, Vector3[] tileDirs)
+    {
+        float best = float.MinValue;
+        int   idx  = 0;
+        for (int j = 0; j < tileDirs.Length; j++)
+        {
+            float dot = Vector3.Dot(faceDir, tileDirs[j]);
+            if (dot > best) { best = dot; idx = j; }
         }
         return idx;
     }
 
-    // Clé canonique d'arête (indépendante de la direction de parcours).
-    // Positions arrondies à 3 décimales — rayon ≈ 10u → précision 0.001u suffisante.
-    private static string MakeEdgeKey(Vector3 va, Vector3 vb)
-    {
-        int ax = Mathf.RoundToInt(va.x * 1000), ay = Mathf.RoundToInt(va.y * 1000), az = Mathf.RoundToInt(va.z * 1000);
-        int bx = Mathf.RoundToInt(vb.x * 1000), by = Mathf.RoundToInt(vb.y * 1000), bz = Mathf.RoundToInt(vb.z * 1000);
-        if (ax > bx || (ax == bx && ay > by) || (ax == bx && ay == by && az > bz))
-        { int t; t=ax;ax=bx;bx=t; t=ay;ay=by;by=t; t=az;az=bz;bz=t; }
-        return $"{ax},{ay},{az}|{bx},{by},{bz}";
-    }
-
     /// <summary>
-    /// Chaîne une liste d'arêtes non ordonnées en boucles continues.
-    /// Utilise un matching greedy avec epsilon de 1e-6 (sqrMagnitude).
+    /// Retourne les indices des <paramref name="k"/> tiles H3 les plus proches (par dot product).
+    /// Utilisé pour un vote de majorité afin d'éviter les faux-positifs de classification
+    /// aux bords GP/H3 (un centroïde GP peut tomber juste de l'autre côté d'une frontière H3).
     /// </summary>
-    private static List<Vector3[]> ChainEdgesIntoLoops(List<(Vector3 a, Vector3 b)> edges)
+    private static int[] FindKNearestTiles(Vector3 faceDir, Vector3[] tileDirs, int k)
     {
-        var remaining = new List<(Vector3, Vector3)>(edges);
-        var loops     = new List<Vector3[]>();
-
-        while (remaining.Count > 0)
+        // Fast path k=3 : partial sort without bool[] allocation (avoids ~6k allocs per LoadPlanet).
+        if (k == 3 && tileDirs.Length >= 3)
         {
-            var (startA, startB) = remaining[0];
-            remaining.RemoveAt(0);
-
-            var chain = new List<Vector3> { startA, startB };
-            Vector3 tail = startB;
-
-            bool extended;
-            do
+            int   i0 = -1, i1 = -1, i2 = -1;
+            float b0 = float.MinValue, b1 = float.MinValue, b2 = float.MinValue;
+            for (int j = 0; j < tileDirs.Length; j++)
             {
-                extended = false;
-                for (int i = 0; i < remaining.Count; i++)
-                {
-                    var (ea, eb) = remaining[i];
-                    if ((ea - tail).sqrMagnitude < 1e-6f)
-                    { chain.Add(eb); tail = eb; remaining.RemoveAt(i); extended = true; break; }
-                    if ((eb - tail).sqrMagnitude < 1e-6f)
-                    { chain.Add(ea); tail = ea; remaining.RemoveAt(i); extended = true; break; }
-                }
-            } while (extended);
-
-            if (chain.Count >= 2)
-                loops.Add(chain.ToArray());
+                float dot = Vector3.Dot(faceDir, tileDirs[j]);
+                if      (dot > b0) { b2 = b1; i2 = i1; b1 = b0; i1 = i0; b0 = dot; i0 = j; }
+                else if (dot > b1) { b2 = b1; i2 = i1;           b1 = dot; i1 = j; }
+                else if (dot > b2) {                              b2 = dot; i2 = j; }
+            }
+            return new[] { i0, i1, i2 };
         }
-        return loops;
+        // Generic fallback for other k values.
+        var result = new int[k];
+        var used   = new bool[tileDirs.Length];
+        for (int r = 0; r < k; r++)
+        {
+            float best = float.MinValue;
+            int   idx  = 0;
+            for (int j = 0; j < tileDirs.Length; j++)
+            {
+                if (used[j]) continue;
+                float dot = Vector3.Dot(faceDir, tileDirs[j]);
+                if (dot > best) { best = dot; idx = j; }
+            }
+            result[r] = idx;
+            used[idx]  = true;
+        }
+        return result;
     }
 
     /// <summary>
@@ -443,27 +432,12 @@ public static class GoldbergFaceColorizer
             || tileToCorpId == null)
             return;
 
-        // Itère sur chaque face Goldberg (même sens que GetBoundaryLoops : Goldberg→H3).
-        // Garantit que face teintée = face incluse dans la frontière (pas de décalage).
+        // Nearest-neighbor 3D (dot product) — cohérent avec BuildFaceAltitudes/ColorizeFromAltitude.
+        // Évite la distorsion aux pôles de la distance Euclidienne lat/lon 2D.
+        Vector3[] tileDirsOwn = BuildTileDirs(serverTiles);
         for (int fi = 0; fi < faces.Length; fi++)
         {
-            float fLat = faces[fi].latNorm;
-            float fLon = faces[fi].lonNorm;
-
-            // Nearest-neighbor H3 tile depuis la face
-            float bestDist2 = float.MaxValue;
-            int   bestJ     = -1;
-            for (int j = 0; j < serverTiles.Length; j++)
-            {
-                float dLat = fLat - serverTiles[j].latNorm;
-                float dLon = fLon - serverTiles[j].lonNorm;
-                if (dLon >  0.5f) dLon -= 1f;
-                if (dLon < -0.5f) dLon += 1f;
-                float d = dLat * dLat + dLon * dLon;
-                if (d < bestDist2) { bestDist2 = d; bestJ = j; }
-            }
-
-            if (bestJ < 0) continue;
+            int bestJ = FindNearestTile(faces[fi].centroid3D, tileDirsOwn);
 
             string tileId = serverTiles[bestJ].tileId;
             if (!ownershipTints.TryGetValue(tileId, out Color corpColor)) continue;

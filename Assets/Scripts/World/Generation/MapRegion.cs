@@ -133,28 +133,14 @@ public class MapRegion : ScriptableObject
         TerrainType dominantType = projectedTerrain != null ? projectedTerrain.terrainType : TerrainType.Roche;
         float waterRatio = Mathf.Clamp01(projectedWaterRatio);
 
-        if (forceOpenWaterRegion)
-        {
-            dominantType = TerrainType.Eau;
-            waterRatio = Mathf.Max(waterRatio, 1f);
-        }
-        else if (forceFrozenRegion)
-        {
-            dominantType = TerrainType.Glace;
-            waterRatio = Mathf.Max(waterRatio, 0.75f);
-        }
-        else if (forceAridRegion)
-        {
-            dominantType = TerrainType.Roche;
-            waterRatio = Mathf.Min(waterRatio, 0.02f);
-        }
+        ApplyForceOverrides(ref dominantType, ref waterRatio);
 
         float regionalTemperature = (planet != null ? planet.physics.baseEquatorTemperature : 0f)
                                 + (weather != null ? weather.temperatureOffset : TotalTemperatureOffset);
 
         float desertFromWater = 1f - waterRatio;
-        float heatFactor = Mathf.InverseLerp(10f, 70f, regionalTemperature);
-        float freezeFactor = Mathf.InverseLerp(5f, -80f, regionalTemperature);
+        float heatFactor    = Mathf.InverseLerp(10f, 70f, regionalTemperature);
+        float freezeFactor  = Mathf.InverseLerp(5f, -80f, regionalTemperature);
 
         float oceanicity = dominantType == TerrainType.Eau
             ? Mathf.Max(waterRatio, 0.65f)
@@ -168,24 +154,42 @@ public class MapRegion : ScriptableObject
             ? Mathf.Max(freezeFactor, 0.75f)
             : freezeFactor * (waterRatio > 0.2f ? 0.9f : 0.5f);
 
-        // Signaux de relief progressifs (Sprint B)
-        float rugosity = Mathf.Clamp01(desertFromWater * (1f - frigidity) * (deserticity * 0.8f + 0.2f));
+        float rugosity          = Mathf.Clamp01(desertFromWater * (1f - frigidity) * (deserticity * 0.8f + 0.2f));
         float accumulationIndex = Mathf.Clamp01(waterRatio * (1f - heatFactor));
-        float reliefContrast = Mathf.Clamp01(Mathf.Abs(oceanicity - deserticity));
+        float reliefContrast    = Mathf.Clamp01(Mathf.Abs(oceanicity - deserticity));
 
         return new CoherenceConstraint
         {
             dominantTerrainType = dominantType,
             projectedWaterRatio = waterRatio,
-            oceanicity = Mathf.Clamp01(oceanicity),
-            deserticity = Mathf.Clamp01(deserticity),
-            frigidity = Mathf.Clamp01(frigidity),
-            isExtremeOcean = forceOpenWaterRegion || (dominantType == TerrainType.Eau && waterRatio >= 0.95f),
-            isExtremeArid = forceAridRegion || (projectedTerrain != null && dominantType != TerrainType.Glace && waterRatio <= 0.05f),
-            isExtremeFrozen = forceFrozenRegion || (dominantType == TerrainType.Glace && regionalTemperature <= -15f),
-            rugosity = rugosity,
+            oceanicity   = Mathf.Clamp01(oceanicity),
+            deserticity  = Mathf.Clamp01(deserticity),
+            frigidity    = Mathf.Clamp01(frigidity),
+            isExtremeOcean   = forceOpenWaterRegion || (dominantType == TerrainType.Eau && waterRatio >= 0.95f),
+            isExtremeArid    = forceAridRegion || (projectedTerrain != null && dominantType != TerrainType.Glace && waterRatio <= 0.05f),
+            isExtremeFrozen  = forceFrozenRegion || (dominantType == TerrainType.Glace && regionalTemperature <= -15f),
+            rugosity          = rugosity,
             accumulationIndex = accumulationIndex,
-            reliefContrast = reliefContrast,
+            reliefContrast    = reliefContrast,
         };
+    }
+
+    private void ApplyForceOverrides(ref TerrainType dominantType, ref float waterRatio)
+    {
+        if (forceOpenWaterRegion)
+        {
+            dominantType = TerrainType.Eau;
+            waterRatio   = Mathf.Max(waterRatio, 1f);
+        }
+        else if (forceFrozenRegion)
+        {
+            dominantType = TerrainType.Glace;
+            waterRatio   = Mathf.Max(waterRatio, 0.75f);
+        }
+        else if (forceAridRegion)
+        {
+            dominantType = TerrainType.Roche;
+            waterRatio   = Mathf.Min(waterRatio, 0.02f);
+        }
     }
 }

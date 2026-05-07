@@ -93,28 +93,39 @@ public class RuntimeDebugHttpServer : MonoBehaviour
         if (forceRunInBackground)
             EnableRunInBackground();
 
-        try
+        // Essaie le port configuré, puis les 9 suivants si déjà occupé.
+        for (int attempt = 0; attempt < 10; attempt++)
         {
-            _listener = new HttpListener();
-            _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-            _listener.Start();
-            _isRunning = true;
-
-            _listenerThread = new Thread(ListenLoop)
+            int tryPort = port + attempt;
+            try
             {
-                IsBackground = true,
-                Name = "RuntimeDebugHttpServer"
-            };
-            _listenerThread.Start();
-            Debug.Log($"[RuntimeDebugHttpServer] Started on http://127.0.0.1:{port}/");
-            return true;
+                _listener = new HttpListener();
+                _listener.Prefixes.Add($"http://127.0.0.1:{tryPort}/");
+                _listener.Start();
+                _isRunning = true;
+                if (attempt > 0)
+                    Debug.LogWarning($"[RuntimeDebugHttpServer] Port {port} occupé — démarré sur http://127.0.0.1:{tryPort}/");
+                else
+                    Debug.Log($"[RuntimeDebugHttpServer] Started on http://127.0.0.1:{tryPort}/");
+
+                _listenerThread = new Thread(ListenLoop)
+                {
+                    IsBackground = true,
+                    Name = "RuntimeDebugHttpServer"
+                };
+                _listenerThread.Start();
+                return true;
+            }
+            catch (Exception)
+            {
+                // Port occupé (SocketException / HttpListenerException) → essaie le suivant
+                try { _listener?.Close(); } catch { }
+                _listener = null;
+            }
         }
-        catch (Exception ex)
-        {
-            Debug.LogError($"[RuntimeDebugHttpServer] Failed to start: {ex.Message}");
-            StopServer();
-            return false;
-        }
+
+        Debug.LogError($"[RuntimeDebugHttpServer] Impossible de trouver un port libre entre {port} et {port + 9}.");
+        return false;
     }
 
     public void StopServer()
@@ -194,71 +205,42 @@ public class RuntimeDebugHttpServer : MonoBehaviour
         {
             string path = context.Request.Url != null ? context.Request.Url.AbsolutePath.ToLowerInvariant() : string.Empty;
             Dictionary<string, string> query = ParseQuery(context.Request.Url != null ? context.Request.Url.Query : string.Empty);
-            RuntimeDebugFacade facade = RuntimeDebugFacade.Instance;
-
-            switch (path)
-            {
-                case "/debug/state":
-                    WriteJson(context, JsonUtility.ToJson(facade.GetCurrentViewState(), true));
-                    break;
-
-                case "/debug/projection":
-                    WriteJson(context, JsonUtility.ToJson(facade.GetProjectionSummary(), true));
-                    break;
-
-                case "/debug/projection-state":
-                    WriteJson(context, JsonUtility.ToJson(facade.GetProjectionState(), true));
-                    break;
-
-                case "/debug/local":
-                    WriteJson(context, JsonUtility.ToJson(facade.GetLocalSummary(), true));
-                    break;
-
-                case "/debug/region-state":
-                    WriteJson(context, JsonUtility.ToJson(facade.GetRegionState(), true));
-                    break;
-
-                case "/debug/world":
-                    WriteJson(context, JsonUtility.ToJson(facade.GetWorldState(), true));
-                    break;
-
-                case "/debug/client":
-                    WriteJson(context, JsonUtility.ToJson(facade.GetClientSnapshot(), true));
-                    break;
-
-                case "/debug/console":
-                    int maxEntries = TryGetInt(query, "maxEntries", 20);
-                    LogType minimumSeverity = TryGetLogType(query, "minimumSeverity", LogType.Warning);
-                    WriteJson(context, JsonUtility.ToJson(facade.GetRecentConsoleErrors(maxEntries, minimumSeverity), true));
-                    break;
-
-                case "/debug/screenshot":
-                    string fileName = TryGetString(query, "fileName", string.Empty);
-                    int superSize = TryGetInt(query, "superSize", 1);
-                    WriteJson(context, JsonUtility.ToJson(facade.CaptureSceneScreenshot(fileName, superSize), true));
-                    break;
-
-                case "/debug/launch-preset":
-                    HandleLaunchPreset(context, facade, query);
-                    break;
-
-                case "/debug/open-region":
-                    HandleOpenRegion(context, facade, query);
-                    break;
-
-                case "/debug/navigate":
-                    string navTarget = TryGetString(query, "target", string.Empty);
-                    WriteJson(context, JsonUtility.ToJson(facade.NavigateView(navTarget), true));
-                    break;
-
-                default:
-                    WriteJson(context, "{\"success\":false,\"message\":\"Unknown endpoint\"}", 404);
-                    break;
-            }
+            DispatchDebugRequest(context, path, query);
         }
         catch (Exception ex)
         {
             WriteJson(context, $"{{\"success\":false,\"message\":{JsonUtility.ToJson(new StringWrapper { value = ex.Message })}}}", 500);
+        }
+    }
+
+    private void DispatchDebugRequest(HttpListenerContext context, string path, Dictionary<string, string> query)
+    {
+        RuntimeDebugFacade facade = RuntimeDebugFacade.Instance;
+        switch (path)
+        {
+            case "/debug/state":          WriteJson(context, JsonUtility.ToJson(facade.GetCurrentViewState(), true)); break;
+            case "/debug/projection":     WriteJson(context, JsonUtility.ToJson(facade.GetProjectionSummary(), true)); break;
+            case "/debug/projection-state": WriteJson(context, JsonUtility.ToJson(facade.GetProjectionState(), true)); break;
+            case "/debug/local":          WriteJson(context, JsonUtility.ToJson(facade.GetLocalSummary(), true)); break;
+            case "/debug/region-state":   WriteJson(context, JsonUtility.ToJson(facade.GetRegionState(), true)); break;
+            case "/debug/world":          WriteJson(context, JsonUtility.ToJson(facade.GetWorldState(), true)); break;
+            case "/debug/client":         WriteJson(context, JsonUtility.ToJson(facade.GetClientSnapshot(), true)); break;
+            case "/debug/console":
+                WriteJson(context, JsonUtility.ToJson(facade.GetRecentConsoleErrors(
+                    TryGetInt(query, "maxEntries", 20),
+                    TryGetLogType(query, "minimumSeverity", LogType.Warning)), true));
+                break;
+            case "/debug/screenshot":
+                WriteJson(context, JsonUtility.ToJson(facade.CaptureSceneScreenshot(
+                    TryGetString(query, "fileName", string.Empty),
+                    TryGetInt(query, "superSize", 1)), true));
+                break;
+            case "/debug/launch-preset":         HandleLaunchPreset(context, facade, query); break;
+            case "/debug/open-region":           HandleOpenRegion(context, facade, query); break;
+            case "/debug/navigate":              WriteJson(context, JsonUtility.ToJson(facade.NavigateView(TryGetString(query, "target", string.Empty)), true)); break;
+            case "/debug/water-sphere-toggle":   WriteJson(context, JsonUtility.ToJson(facade.ToggleWaterSphere(), true)); break;
+            case "/debug/water-sphere-level":    WriteJson(context, JsonUtility.ToJson(facade.SetGlobeWaterLevel(TryGetFloat(query, "level", 0f)), true)); break;
+            default:                             WriteJson(context, "{\"success\":false,\"message\":\"Unknown endpoint\"}", 404); break;
         }
     }
 

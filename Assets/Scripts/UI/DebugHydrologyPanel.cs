@@ -28,6 +28,10 @@ public class DebugHydrologyPanel : MonoBehaviour
     [SerializeField] private Slider projectionWaterLevelSlider;
     [SerializeField] private TextMeshProUGUI projectionWaterLevelLabel;
 
+    [Header("Niveau mer globe (debug instantané)")]
+    [SerializeField] private Slider globeSeaLevelSlider;
+    [SerializeField] private TextMeshProUGUI globeSeaLevelLabel;
+
     [Header("Actions locale")]
     [SerializeField] private Slider waterDeltaSlider;
     [SerializeField] private TextMeshProUGUI waterDeltaLabel;
@@ -45,6 +49,7 @@ public class DebugHydrologyPanel : MonoBehaviour
     private Button _resetProjectionWaterButton;
     private Button _applySelectedCellButton;
     private Button _regenerateLocalButton;
+    private Button _toggleWaterSphereButton;
     private bool _listenersBound;
     private CanvasGroup _panelCanvasGroup;
 
@@ -68,6 +73,7 @@ public class DebugHydrologyPanel : MonoBehaviour
     private void OnEnable()
     {
         ViewManager.OnViewChanged += HandleViewChanged;
+        SubscribePlanetSphereEvents();
     }
 
     private void Start()
@@ -79,13 +85,12 @@ public class DebugHydrologyPanel : MonoBehaviour
         BindListeners();
         UpdateSliderLabels();
         RefreshPanel();
+        SubscribePlanetSphereEvents();
     }
 
     private void Update()
     {
-        if (Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame)
-            TogglePanel();
-
+        // F10 est géré centralement par GameHUDController — on gère uniquement Escape ici
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame && IsPanelVisible())
             SetPanelVisible(false);
     }
@@ -93,10 +98,59 @@ public class DebugHydrologyPanel : MonoBehaviour
     private void OnDisable()
     {
         ViewManager.OnViewChanged -= HandleViewChanged;
+        UnsubscribePlanetSphereEvents();
+    }
+
+    private PlanetSphereGoldberg _subscribedSphere;
+
+    private void SubscribePlanetSphereEvents()
+    {
+        if (viewManager == null) viewManager = FindAnyObjectByType<ViewManager>();
+        PlanetSphereGoldberg sphere = viewManager != null ? viewManager.ActivePlanetSphere : null;
+        if (sphere == null || sphere == _subscribedSphere) return;
+        UnsubscribePlanetSphereEvents();
+        _subscribedSphere = sphere;
+        sphere.OnH3TilesReady += HandleH3TilesReady;
+    }
+
+    private void UnsubscribePlanetSphereEvents()
+    {
+        if (_subscribedSphere != null)
+        {
+            _subscribedSphere.OnH3TilesReady -= HandleH3TilesReady;
+            _subscribedSphere = null;
+        }
+    }
+
+    private void HandleH3TilesReady(GoldbergTileState[] _, System.Collections.Generic.Dictionary<TerrainType, Color> __)
+    {
+        // Le fetch vient de terminer — resync le slider au ServerWaterLevel réel
+        if (globeSeaLevelSlider == null) return;
+        PlanetSphereGoldberg sphere = viewManager != null ? viewManager.ActivePlanetSphere : null;
+        if (sphere == null) return;
+        float wl = sphere.ServerWaterLevel;
+        globeSeaLevelSlider.SetValueWithoutNotify(wl);
+        HandleGlobeSeaLevelChanged(wl);
     }
 
     public void TogglePanel()
     {
+        // Lazy init : si le panel était inactif dans la scène, Awake/Start n'ont pas tourné.
+        // On force l'activation + initialisation avant le premier toggle.
+        if (panelRoot == null)
+        {
+            panelRoot = gameObject;
+            EnsureProjectionControlsCreated();
+            ResolveControls();
+            EnsureCanvasGroup();
+            BindListeners();
+            // Active le GameObject pour que OnEnable + l'UI soient fonctionnels
+            if (!panelRoot.activeSelf)
+                panelRoot.SetActive(true);
+            // Start() sera déclenché par SetActive → il va appeler SetPanelVisible(visibleOnStart=false)
+            // puis on impose visible=true juste après
+        }
+
         SetPanelVisible(!IsPanelVisible());
         if (IsPanelVisible())
             RefreshPanel();
@@ -223,6 +277,34 @@ public class DebugHydrologyPanel : MonoBehaviour
             RefreshStatus();
     }
 
+    /// <summary>
+    /// Ajuste le niveau de la mer visuellement en temps réel (sans re-fetch serveur).
+    /// Utile pour tester l'impact du terraforming sur la colorisation altitude/mer.
+    /// </summary>
+    public void HandleGlobeSeaLevelChanged(float value)
+    {
+        if (globeSeaLevelLabel != null)
+            globeSeaLevelLabel.text = $"Mer (globe) {value:+0.00;-0.00;0.00}";
+
+        PlanetSphereGoldberg sphere = viewManager != null ? viewManager.ActivePlanetSphere : null;
+        sphere?.RefreshAltitudeColorization(value);
+    }
+
+    public void HandleToggleWaterSphere()
+    {
+        PlanetSphereGoldberg sphere = viewManager != null ? viewManager.ActivePlanetSphere : null;
+        if (sphere == null) return;
+
+        bool nowVisible = sphere.ToggleWaterSphere();
+
+        if (_toggleWaterSphereButton != null)
+        {
+            var label = _toggleWaterSphereButton.GetComponentInChildren<TextMeshProUGUI>();
+            if (label != null) label.text = nowVisible ? "Cacher eau" : "Afficher eau";
+        }
+    }
+
+
     private void HandleViewChanged(ViewManager.ViewState _)
     {
         RefreshPanel();
@@ -233,14 +315,16 @@ public class DebugHydrologyPanel : MonoBehaviour
         if (panelRoot == null)
             panelRoot = gameObject;
 
-        projectionSection ??= FindChildObject("ProjectionSection");
-        localSection ??= FindChildObject("LocalSection");
+        if (projectionSection == null) { Transform t = transform.Find("ProjectionSection"); if (t != null) projectionSection = t.gameObject; }
+        if (localSection == null)      { Transform t = transform.Find("LocalSection");      if (t != null) localSection      = t.gameObject; }
         EnsureProjectionControlsCreated();
         statusLabel ??= FindChild<TextMeshProUGUI>("StatusLabel");
         latitudeInput ??= FindChild<TMP_InputField>("LatitudeInput");
         longitudeInput ??= FindChild<TMP_InputField>("LongitudeInput");
         projectionWaterLevelSlider ??= FindChild<Slider>("ProjectionWaterLevelSlider");
         projectionWaterLevelLabel ??= FindChild<TextMeshProUGUI>("ProjectionWaterLevelLabel");
+        globeSeaLevelSlider ??= FindChild<Slider>("GlobeSeaLevelSlider");
+        globeSeaLevelLabel ??= FindChild<TextMeshProUGUI>("GlobeSeaLevelLabel");
         waterDeltaSlider ??= FindChild<Slider>("WaterDeltaSlider");
         waterDeltaLabel ??= FindChild<TextMeshProUGUI>("WaterDeltaLabel");
         temperatureDeltaSlider ??= FindChild<Slider>("TemperatureDeltaSlider");
@@ -253,6 +337,7 @@ public class DebugHydrologyPanel : MonoBehaviour
         _resetProjectionWaterButton ??= FindChild<Button>("ResetProjectionWaterButton");
         _applySelectedCellButton ??= FindChild<Button>("ApplySelectedCellButton");
         _regenerateLocalButton ??= FindChild<Button>("RegenerateLocalButton");
+        _toggleWaterSphereButton ??= FindChild<Button>("ToggleWaterSphereButton");
         EnsureLocalControlsConfigured();
         EnsureInteractiveRaycasts();
     }
@@ -269,8 +354,10 @@ public class DebugHydrologyPanel : MonoBehaviour
         _resetProjectionWaterButton?.onClick.AddListener(ResetProjectionWaterLevel);
         _applySelectedCellButton?.onClick.AddListener(ApplySelectedCellAdjustments);
         _regenerateLocalButton?.onClick.AddListener(RegenerateLocalRegion);
+        _toggleWaterSphereButton?.onClick.AddListener(HandleToggleWaterSphere);
 
         projectionWaterLevelSlider?.onValueChanged.AddListener(HandleProjectionWaterLevelChanged);
+        globeSeaLevelSlider?.onValueChanged.AddListener(HandleGlobeSeaLevelChanged);
         waterDeltaSlider?.onValueChanged.AddListener(HandleWaterDeltaChanged);
         temperatureDeltaSlider?.onValueChanged.AddListener(HandleTemperatureDeltaChanged);
         _listenersBound = true;
@@ -304,6 +391,23 @@ public class DebugHydrologyPanel : MonoBehaviour
             float projectionLevel = viewManager != null ? viewManager.ActiveProjectionWaterLevel : projectionWaterLevelSlider.value;
             projectionWaterLevelSlider.SetValueWithoutNotify(projectionLevel);
             HandleProjectionWaterLevelChanged(projectionLevel);
+        }
+
+        if (globeSeaLevelSlider != null)
+        {
+            // Initialise le slider sur le waterLevel serveur (pour la colorisation)
+            PlanetSphereGoldberg sphere = viewManager != null ? viewManager.ActivePlanetSphere : null;
+            float currentSea = sphere != null ? sphere.ServerWaterLevel : 0f;
+            globeSeaLevelSlider.SetValueWithoutNotify(currentSea);
+            HandleGlobeSeaLevelChanged(currentSea);
+
+            // Synchronise le libellé du bouton toggle
+            if (_toggleWaterSphereButton != null)
+            {
+                var label = _toggleWaterSphereButton.GetComponentInChildren<TextMeshProUGUI>();
+                if (label != null)
+                    label.text = sphere != null && sphere.IsWaterSphereVisible ? "Cacher eau" : "Afficher eau";
+            }
         }
 
         if (waterDeltaSlider != null)
@@ -439,23 +543,38 @@ public class DebugHydrologyPanel : MonoBehaviour
         if (panelRoot == null)
             panelRoot = gameObject;
 
-        projectionSection ??= FindChildObject("ProjectionSection");
-        localSection ??= FindChildObject("LocalSection");
+        // transform.Find fonctionne même si le GO racine est inactif (contrairement à GetComponentsInChildren)
+        if (projectionSection == null)
+        {
+            Transform t = transform.Find("ProjectionSection");
+            if (t != null) projectionSection = t.gameObject;
+        }
+        if (localSection == null)
+        {
+            Transform t = transform.Find("LocalSection");
+            if (t != null) localSection = t.gameObject;
+        }
         if (projectionSection == null)
             return;
 
         RectTransform panelRect = panelRoot.GetComponent<RectTransform>();
         if (panelRect != null)
-            panelRect.sizeDelta = new Vector2(360f, 420f);
+            panelRect.sizeDelta = new Vector2(360f, 470f);
 
         RectTransform projectionRect = projectionSection.GetComponent<RectTransform>();
         if (projectionRect != null)
-            projectionRect.sizeDelta = new Vector2(-32f, 206f);
+            projectionRect.sizeDelta = new Vector2(-32f, 295f);
 
         RectTransform localRect = localSection != null ? localSection.GetComponent<RectTransform>() : null;
         if (localRect != null)
-            localRect.anchoredPosition = new Vector2(16f, -312f);
+            localRect.anchoredPosition = new Vector2(16f, -356f);  // décalé vers le bas
 
+        CreateProjectionSectionControls();
+        EnsureLocalControlsConfigured();
+    }
+
+    private void CreateProjectionSectionControls()
+    {
         CreateLabel(projectionSection.transform,
                     "ProjectionWaterLevelLabel",
                     new Vector2(0f, -146f),
@@ -483,7 +602,33 @@ public class DebugHydrologyPanel : MonoBehaviour
                      new Vector2(160f, -202f),
                      new Vector2(150f, 30f),
                      "Reset niveau");
-        EnsureLocalControlsConfigured();
+
+        CreateGlobeSeaLevelControls();
+    }
+
+    private void CreateGlobeSeaLevelControls()
+    {
+        CreateLabel(projectionSection.transform,
+                    "GlobeSeaLevelLabel",
+                    new Vector2(0f, -238f),
+                    new Vector2(200f, 24f),
+                    "Mer (globe) +0.00",
+                    16f,
+                    TextAlignmentOptions.Left);
+
+        CreateButton(projectionSection.transform,
+                     "ToggleWaterSphereButton",
+                     new Vector2(210f, -238f),
+                     new Vector2(100f, 24f),
+                     "Cacher eau");
+
+        CreateSlider(projectionSection.transform,
+                     "GlobeSeaLevelSlider",
+                     new Vector2(0f, -262f),
+                     new Vector2(310f, 20f),
+                     -1f,
+                     1f,
+                     0f);
     }
 
     private void EnsureLocalControlsConfigured()

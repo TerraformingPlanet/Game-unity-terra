@@ -25,6 +25,8 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
 
         Ray ray = Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());
         if (!Physics.Raycast(ray, out RaycastHit hit)) return;
+        // Ignorer tout collider autre que le mesh terrain (WaterSphere, etc.)
+        if (hit.collider != _meshCollider) return;
 
         Vector3 dir     = (hit.point - transform.position).normalized;
         int     newFace = GoldbergSphereGenerator.FindNearestFaceId(_sphereData.faces, dir);
@@ -73,9 +75,9 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         if (_cachedServerTiles == null || _cachedServerTiles.Length == 0) return;
         if (_sphereData.faces == null || faceId < 0 || faceId >= _sphereData.faces.Length) return;
 
-        // Lazy-build la map faceId → GoldbergTileState
+        // Lazy-build la map faceId → GoldbergTileState (H3-exact — no nearest-neighbour).
         if (_faceToTile == null)
-            _faceToTile = GoldbergFaceColorizer.BuildFaceToTileMap(_sphereData.faces, _cachedServerTiles);
+            _faceToTile = BuildH3FaceToTileMap();
 
         if (!_faceToTile.TryGetValue(faceId, out GoldbergTileState tile)) return;
 
@@ -108,24 +110,34 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
         OnTileHoverReady?.Invoke(sb.ToString(), mousePos);
     }
 
+    private Dictionary<int, GoldbergTileState> BuildH3FaceToTileMap()
+    {
+        if (_h3Result.faceToTileId != null && _cachedTileById != null)
+        {
+            var map = new Dictionary<int, GoldbergTileState>(_h3Result.faceToTileId.Length);
+            for (int fi = 0; fi < _h3Result.faceToTileId.Length; fi++)
+                if (_cachedTileById.TryGetValue(_h3Result.faceToTileId[fi], out var tile))
+                    map[fi] = tile;
+            return map;
+        }
+        // Pre-H3 fallback (GP placeholder mesh, before first tile fetch).
+        return GoldbergFaceColorizer.BuildFaceToTileMap(_sphereData.faces, _cachedServerTiles);
+    }
+
     private void TintFace(Color[] meshColors, int faceId)
     {
-        if (faceId < 0 || faceId >= _sphereData.faces.Length) return;
-        for (int i = 0; i < _sphereData.vertexFaceId.Length; i++)
-        {
-            if (_sphereData.vertexFaceId[i] == faceId)
-                meshColors[i] = Color.Lerp(_cachedMeshColors[i], Color.white, hoverTintColor.a);
-        }
+        if (faceId < 0 || _sphereData.faceVertexIndices == null
+            || faceId >= _sphereData.faceVertexIndices.Length) return;
+        foreach (int i in _sphereData.faceVertexIndices[faceId])
+            meshColors[i] = Color.Lerp(_cachedMeshColors[i], Color.white, hoverTintColor.a);
     }
 
     private void RestoreFace(Color[] meshColors, int faceId)
     {
-        if (faceId < 0 || faceId >= _sphereData.faces.Length) return;
-        for (int i = 0; i < _sphereData.vertexFaceId.Length; i++)
-        {
-            if (_sphereData.vertexFaceId[i] == faceId)
-                meshColors[i] = _cachedMeshColors[i];
-        }
+        if (faceId < 0 || _sphereData.faceVertexIndices == null
+            || faceId >= _sphereData.faceVertexIndices.Length) return;
+        foreach (int i in _sphereData.faceVertexIndices[faceId])
+            meshColors[i] = _cachedMeshColors[i];
     }
 
     // =========================================================
@@ -181,7 +193,32 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
     /// </summary>
     private void ApplyLodLevel(int level)
     {
-        // Invalider l'état tooltip au changement LOD
+        InvalidateLodHoverState();
+
+        var nextData = level == 1 ? _sphereDataHi : _sphereDataLo;
+        UpdateLodColorization(nextData, level);
+
+        _sphereData       = nextData;
+        _hoveredFaceId    = -1;
+        _cachedMeshColors = (Color[])nextData.mesh.colors.Clone();
+
+        ApplyTopographicOnLodSwap(nextData, level);
+
+        _meshFilter.sharedMesh   = nextData.mesh;
+        _meshCollider.sharedMesh = nextData.mesh;
+
+        string label = level == 1 ? "HAUT" : "BAS";
+        Debug.Log($"[PlanetSphereGoldberg] LOD \u2192 {label} ({nextData.faces.Length} faces) dist={cameraController?.OrbitDistance:F1}");
+
+        if (debugLodVerbose)
+            Debug.Log($"[LOD] ApplyLodLevel | level={level} | cachedTiles={_cachedServerTiles?.Length ?? 0} | ownershipTints={_ownershipTints?.Count ?? 0}");
+
+        RebuildBorderLoops();
+        if (level == 1) TryStartHiLodFetch();
+    }
+
+    private void InvalidateLodHoverState()
+    {
         _faceToTile         = null;
         _hoverFaceCandidate = -1;
         _hoverStartTime     = -1f;
@@ -190,61 +227,36 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
             _hoverTooltipFired = false;
             OnTileHoverCancelled?.Invoke();
         }
+    }
 
-        var nextData = level == 1 ? _sphereDataHi : _sphereDataLo;
-
-        // LOD haut : colorise avec res=2 seulement si les biomes n'ont pas encore été appliqués
-        // (_lodHiBaseColored est mis à true dans FetchAndColorizeFromServer dès que les tuiles sont appliquées)
+    private void UpdateLodColorization(GoldbergSphereGenerator.GoldbergMeshData nextData, int level)
+    {
         if (level == 1 && !_lodHiBaseColored && !_lodHiColored && _cachedServerTiles != null)
         {
-            GoldbergFaceColorizer.ColorizeFromAltitude(nextData.faces, _cachedServerTiles, ActiveWaterLevel);
+            ColorizeH3Exact(nextData.faces, _cachedServerTiles, ActiveWaterLevel);
             ReapplyOverlays(nextData, _cachedServerTiles);
             _lodHiBaseColored = true;
         }
         else if (level == 1 && _lodHiBaseColored)
         {
-            // Re-appliquer les overlays (ownership, states) sur les couleurs déjà présentes.
-            // IMPORTANT : pas de condition !_lodHiColored — si FetchAndColorizeHiLod s'est terminé
-            // avant FetchOwnershipOverlay/FetchStateOverlay (race condition), les overlays auraient
-            // été appliqués avec des données null. On doit re-passer ici une fois les données reçues.
             ReapplyOverlays(nextData, _cachedServerTiles);
         }
         else if (level == 0 && _cachedServerTiles != null)
         {
-            // Reapply overlays sur LOD bas — garantit que les tints récents (corp/état)
-            // sont présents même si RefreshOwnershipOverlay s'est fait pendant LOD haut.
             ReapplyOverlays(nextData, _cachedServerTiles);
         }
+    }
 
-        _sphereData       = nextData;
-        _hoveredFaceId    = -1;
-        _cachedMeshColors = (Color[])nextData.mesh.colors.Clone();
-
-        // Relief topographique — réappliquer sur le mesh actif après swap LOD
-        if (enableTopographicRelief)
-        {
-            float[] altitudes = level == 1 ? _cachedFaceAltitudesHi : _cachedFaceAltitudesLo;
-            if (altitudes != null)
-                GoldbergSphereGenerator.ApplyTopographicDisplacement(
-                    nextData.mesh, nextData.vertexFaceId, altitudes,
-                    topographicDisplacementScale, nextData.vertexCornerGroup, ActiveWaterLevel);
-        }
-
-        _meshFilter.sharedMesh   = nextData.mesh;
-        // Collider toujours sur LOD bas (492 faces → convex OK; 1962 faces → KO)
-        _meshCollider.sharedMesh = _sphereDataLo.mesh;
-
-        string label = level == 1 ? "HAUT" : "BAS";
-        Debug.Log($"[PlanetSphereGoldberg] LOD → {label} ({nextData.faces.Length} faces) dist={cameraController?.OrbitDistance:F1}");
-
-        if (debugLodVerbose)
-            Debug.Log($"[LOD] ApplyLodLevel | level={level} | cachedTiles={_cachedServerTiles?.Length ?? 0} | ownershipTints={_ownershipTints?.Count ?? 0}");
-
-        // Recalculer les frontières avec le nouveau mesh actif pour éviter le mismatch LOD.
-        RebuildBorderLoops();
-
-        // Lance le fetch res=3 en arrière-plan (no-op si déjà fait ou en cours)
-        if (level == 1) TryStartHiLodFetch();
+    private void ApplyTopographicOnLodSwap(GoldbergSphereGenerator.GoldbergMeshData nextData, int level)
+    {
+        if (!enableTopographicRelief) return;
+        // H3 mode: altitude is baked into the mesh by Build() — post-hoc displacement would double-apply.
+        if (_h3Result.faceToTileId != null) return;
+        float[] altitudes = level == 1 ? _cachedFaceAltitudesHi : _cachedFaceAltitudesLo;
+        if (altitudes != null)
+            GoldbergSphereGenerator.ApplyTopographicDisplacement(
+                nextData.mesh, nextData.vertexFaceId, altitudes,
+                topographicDisplacementScale, nextData.vertexCornerGroup, ActiveWaterLevel);
     }
 
     // =========================================================
@@ -282,5 +294,92 @@ public partial class PlanetSphereGoldberg : MonoBehaviour
 
         Debug.Log($"[PlanetSphereGoldberg] H3 tile : {tile.tileId} | {tile.terrainType} | eau={tile.waterRatio:F2} | t={tile.temperature:F1}°C | state={tile.stateName}");
         OnH3TileResolved?.Invoke(tile);
+    }
+
+    // =========================================================
+    // Update — lens toggle + LOD + tooltip timer
+    // =========================================================
+
+    private void Update()
+    {
+        // Touche L : cycle lens Normal ↔ Elevation (debug)
+        if (Keyboard.current != null && Keyboard.current.lKey.wasPressedThisFrame)
+            CycleLens();
+
+        if (!enableLod) return;
+        if (cameraController == null) return;
+        // Le swap LOD doit rester possible même avant la réception complète des tuiles H3 serveur.
+        if (_sphereDataLo.faces == null || _sphereDataHi.faces == null) return;
+
+        float dist = cameraController.OrbitDistance;
+
+        // Hysteresis : deux seuils pour éviter le flickering
+        int targetLod;
+        if (_currentLodLevel <= 0)
+            targetLod = dist < lodNearDistance ? 1 : 0;
+        else
+            targetLod = dist > lodFarDistance  ? 0 : 1;
+
+        if (targetLod != _currentLodLevel)
+        {
+            _currentLodLevel = targetLod;
+            ApplyLodLevel(_currentLodLevel);
+        }
+
+        // Tooltip timer (LOD 1 seulement)
+        if (!_hoverTooltipFired && _hoverFaceCandidate >= 0 && _currentLodLevel == 1
+            && Time.time - _hoverStartTime >= hoverTooltipDelay)
+        {
+            FireTileTooltip(_hoverFaceCandidate);
+        }
+
+    }
+
+    // =========================================================
+    // Face utilities (used by Input, Overlay, and TangentView)
+    // =========================================================
+
+    /// <summary>Retourne le rayon de la face GP (distance max centroïde→vertex, espace monde).</summary>
+    public float GetFaceRadius(int faceId)
+    {
+        if (faceId < 0 || _sphereData.faces == null || faceId >= _sphereData.faces.Length
+            || _sphereData.mesh == null) return 1f;
+        Vector3 centroidWorld = transform.TransformPoint(_sphereData.faces[faceId].centroid3D * GoldbergSphereGenerator.VisualRadius);
+        Vector3[] verts  = _sphereData.mesh.vertices;
+        float     maxDist = 0f;
+        if (_sphereData.faceVertexIndices != null && faceId < _sphereData.faceVertexIndices.Length)
+        {
+            foreach (int i in _sphereData.faceVertexIndices[faceId])
+            {
+                float d = Vector3.Distance(centroidWorld, transform.TransformPoint(verts[i]));
+                if (d > maxDist) maxDist = d;
+            }
+        }
+        return maxDist > 0.0001f ? maxDist : 1f;
+    }
+
+    /// <summary>Masque une face GP (alpha=0) pour la remplacer visuellement par la grille hex.</summary>
+    public void HideFaceOnSphere(int faceId)
+    {
+        if (faceId < 0 || _sphereData.faces == null || faceId >= _sphereData.faces.Length
+            || _sphereData.mesh == null) return;
+        Color[] meshColors = _sphereData.mesh.colors;
+        if (_sphereData.faceVertexIndices != null && faceId < _sphereData.faceVertexIndices.Length)
+        {
+            foreach (int i in _sphereData.faceVertexIndices[faceId])
+            {
+                Color c = meshColors[i]; c.a = 0f; meshColors[i] = c;
+            }
+        }
+        _sphereData.mesh.colors = meshColors;
+    }
+
+    /// <summary>Restaure les couleurs originales d'une face GP après fermeture de la vue locale.</summary>
+    public void RestoreFaceOnSphere(int faceId)
+    {
+        if (faceId < 0 || _cachedMeshColors == null || _sphereData.mesh == null) return;
+        Color[] meshColors = _sphereData.mesh.colors;
+        RestoreFace(meshColors, faceId);
+        _sphereData.mesh.colors = meshColors;
     }
 }

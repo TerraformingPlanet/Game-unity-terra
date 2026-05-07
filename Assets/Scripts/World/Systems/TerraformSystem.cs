@@ -38,8 +38,9 @@ public class TerraformSystem : MonoBehaviour
     [SerializeField] private bool preferServerCommands = true;
     [SerializeField] private bool fallbackToLocalSimulationOnServerFailure = true;
     [SerializeField] private GameConfig config;
-    private string SimUrl     => config != null ? config.simulationServerUrl           : "http://127.0.0.1:8080";
-    private float  SimTimeout => config != null ? config.simulationServerTimeoutSeconds : 15f;
+    private string SimUrl            => config != null ? config.simulationServerUrl               : "http://127.0.0.1:8080";
+    private float  SimTimeout         => config != null ? config.simulationServerTimeoutSeconds     : 15f;
+    private float  PollingTimeout     => config != null ? config.serverPollingTimeoutSeconds        : 30f;
     [SerializeField] private float serverPollingIntervalSeconds = 5f;
 
     private ITickSource _tickSource;
@@ -200,13 +201,24 @@ public class TerraformSystem : MonoBehaviour
         }
     }
 
+    // Flag : inhibe le warning de polling tant que le serveur n'a pas répondu au moins une fois.
+    // Évite le spam "indisponible" pendant la génération initiale des tuiles (lock Python).
+    private bool _serverEverReached = false;
+
     private IEnumerator FetchServerWorldState()
     {
         string url = SimUrl.TrimEnd('/') + "/world";
         string json = null;
-        yield return SimHttp.Get(url, SimTimeout,
+        yield return SimHttp.Get(url, PollingTimeout,
             r   => json = r,
-            err => Debug.LogWarning($"[TerraformSystem] Polling serveur indisponible ({err})."));
+            err =>
+            {
+                if (_serverEverReached)
+                    Debug.LogWarning($"[TerraformSystem] Polling serveur indisponible ({err}).");
+                else
+                    Debug.Log($"[TerraformSystem] Attente serveur pendant génération ({err}) — normal au démarrage.");
+            });
+        if (json != null) _serverEverReached = true;
         if (json == null) yield break;
 
         WorldState worldState;

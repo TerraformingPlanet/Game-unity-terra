@@ -34,10 +34,6 @@
     --research-blue:       rgb(100, 160, 255);
     --diplomacy-purple:    rgb(200, 128, 255);
 
-    /* ── Queue tracks ─────────────────────────────────────────────── */
-    --queue-etat-color:     rgb(255, 140,  0);  /* EB de fortune — orange */
-    --queue-investor-color: rgb(80,  160, 255); /* EB formel     — bleu  */
-
     /* ── Terrain tag palette ─────────────────────────────────────── */
     --terrain-ocean:   rgb( 30,  90, 180);
     --terrain-coast:   rgb( 60, 140, 200);

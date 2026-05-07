@@ -27,5 +27,6 @@ public enum WaterClassification
     Coast = 1,
     InlandWater = 2,
     OpenOcean = 3,
-    FrozenWater = 4
+    FrozenWater = 4,
+    InlandSea = 5
 }

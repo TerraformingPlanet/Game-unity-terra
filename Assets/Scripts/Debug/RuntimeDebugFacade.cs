@@ -174,6 +174,38 @@ public class RuntimeDebugFacade : MonoBehaviour
         };
     }
 
+    public ActionResult SetGlobeWaterLevel(float waterLevel)
+    {
+        ResolveReferences();
+        PlanetSphereGoldberg sphere = viewManager != null ? viewManager.ActivePlanetSphere : null;
+        if (sphere == null)
+            return new ActionResult { success = false, message = "No active PlanetSphere." };
+
+        sphere.RefreshAltitudeColorization(waterLevel);
+        return new ActionResult
+        {
+            success = true,
+            message = $"Globe sea level set to {waterLevel:F3}.",
+            state = GetCurrentViewState()
+        };
+    }
+
+    public ActionResult ToggleWaterSphere()
+    {
+        ResolveReferences();
+        PlanetSphereGoldberg sphere = viewManager != null ? viewManager.ActivePlanetSphere : null;
+        if (sphere == null)
+            return new ActionResult { success = false, message = "No active PlanetSphere." };
+
+        bool nowVisible = sphere.ToggleWaterSphere();
+        return new ActionResult
+        {
+            success = true,
+            message = $"WaterSphere is now {(nowVisible ? "visible" : "hidden")}.",
+            state = GetCurrentViewState()
+        };
+    }
+
     public ProjectionSummary GetProjectionSummary()
     {
         ResolveReferences();
@@ -274,41 +306,8 @@ public class RuntimeDebugFacade : MonoBehaviour
         ConsoleLogEntry[] allEntries = _consoleEntries.ToArray();
         var filteredEntries = new List<ConsoleLogEntry>(Mathf.Clamp(maxEntries, 0, MaxConsoleEntries));
 
-        int logCount = 0;
-        int warningCount = 0;
-        int errorCount = 0;
-        int exceptionCount = 0;
-
-        for (int i = allEntries.Length - 1; i >= 0; i--)
-        {
-            ConsoleLogEntry entry = allEntries[i];
-            LogType entryType = ParseLogType(entry.type);
-
-            switch (entryType)
-            {
-                case LogType.Warning:
-                    warningCount++;
-                    break;
-                case LogType.Error:
-                case LogType.Assert:
-                    errorCount++;
-                    break;
-                case LogType.Exception:
-                    exceptionCount++;
-                    break;
-                default:
-                    logCount++;
-                    break;
-            }
-
-            if (!MeetsMinimumSeverity(entryType, minimumSeverity))
-                continue;
-
-            if (filteredEntries.Count >= maxEntries)
-                continue;
-
-            filteredEntries.Add(entry);
-        }
+        FilterAndCountEntries(allEntries, maxEntries, minimumSeverity, filteredEntries,
+            out int logCount, out int warningCount, out int errorCount, out int exceptionCount);
 
         filteredEntries.Reverse();
 
@@ -322,6 +321,32 @@ public class RuntimeDebugFacade : MonoBehaviour
             exceptionCount = exceptionCount,
             entries = filteredEntries.ToArray()
         };
+    }
+
+    private void FilterAndCountEntries(
+        ConsoleLogEntry[] allEntries,
+        int maxEntries,
+        LogType minimumSeverity,
+        List<ConsoleLogEntry> filtered,
+        out int logCount, out int warningCount, out int errorCount, out int exceptionCount)
+    {
+        logCount = warningCount = errorCount = exceptionCount = 0;
+        for (int i = allEntries.Length - 1; i >= 0; i--)
+        {
+            ConsoleLogEntry entry = allEntries[i];
+            LogType entryType = ParseLogType(entry.type);
+            switch (entryType)
+            {
+                case LogType.Warning: warningCount++; break;
+                case LogType.Error:
+                case LogType.Assert: errorCount++; break;
+                case LogType.Exception: exceptionCount++; break;
+                default: logCount++; break;
+            }
+            if (!MeetsMinimumSeverity(entryType, minimumSeverity)) continue;
+            if (filtered.Count >= maxEntries) continue;
+            filtered.Add(entry);
+        }
     }
 
     public ScreenshotCaptureResult CaptureSceneScreenshot(string fileName = null, int superSize = 1)

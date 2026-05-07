@@ -71,28 +71,32 @@ public partial class TerraformHUD
             yield break;
         }
 
+        int appliedCount = ApplyCatalogToActions(catalog);
+
+        _serverActionCatalogLoaded = appliedCount > 0;
+        if (_serverActionCatalogLoaded)
+            Debug.Log($"[TerraformHUD] Catalogue d'actions serveur synchronise ({appliedCount} action(s)).");
+    }
+
+    private int ApplyCatalogToActions(SimulationActionCatalog catalog)
+    {
         int appliedCount = 0;
         for (int index = 0; index < actions.Length; index++)
         {
             TerraformActionData action = actions[index];
-            if (action == null)
-                continue;
+            if (action == null) continue;
 
             for (int definitionIndex = 0; definitionIndex < catalog.actions.Length; definitionIndex++)
             {
                 SimulationActionDefinition definition = catalog.actions[definitionIndex];
-                if (definition.actionType != action.actionType)
-                    continue;
+                if (definition.actionType != action.actionType) continue;
 
                 action.ApplyAuthoritativeDefinition(definition);
                 appliedCount++;
                 break;
             }
         }
-
-        _serverActionCatalogLoaded = appliedCount > 0;
-        if (_serverActionCatalogLoaded)
-            Debug.Log($"[TerraformHUD] Catalogue d'actions serveur synchronise ({appliedCount} action(s)).");
+        return appliedCount;
     }
 
     private void HandleAuthoritativeCellSynchronized(HexCell cell)

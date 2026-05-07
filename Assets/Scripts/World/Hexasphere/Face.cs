@@ -42,9 +42,13 @@ namespace Code.Hexasphere
 
         public bool IsAdjacentToFace(Face face)
         {
-            List<string> thisIds  = _points.Select(p => p.ID).ToList();
-            List<string> otherIds = face.Points.Select(p => p.ID).ToList();
-            return thisIds.Intersect(otherIds).Count() == 2;
+            // Count shared point IDs — adjacent iff exactly 2 shared points.
+            // Avoids LINQ allocation (2 lists + Intersect) for a 3×3 comparison.
+            int shared = 0;
+            foreach (Point fp in _points)
+                foreach (Point op in face.Points)
+                    if (fp.ID == op.ID) { shared++; break; }
+            return shared == 2;
         }
 
         public Point GetCenter()

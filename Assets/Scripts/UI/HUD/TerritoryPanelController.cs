@@ -18,6 +18,7 @@ public class TerritoryPanelController : MonoBehaviour
     private Label         _territorySection;
     private Label         _populationSection;
     private Label         _statusLabel;
+    private VisualElement _queueContainer;   // FILE DE CONSTRUCTION section body
 
     private string _currentStateId;
     private GameHUDController _gameHUDController;
@@ -35,25 +36,7 @@ public class TerritoryPanelController : MonoBehaviour
         _panel = new VisualElement { name = "territory-panel" };
         _panel.AddToClassList("territory-panel");
 
-        // ── Header ────────────────────────────────────────────────────────────
-        var header = new VisualElement();
-        header.AddToClassList("tile-inspector__header");
-
-        _btnBadge = new Button { name = "territory-badge", text = "?" };
-        _btnBadge.AddToClassList("tile-inspector__badge-btn");
-        _btnBadge.pickingMode = PickingMode.Ignore; // read-only in this panel
-        header.Add(_btnBadge);
-
-        _titleLabel = new Label { name = "territory-title", text = "Territoire" };
-        _titleLabel.AddToClassList("tile-inspector__header-title");
-        header.Add(_titleLabel);
-
-        var closeBtn = new Button { text = "✕" };
-        closeBtn.AddToClassList("tile-inspector__close-btn");
-        closeBtn.RegisterCallback<ClickEvent>(_ => Hide());
-        header.Add(closeBtn);
-
-        _panel.Add(header);
+        _panel.Add(BuildPanelHeader());
 
         // ── Breadcrumb ────────────────────────────────────────────────────────
         _breadcrumbLabel = new Label { text = "Tuile  ›  Territoire" };
@@ -74,18 +57,51 @@ public class TerritoryPanelController : MonoBehaviour
         scroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
         scroll.verticalScrollerVisibility   = ScrollerVisibility.Auto;
 
-        // Status (loading / error)
-        _statusLabel = new Label { name = "territory-status", text = "" };
-        _statusLabel.style.fontSize      = 11;
-        _statusLabel.style.color         = new StyleColor(new Color(0.55f, 0.55f, 0.55f));
-        _statusLabel.style.paddingLeft   = 12f;
-        _statusLabel.style.paddingRight  = 12f;
-        _statusLabel.style.paddingTop    = 12f;
-        _statusLabel.style.paddingBottom = 12f;
-        _statusLabel.style.whiteSpace    = WhiteSpace.Normal;
-        scroll.Add(_statusLabel);
+        BuildPanelScrollContent(scroll);
+        _panel.Add(scroll);
+        root.Add(_panel);
 
-        // ÉTAT section
+        _panel.style.display = DisplayStyle.None;
+    }
+
+    private VisualElement BuildPanelHeader()
+    {
+        var header = new VisualElement();
+        header.AddToClassList("tile-inspector__header");
+
+        _btnBadge = new Button { name = "territory-badge", text = "?" };
+        _btnBadge.AddToClassList("tile-inspector__badge-btn");
+        _btnBadge.pickingMode = PickingMode.Ignore; // read-only in this panel
+        header.Add(_btnBadge);
+
+        _titleLabel = new Label { name = "territory-title", text = "Territoire" };
+        _titleLabel.AddToClassList("tile-inspector__header-title");
+        header.Add(_titleLabel);
+
+        var closeBtn = new Button { text = "✕" };
+        closeBtn.AddToClassList("tile-inspector__close-btn");
+        closeBtn.RegisterCallback<ClickEvent>(_ => Hide());
+        header.Add(closeBtn);
+
+        return header;
+    }
+
+    private void BuildPanelScrollContent(ScrollView scroll)
+    {
+        AddStatusLabel(scroll);
+
+        var queueHeader = MakeSectionTitle("FILE DE CONSTRUCTION");
+        scroll.Add(queueHeader);
+        _queueContainer = new VisualElement { name = "territory-queue-list" };
+        _queueContainer.style.paddingLeft   = 12f;
+        _queueContainer.style.paddingRight  = 12f;
+        _queueContainer.style.paddingBottom = 8f;
+        scroll.Add(_queueContainer);
+
+        var sep0b = new VisualElement();
+        sep0b.AddToClassList("hud-separator");
+        scroll.Add(sep0b);
+
         var stateHeader = MakeSectionTitle("ÉTAT");
         scroll.Add(stateHeader);
         _stateSection = MakeSectionBody();
@@ -95,7 +111,6 @@ public class TerritoryPanelController : MonoBehaviour
         sep1.AddToClassList("hud-separator");
         scroll.Add(sep1);
 
-        // TERRITOIRE section
         var terrHeader = MakeSectionTitle("TERRITOIRE");
         scroll.Add(terrHeader);
         _territorySection = MakeSectionBody();
@@ -105,16 +120,23 @@ public class TerritoryPanelController : MonoBehaviour
         sep2.AddToClassList("hud-separator");
         scroll.Add(sep2);
 
-        // POPULATION section
         var popHeader = MakeSectionTitle("POPULATION");
         scroll.Add(popHeader);
         _populationSection = MakeSectionBody();
         scroll.Add(_populationSection);
+    }
 
-        _panel.Add(scroll);
-        root.Add(_panel);
-
-        _panel.style.display = DisplayStyle.None;
+    private void AddStatusLabel(ScrollView scroll)
+    {
+        _statusLabel = new Label { name = "territory-status", text = "" };
+        _statusLabel.style.fontSize      = 11;
+        _statusLabel.style.color         = new StyleColor(new Color(0.55f, 0.55f, 0.55f));
+        _statusLabel.style.paddingLeft   = 12f;
+        _statusLabel.style.paddingRight  = 12f;
+        _statusLabel.style.paddingTop    = 12f;
+        _statusLabel.style.paddingBottom = 12f;
+        _statusLabel.style.whiteSpace    = WhiteSpace.Normal;
+        scroll.Add(_statusLabel);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -137,6 +159,7 @@ public class TerritoryPanelController : MonoBehaviour
         _stateSection.text      = "";
         _territorySection.text  = "";
         _populationSection.text = "";
+        if (_queueContainer != null) _queueContainer.Clear();
 
         StartCoroutine(FetchAndRender(stateId));
     }
@@ -173,6 +196,27 @@ public class TerritoryPanelController : MonoBehaviour
             _statusLabel.text = "";
             RenderState(dto);
         }
+
+        // Fetch construction queue for this state
+        string queueUrl = _gameHUDController.GetSimulationServerUrl().TrimEnd('/') +
+                          $"/game/corporations/{stateId}/construction-queue";
+        using (var reqQ = UnityWebRequest.Get(queueUrl))
+        {
+            reqQ.timeout = Mathf.Max(1, Mathf.CeilToInt(_gameHUDController.GetSimulationServerTimeout()));
+            yield return reqQ.SendWebRequest();
+
+            if (reqQ.result == UnityWebRequest.Result.Success)
+            {
+                try
+                {
+                    var wrapper = JsonUtility.FromJson<ConstrItemListDto>(
+                        "{\"items\":" + reqQ.downloadHandler.text + "}");
+                    RenderQueue(wrapper?.items);
+                }
+                catch { RenderQueue(null); }
+            }
+            else { RenderQueue(null); }
+        }
     }
 
     private void RenderState(StateDto dto)
@@ -205,6 +249,86 @@ public class TerritoryPanelController : MonoBehaviour
         string profile   = $"Profil : {(string.IsNullOrEmpty(dto.profileKey) ? "Inconnu" : dto.profileKey)}";
         string classDist = GetClassDistributionText(dto.profileKey);
         _populationSection.text = $"{literacy}\n{profile}\n{classDist}".TrimEnd('\n');
+    }
+
+    private void RenderQueue(ConstrItemDto[] items)
+    {
+        if (_queueContainer == null) return;
+        _queueContainer.Clear();
+
+        if (items == null || items.Length == 0)
+        {
+            var empty = new Label("Aucune construction en cours");
+            empty.style.fontSize  = 11;
+            empty.style.color     = new StyleColor(new Color(0.45f, 0.45f, 0.45f));
+            empty.style.paddingTop = 4f;
+            _queueContainer.Add(empty);
+            return;
+        }
+
+        foreach (var item in items)
+        {
+            if (item.status == 2) continue; // skip Done
+            _queueContainer.Add(BuildQueueItemRow(item));
+            bool inProgress = item.status == 1;
+            if (inProgress && item.totalCostPts > 0)
+            {
+                float pct = Mathf.Clamp01((float)item.pointsAccumulated / item.totalCostPts);
+                _queueContainer.Add(BuildQueueProgressBar(pct));
+            }
+        }
+    }
+
+    private static VisualElement BuildQueueItemRow(ConstrItemDto item)
+    {
+        var row = new VisualElement();
+        row.style.flexDirection  = FlexDirection.Row;
+        row.style.alignItems     = Align.Center;
+        row.style.paddingTop     = 3f;
+        row.style.paddingBottom  = 3f;
+
+        // Status badge
+        bool inProgress = item.status == 1;
+        var badge = new Label(inProgress ? "▶" : "·");
+        badge.style.fontSize   = 10;
+        badge.style.color      = new StyleColor(inProgress
+            ? new Color(1f, 0.65f, 0.1f)   // orange = en cours
+            : new Color(0.5f, 0.5f, 0.5f)); // gris = en attente
+        badge.style.width      = new StyleLength(14f);
+        badge.style.flexShrink = 0f;
+        row.Add(badge);
+
+        // Building name
+        var nameLabel = new Label(item.buildingType ?? "?");
+        nameLabel.style.fontSize  = 11;
+        nameLabel.style.color     = new StyleColor(new Color(0.9f, 0.9f, 0.9f));
+        nameLabel.style.flexGrow  = 1f;
+        row.Add(nameLabel);
+
+        // Tile short id
+        string shortTile = !string.IsNullOrEmpty(item.tileId) && item.tileId.Length > 7
+            ? item.tileId.Substring(0, 7) + "…"
+            : (item.tileId ?? "?");
+        var tileLabel = new Label(shortTile);
+        tileLabel.style.fontSize = 10;
+        tileLabel.style.color    = new StyleColor(new Color(0.4f, 0.4f, 0.55f));
+        row.Add(tileLabel);
+
+        return row;
+    }
+
+    private static VisualElement BuildQueueProgressBar(float pct)
+    {
+        var barBg = new VisualElement();
+        barBg.style.height          = new StyleLength(3f);
+        barBg.style.backgroundColor = new StyleColor(new Color(1f, 1f, 1f, 0.1f));
+        barBg.style.marginBottom    = new StyleLength(2f);
+        var barFill = new VisualElement();
+        barFill.style.height          = new StyleLength(3f);
+        barFill.style.backgroundColor = new StyleColor(new Color(1f, 0.65f, 0.1f));
+        barFill.style.width           = new StyleLength(new Length(pct * 100f, LengthUnit.Percent));
+        barBg.Add(barFill);
+        return barBg;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -273,5 +397,24 @@ public class TerritoryPanelController : MonoBehaviour
         public string   profileKey;
         public int      stateType;
         public string[] tileIds;
+    }
+
+    [System.Serializable]
+    private class ConstrItemDto
+    {
+        public string id;
+        public string tileId;
+        public string bodyId;
+        public string corpId;
+        public string buildingType;
+        public int    status;              // 0=Pending 1=InProgress 2=Done
+        public int    totalCostPts;
+        public int    pointsAccumulated;
+    }
+
+    [System.Serializable]
+    private class ConstrItemListDto
+    {
+        public ConstrItemDto[] items;
     }
 }

@@ -34,8 +34,14 @@ public class WaterSystem : IHexSystem
         float            ox = ctx.biomeOffset.x;
         float            oz = ctx.biomeOffset.y;
         MapRegion.CoherenceConstraint coherence = ctx.coherence;
+        ExecutePhaseA(cells, ctx, p, ox, oz, coherence);
+        ExecutePhaseB(cells, ctx, p, coherence);
+        ExecutePhaseC(cells, ctx, p, ctx.weather.prevailingWindDir.normalized, coherence);
+    }
 
-        // --- Phase A : ratio d'eau initial par hex ---
+    private void ExecutePhaseA(HexCell[] cells, GenerationContext ctx, MapGenParameters p,
+                               float ox, float oz, MapRegion.CoherenceConstraint coherence)
+    {
         foreach (HexCell cell in cells)
         {
             float bx = cell.center.x / p.biomeScale + ox;
@@ -61,9 +67,11 @@ public class WaterSystem : IHexSystem
             cell.state.waterRatio = Mathf.Clamp01(w);
             cell.state.rainShadow = false;
         }
+    }
 
-        // --- Phase B : ruissellement topographique (flux vers voisins bas) ---
-        // Deux passes pour propager l'accumulation sans ordre dépendant
+    private void ExecutePhaseB(HexCell[] cells, GenerationContext ctx, MapGenParameters p,
+                               MapRegion.CoherenceConstraint coherence)
+    {
         for (int pass = 0; pass < 2; pass++)
         {
             foreach (HexCell cell in cells)
@@ -73,60 +81,63 @@ public class WaterSystem : IHexSystem
                     ApplyBasinRetention(cell, ctx, p, coherence);
                     continue;
                 }
-
-                if (cell.state.hasDownstream &&
-                    ctx.cellLookup.TryGetValue((cell.state.downstreamQ, cell.state.downstreamR), out HexCell downstream))
-                {
-                    float retainedWater = ComputeRetainedWater(cell, p, coherence);
-                    float availableWater = Mathf.Max(0f, cell.state.waterRatio - retainedWater);
-                    float altDiff = cell.state.altitude - downstream.state.altitude;
-
-                    if (altDiff > 0f && availableWater > 0f)
-                    {
-                        float runoffMultiplier = ComputeRunoffMultiplier(coherence, p);
-                        float flow = altDiff * RunoffFactor * runoffMultiplier * availableWater;
-                        flow = Mathf.Min(flow, availableWater * 0.5f);
-
-                        cell.state.waterRatio -= flow;
-                        downstream.state.waterRatio += flow;
-                    }
-
-                    cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, p);
-                    continue;
-                }
-
-                HexCell[] neighbors = ctx.GetNeighbors(cell);
-                foreach (HexCell nb in neighbors)
-                {
-                    float altDiff = cell.state.altitude - nb.state.altitude;
-                    if (altDiff > 0f)
-                    {
-                        float runoffMultiplier = ComputeRunoffMultiplier(coherence, p);
-                        // Eau qui s'écoule du hex courant vers son voisin plus bas
-                        float flow = altDiff * RunoffFactor * runoffMultiplier * cell.state.waterRatio
-                                   * cell.state.soil.porosity; // infiltration réduit le flux
-                        flow = Mathf.Min(flow, cell.state.waterRatio * 0.3f); // cap
-
-                        cell.state.waterRatio -= flow;
-                        nb.state.waterRatio   += flow;
-                    }
-                }
-                cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, p);
+                ProcessCellRunoff(cell, ctx, p, coherence);
             }
         }
 
-        // --- Phase B suite : passe supplémentaire pour le chaînage bassin → bassin ---
-        // Quand un bassin déborde vers un voisin qui est lui-même un bassin,
-        // les 2 passes précédentes ne suffisent pas à propager complètement l'excédent.
         foreach (HexCell cell in cells)
         {
             if (cell.state.terrainClass == TerrainClass.Basin)
                 ApplyBasinRetention(cell, ctx, p, coherence);
         }
+    }
 
-        // --- Phase C : ombre pluviométrique ---
-        Vector2 windDir = ctx.weather.prevailingWindDir.normalized;
+    private static void ProcessCellRunoff(HexCell cell, GenerationContext ctx,
+                                          MapGenParameters p, MapRegion.CoherenceConstraint coherence)
+    {
+        if (cell.state.hasDownstream &&
+            ctx.cellLookup.TryGetValue((cell.state.downstreamQ, cell.state.downstreamR), out HexCell downstream))
+        {
+            float retainedWater = ComputeRetainedWater(cell, p, coherence);
+            float availableWater = Mathf.Max(0f, cell.state.waterRatio - retainedWater);
+            float altDiff = cell.state.altitude - downstream.state.altitude;
 
+            if (altDiff > 0f && availableWater > 0f)
+            {
+                float runoffMultiplier = ComputeRunoffMultiplier(coherence, p);
+                float flow = altDiff * RunoffFactor * runoffMultiplier * availableWater;
+                flow = Mathf.Min(flow, availableWater * 0.5f);
+
+                cell.state.waterRatio -= flow;
+                downstream.state.waterRatio += flow;
+            }
+
+            cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, p);
+            return;
+        }
+
+        HexCell[] neighbors = ctx.GetNeighbors(cell);
+        foreach (HexCell nb in neighbors)
+        {
+            float altDiff = cell.state.altitude - nb.state.altitude;
+            if (altDiff > 0f)
+            {
+                float runoffMultiplier = ComputeRunoffMultiplier(coherence, p);
+                // Eau qui s'écoule du hex courant vers son voisin plus bas
+                float flow = altDiff * RunoffFactor * runoffMultiplier * cell.state.waterRatio
+                           * cell.state.soil.porosity; // infiltration réduit le flux
+                flow = Mathf.Min(flow, cell.state.waterRatio * 0.3f); // cap
+
+                cell.state.waterRatio -= flow;
+                nb.state.waterRatio   += flow;
+            }
+        }
+        cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, p);
+    }
+
+    private static void ExecutePhaseC(HexCell[] cells, GenerationContext ctx, MapGenParameters p,
+                                      Vector2 windDir, MapRegion.CoherenceConstraint coherence)
+    {
         foreach (HexCell cell in cells)
         {
             HexCell[] neighbors = ctx.GetNeighbors(cell);
@@ -156,31 +167,8 @@ public class WaterSystem : IHexSystem
                                             MapGenParameters parameters,
                                             MapRegion.CoherenceConstraint coherence)
     {
-        float accumulationFactor = Mathf.InverseLerp(1f, 10f, cell.state.flowAccumulation);
-        float basinFloor = Mathf.Lerp(parameters.lakeWaterThreshold * 0.35f, parameters.basinCapacity, accumulationFactor);
-        float retentionMultiplier = ComputeRetentionMultiplier(coherence, parameters);
-        basinFloor *= retentionMultiplier;
-
-        if (coherence.isExtremeOcean)
-        {
-            basinFloor = Mathf.Max(basinFloor, parameters.basinCapacity);
-        }
-        else if (coherence.isExtremeArid)
-        {
-            basinFloor *= 0.2f;
-        }
-        else
-        {
-            float projectedFloor = Mathf.Lerp(parameters.lakeWaterThreshold * 0.1f,
-                                              parameters.basinCapacity,
-                                              Mathf.Clamp01(coherence.projectedWaterRatio));
-            float climateFloor = Mathf.Lerp(projectedFloor * 0.4f,
-                                            projectedFloor,
-                                            Mathf.Clamp01((coherence.oceanicity + coherence.frigidity * 0.5f) - coherence.deserticity * 0.35f));
-            basinFloor = Mathf.Max(basinFloor * 0.45f, climateFloor);
-        }
-
-        cell.state.waterRatio = Mathf.Max(cell.state.waterRatio, Mathf.Clamp01(basinFloor));
+        float basinFloor = ComputeBasinFloor(cell, parameters, coherence);
+        cell.state.waterRatio = Mathf.Max(cell.state.waterRatio, basinFloor);
 
         if (cell.state.hasOverflowOutlet &&
             cell.state.waterRatio > parameters.lakeWaterThreshold &&
@@ -205,6 +193,32 @@ public class WaterSystem : IHexSystem
         }
 
         cell.state.waterRatio = ApplyCoherencePostFlow(cell.state.waterRatio, coherence, parameters);
+    }
+
+    private static float ComputeBasinFloor(HexCell cell, MapGenParameters parameters,
+                                           MapRegion.CoherenceConstraint coherence)
+    {
+        float accumulationFactor = Mathf.InverseLerp(1f, 10f, cell.state.flowAccumulation);
+        float basinFloor = Mathf.Lerp(parameters.lakeWaterThreshold * 0.35f, parameters.basinCapacity, accumulationFactor);
+        float retentionMultiplier = ComputeRetentionMultiplier(coherence, parameters);
+        basinFloor *= retentionMultiplier;
+
+        if (coherence.isExtremeOcean)
+            basinFloor = Mathf.Max(basinFloor, parameters.basinCapacity);
+        else if (coherence.isExtremeArid)
+            basinFloor *= 0.2f;
+        else
+        {
+            float projectedFloor = Mathf.Lerp(parameters.lakeWaterThreshold * 0.1f,
+                                              parameters.basinCapacity,
+                                              Mathf.Clamp01(coherence.projectedWaterRatio));
+            float climateFloor = Mathf.Lerp(projectedFloor * 0.4f,
+                                            projectedFloor,
+                                            Mathf.Clamp01((coherence.oceanicity + coherence.frigidity * 0.5f) - coherence.deserticity * 0.35f));
+            basinFloor = Mathf.Max(basinFloor * 0.45f, climateFloor);
+        }
+
+        return Mathf.Clamp01(basinFloor);
     }
 
     private static float ComputeRetainedWater(HexCell cell,

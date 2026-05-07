@@ -705,12 +705,14 @@ MonoBehaviour:
   longitudeInput: {fileID: 0}
   projectionWaterLevelSlider: {fileID: 0}
   projectionWaterLevelLabel: {fileID: 0}
+  globeSeaLevelSlider: {fileID: 0}
+  globeSeaLevelLabel: {fileID: 0}
   waterDeltaSlider: {fileID: 0}
   waterDeltaLabel: {fileID: 0}
   temperatureDeltaSlider: {fileID: 0}
   temperatureDeltaLabel: {fileID: 0}
   toggleKey: 103
-  visibleOnStart: 0
+  visibleOnStart: 1
 --- !u!114 &96208772
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1810,7 +1812,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GoldbergAtmosphere
   atmosphereMaterial: {fileID: 2100000, guid: 1bad6d44c013ea840890d54dea72a92d, type: 2}
-  relativeScale: 1.18
+  relativeScale: 1
   overrideColor: 0
   atmosphereColorOverride: {r: 0.3, g: 0.6, b: 1, a: 1}
 --- !u!23 &267416036
@@ -4762,9 +4764,20 @@ MonoBehaviour:
   cameraController: {fileID: 0}
   terrainPalette: {fileID: 0}
   fetchServerTilesOnLoad: 1
+  useAdaptiveFetch: 1
   config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
   hoverTintColor: {r: 1, g: 1, b: 1, a: 0.35}
-  hoverTooltipDelay: 0.6
+  hoverTooltipDelay: 0.5
+  enableTopographicRelief: 1
+  topographicDisplacementScale: 1
+  enableWaterPrisms: 1
+  waterSphereMaterial: {fileID: 2100000, guid: 5304ee648951e964fb08925d8fe5d9f9, type: 2}
+  beachMaterial: {fileID: 2100000, guid: e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3, type: 2}
+  cliffMaterial: {fileID: 2100000, guid: f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4, type: 2}
+  lakeMaterial: {fileID: 2100000, guid: c7036f52c6ca23c41a9f8af544621ab5, type: 2}
+  rimBlendStrength: 0.4
+  rimBlendMaxDelta: 0.45
+  cliffThreshold: 0.15
   debugLodVerbose: 1
 --- !u!64 &905619745
 MeshCollider:
@@ -13120,6 +13133,7 @@ MonoBehaviour:
   terraformHUD: {fileID: 0}
   planetSphere: {fileID: 0}
   debugHydrologyPanel: {fileID: 0}
+  testLaunchMenu: {fileID: 0}
   config: {fileID: 11400000, guid: d092a3eaa7202394d854d3ee543b5b37, type: 2}
   tooltipTemplate: {fileID: 9197481963319205126, guid: c52235bc37cbbc04ca9ab87b01383764, type: 3}
   eventPopupTemplate: {fileID: 9197481963319205126, guid: d8b8b9abf23118e45bb52fe6a3a8fced, type: 3}
@@ -13137,6 +13151,7 @@ MonoBehaviour:
   debugDrawerController: {fileID: 0}
   bottomActionBarController: {fileID: 0}
   timeControlsController: {fileID: 0}
+  territoryPanelController: {fileID: 0}
 --- !u!114 &2089395119
 MonoBehaviour:
   m_ObjectHideFlags: 0
