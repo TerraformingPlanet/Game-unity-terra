@@ -100,7 +100,7 @@ public static class WireLoginPanel
         SetRef(so, "registerButton", FindChild<Button>         (panelGO, "RegisterButton"));
 
         var hide = new List<GameObject>();
-        foreach (var n in new[] { "TestLaunchMenu", "HUDController", "GameHUD" })
+        foreach (var n in new[] { "TestLaunchMenu", "HUDController", "GameHUDController" })
         {
             var go = FindIncludingInactive(n);
             if (go != null) hide.Add(go);
