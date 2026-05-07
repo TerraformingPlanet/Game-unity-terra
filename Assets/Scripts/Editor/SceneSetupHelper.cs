@@ -212,10 +212,9 @@ public static class SceneSetupHelper
         var camera = camGO.GetComponent<Camera>();
         if (camera != null)
         {
-            var so = SO(camera);
-            SetBool (so, "orthographic",     true);
-            SetFloat(so, "orthographicSize", 24f);
-            so.ApplyModifiedProperties();
+            camera.orthographic     = true;
+            camera.orthographicSize = 24f;
+            EditorUtility.SetDirty(camera);
         }
 
         camGO.transform.position = new Vector3(0f, 50f, 0f);
