@@ -37,6 +37,11 @@ public class OwnershipBorderRenderer : MonoBehaviour
             : new Material(Shader.Find("Hidden/Internal-Colored"));
 
         _mat.renderQueue = 3001; // au-dessus de la sphère opaque
+        // ZTest Always : les frontières s'affichent même si la surface de la sphère
+        // dépasse r=10.06 avec le relief topographique (altitude * displacementScale > 0.006).
+        // Sans ça, les lineRenderers à r=10.06 sont sous la géométrie des tuiles en altitude
+        // et échouent le test de profondeur → invisibles.
+        _mat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
     }
 
     private void OnDestroy()
