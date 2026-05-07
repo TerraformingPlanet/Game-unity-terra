@@ -30,6 +30,12 @@ public static partial class GoldbergFaceColorizer
             return result;
 
         // ── A. Edge map : arête canonique → (faceId1, faceId2, va, vb) ────────
+        // Les vertices sont normalisés (direction unitaire) avant stockage.
+        // Avec topographic relief, chaque tuile déplace ses boundaryVertices à son propre rayon.
+        // La même frontière géographique a donc des positions 3D différentes selon la tuile.
+        // En normalisant ici, on retire le composant d'altitude et on compare uniquement
+        // les directions — ce qui garantit que les arêtes partagées sont correctement
+        // reconnues et chaînées en boucles continues.
         var edgeMap = new Dictionary<EdgeKey, (int f1, int f2, Vector3 va, Vector3 vb)>(faces.Length * 7);
         for (int fi = 0; fi < faces.Length; fi++)
         {
@@ -38,8 +44,8 @@ public static partial class GoldbergFaceColorizer
             int n = bv.Length;
             for (int k = 0; k < n; k++)
             {
-                Vector3 va = bv[k];
-                Vector3 vb = bv[(k + 1) % n];
+                Vector3 va = bv[k].normalized;
+                Vector3 vb = bv[(k + 1) % n].normalized;
                 var key = new EdgeKey(va, vb);
                 if (edgeMap.TryGetValue(key, out var entry))
                     edgeMap[key] = (entry.f1, fi, entry.va, entry.vb);
@@ -109,15 +115,21 @@ public static partial class GoldbergFaceColorizer
     }
 
     // Clé canonique d'arête — struct value type évite l'allocation d'une string par arête.
-    // Positions arrondies à 3 décimales — rayon ≈ 10u → précision 0.001u suffisante.
+    // Les vecteurs sont normalisés avant quantification pour que deux sommets partagés
+    // soient reconnus même si leur altitude (relief topographique) est différente :
+    // avec relief, chaque tuile déplace ses boundaryVertices à son propre rayon, donc
+    // la même position géographique aurait des coordonnées 3D distinctes sans normalisation.
+    // Précision sur vecteur unitaire : 1/1000 rad ≈ 0.057° — amplement suffisant pour H3 res=2.
     private readonly struct EdgeKey : System.IEquatable<EdgeKey>
     {
         private readonly int _ax, _ay, _az, _bx, _by, _bz;
 
         public EdgeKey(Vector3 va, Vector3 vb)
         {
-            int ax = Mathf.RoundToInt(va.x * 1000), ay = Mathf.RoundToInt(va.y * 1000), az = Mathf.RoundToInt(va.z * 1000);
-            int bx = Mathf.RoundToInt(vb.x * 1000), by = Mathf.RoundToInt(vb.y * 1000), bz = Mathf.RoundToInt(vb.z * 1000);
+            Vector3 na = va.normalized;
+            Vector3 nb = vb.normalized;
+            int ax = Mathf.RoundToInt(na.x * 1000), ay = Mathf.RoundToInt(na.y * 1000), az = Mathf.RoundToInt(na.z * 1000);
+            int bx = Mathf.RoundToInt(nb.x * 1000), by = Mathf.RoundToInt(nb.y * 1000), bz = Mathf.RoundToInt(nb.z * 1000);
             if (ax > bx || (ax == bx && ay > by) || (ax == bx && ay == by && az > bz))
             { int t; t=ax;ax=bx;bx=t; t=ay;ay=by;by=t; t=az;az=bz;bz=t; }
             _ax=ax; _ay=ay; _az=az; _bx=bx; _by=by; _bz=bz;

@@ -75,9 +75,11 @@ public class OwnershipBorderRenderer : MonoBehaviour
             lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             lr.receiveShadows    = false;
 
-            // Rayon cible = rayon de la sphère × (1 + décalage radial).
-            // pts[0].magnitude ≈ rayon de la sphère (tous les vertices sont sur la surface).
-            float targetRadius = pts[0].magnitude * (1f + radialOffset);
+            // Rayon cible = rayon visuel de la sphère × (1 + décalage radial).
+            // On utilise GoldbergSphereGenerator.VisualRadius (constante) plutôt que pts[0].magnitude
+            // car les vertices de boucle sont des vecteurs normalisés (direction unitaire) depuis
+            // GoldbergFaceColorizerBoundary — la magnitude serait 1 au lieu de ~10.
+            float targetRadius = GoldbergSphereGenerator.VisualRadius * (1f + radialOffset);
 
             // Subdiviser chaque arête pour projeter la ligne sur la sphère (évite les cordes).
             // Vector3.Slerp entre deux directions unitaires interpole sur le grand cercle.
