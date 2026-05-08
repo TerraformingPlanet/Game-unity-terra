@@ -95,6 +95,15 @@ public class OwnershipBorderRenderer : MonoBehaviour
     {
         if (_loops.Count == 0 || _mat == null) return;
 
+        Camera cam = Camera.current;
+        if (cam == null) return;
+
+        // Direction caméra → centre sphère en espace local (pour le culling back-face).
+        // Un loop dont le centroïde est dos à la caméra (dot < threshold) est sur l'hémisphère
+        // caché → on le saute. Sans ce culling, ZTest=Always dessine aussi l'hémisphère arrière
+        // qui "survole" la planète de l'autre côté.
+        Vector3 camLocalPos = transform.InverseTransformPoint(cam.transform.position);
+
         _mat.SetPass(0);
         GL.PushMatrix();
         GL.MultMatrix(transform.localToWorldMatrix);
@@ -102,6 +111,16 @@ public class OwnershipBorderRenderer : MonoBehaviour
 
         foreach (var (pts, col) in _loops)
         {
+            // Centroïde approximatif = moyenne des 4 premiers points (suffisant pour culling).
+            int sampleCount = Mathf.Min(pts.Length, 4);
+            Vector3 centroid = Vector3.zero;
+            for (int k = 0; k < sampleCount; k++) centroid += pts[k];
+            centroid /= sampleCount;
+
+            // Dot entre direction centroïde et direction caméra (espace local).
+            // Si négatif → loop sur l'hémisphère arrière → skip.
+            if (Vector3.Dot(centroid, camLocalPos) < 0f) continue;
+
             GL.Color(col);
             int n = pts.Length;
             for (int i = 0; i < n; i++)
